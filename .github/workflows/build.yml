@@ -19,10 +19,9 @@ permissions:
   contents: read
 
 env:
-  # Zentral gepflegte Python-Version. 3.12 ist auf allen Runnern stabil
-  # verfügbar und deckt die im Projekt genutzten Sprachfeatures ab.
-  # Bei Bedarf hier anheben (z. B. auf die lokale Entwicklungsversion).
-  PYTHON_VERSION: "3.12"
+  # Der macOS-Build bleibt unabhängig vom explizit auf Python 3.14 x64
+  # festgelegten Windows-Build.
+  MACOS_PYTHON_VERSION: "3.12"
 
 jobs:
   # --------------------------------------------------------------------- #
@@ -39,7 +38,10 @@ jobs:
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          # Muss mit der Versions-/Architekturpruefung in build_windows.ps1
+          # uebereinstimmen.
+          python-version: "3.14"
+          architecture: x64
           cache: pip
           cache-dependency-path: |
             energyradar/requirements.txt
@@ -94,7 +96,7 @@ jobs:
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MACOS_PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
             energyradar/requirements.txt
