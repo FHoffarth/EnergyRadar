@@ -1,0 +1,119 @@
+name: Build
+
+# Baut EnergyRadar bei jedem Push auf main automatisch für Windows und macOS
+# und lädt die fertigen Programme als Artefakte hoch. Zusätzlich manuell
+# über den "Run workflow"-Knopf startbar. Keine Secrets nötig.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Laufende Builds für denselben Ref abbrechen, wenn neu gepusht wird –
+# spart Runner-Zeit und vermeidet veraltete Artefakte.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimale Rechte: der Workflow liest nur den Code, mehr braucht er nicht.
+permissions:
+  contents: read
+
+env:
+  # Zentral gepflegte Python-Version. 3.12 ist auf allen Runnern stabil
+  # verfügbar und deckt die im Projekt genutzten Sprachfeatures ab.
+  # Bei Bedarf hier anheben (z. B. auf die lokale Entwicklungsversion).
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # --------------------------------------------------------------------- #
+  # Windows: erzeugt dist/EnergyRadar/EnergyRadar.exe via build_windows.ps1
+  # --------------------------------------------------------------------- #
+  windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            energyradar/requirements.txt
+            requirements-build.txt
+
+      - name: pip aktualisieren
+        shell: pwsh
+        run: python -m pip install --upgrade pip
+
+      # Nutzt das vorhandene Build-Skript (Requirements + Icon + PyInstaller).
+      - name: Build (PyInstaller)
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          ./build_windows.ps1
+
+      - name: Build-Ergebnis prüfen
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/EnergyRadar/EnergyRadar.exe")) {
+            throw "Erwartete Datei dist/EnergyRadar/EnergyRadar.exe fehlt."
+          }
+
+      # Der gesamte Ordner ist lauffähig (EnergyRadar.exe + _internal/).
+      # upload-artifact packt den Inhalt automatisch in ein ZIP.
+      - name: Artefakt hochladen (EnergyRadar.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnergyRadar-windows
+          path: dist/EnergyRadar
+          if-no-files-found: error
+          retention-days: 30
+
+  # --------------------------------------------------------------------- #
+  # macOS: erzeugt dist/EnergyRadar.app via build_macos.sh
+  # --------------------------------------------------------------------- #
+  macos:
+    name: Build macOS (.app)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            energyradar/requirements.txt
+            requirements-build.txt
+
+      - name: pip aktualisieren
+        run: python3 -m pip install --upgrade pip
+
+      # Nutzt das vorhandene Build-Skript (Requirements + .icns + PyInstaller).
+      # sips und iconutil sind auf macOS-Runnern vorinstalliert.
+      - name: Build (PyInstaller)
+        run: bash build_macos.sh
+
+      - name: Build-Ergebnis prüfen
+        run: |
+          test -d "dist/EnergyRadar.app" || { echo "dist/EnergyRadar.app fehlt."; exit 1; }
+
+      # ditto erhält Bundle-Struktur und Ausführungsrechte (anders als ein
+      # normales zip). So bleibt die .app nach dem Download lauffähig.
+      - name: .app paketieren
+        run: ditto -c -k --keepParent "dist/EnergyRadar.app" "dist/EnergyRadar-macos.zip"
+
+      - name: Artefakt hochladen (EnergyRadar.app)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnergyRadar-macos
+          path: dist/EnergyRadar-macos.zip
+          if-no-files-found: error
+          retention-days: 30

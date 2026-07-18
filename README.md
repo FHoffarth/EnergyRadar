@@ -85,6 +85,18 @@ Ergebnis: `dist/EnergyRadar/EnergyRadar.exe` (Doppelklick).
 > **Kein Cross‑Compile:** Das `.app` lässt sich nur auf einem Mac bauen, die
 > `.exe` nur auf Windows – PyInstaller baut nie für ein fremdes Betriebssystem.
 
+### Automatischer Build (GitHub Actions)
+
+Bei jedem Push auf `main` baut [`.github/workflows/build.yml`](.github/workflows/build.yml)
+EnergyRadar parallel auf `windows-latest` und `macos-latest` (über die obigen
+Build‑Skripte) und lädt die Ergebnisse als Artefakte hoch:
+
+- **EnergyRadar-windows** – der lauffähige Ordner mit `EnergyRadar.exe`
+- **EnergyRadar-macos** – die gepackte `EnergyRadar.app`
+
+Herunterladbar im jeweiligen Workflow‑Lauf unter *Actions → Artifacts*. Keine
+Secrets nötig. Manuell startbar über *Run workflow*.
+
 ---
 
 ## Verhalten der gepackten App
