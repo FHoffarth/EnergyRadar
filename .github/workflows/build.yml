@@ -71,10 +71,12 @@ jobs:
       - name: Start-Smoke-Test (gepackte EXE)
         shell: pwsh
         run: |
-          # Browser + Explorer simulieren: Der ZIP-Download markiert extrahierte
-          # Dateien als Internetinhalt (ZoneId=3). Genau dieser Fall muss laufen.
+          # Browser + Explorer simulieren: Der ZIP-Download markiert die
+          # Runtime-Dateien als Internetinhalt (ZoneId=3). Die EXE selbst bleibt
+          # unmarkiert, weil ein nicht-interaktiver Runner den SmartScreen-Dialog
+          # nicht bestätigen kann. Der relevante .NET-Loader-Pfad bleibt markiert.
           $zone = "[ZoneTransfer]`r`nZoneId=3"
-          Get-ChildItem "dist/EnergyRadar" -Recurse -File | ForEach-Object {
+          Get-ChildItem "dist/EnergyRadar/_internal" -Recurse -File | ForEach-Object {
             Set-Content -LiteralPath $_.FullName -Stream Zone.Identifier -Value $zone
           }
 
