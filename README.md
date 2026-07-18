@@ -138,37 +138,40 @@ Im Entwicklungsmodus bleibt alles wie bisher im Projektordner.
 
 ---
 
-## Living Sky (atmosphärischer Hintergrund)
+## Living Sky (zustandsbasierte Atmosphäre)
 
-Hinter dem Dashboard liegt ein ruhiger Himmel-Hintergrund, der die Tages- und
-Wetterstimmung andeutet. Er liegt immer **hinter** den Inhalten; die Karten
-bleiben durch einen leichten Glaseffekt (Transparenz + Backdrop-Blur) dominant
-und gut lesbar.
+Hinter dem Workspace liegt eine rein CSS-basierte Himmelsebene. Sie verwendet
+keine Bilder, Videos, Wetterdaten oder dauerhafte JavaScript-Render-Schleife.
+Die Inhalte bleiben durch Scrim und Glaseffekt visuell dominant.
 
-- **Bilder:** lokal, WebP, unter `energyradar/static/assets/backgrounds/`.
-  Kein Download, kein externer Request.
-  ```
-  assets/backgrounds/
-      sunny/  partly_cloudy/  cloudy/  rain/  thunderstorm/  snow/  fog/
-          morning.webp  noon.webp  evening.webp
-      clear_night/  cloudy_night/
-          night.webp
-  ```
-- **BackgroundManager** (`static/background.js`): wählt über eine einfache
-  Mapping-Tabelle aus **Tageszeit** (lokale Uhr) und **Wetterzustand** das
-  passende Bild und blendet es per CSS-Opacity weich um (2,5 s Crossfade,
-  keine JS-Animation). Bilder werden nur bei Bedarf geladen (lazy).
-- **Platzhalter:** Die mitgelieferten Bilder sind bewusst schlichte
-  Farbverläufe. Sie lassen sich 1:1 durch die endgültigen Premium-Himmel
-  ersetzen – gleiche Ordner, gleiche Dateinamen. Neu erzeugen:
-  `python build/make_backgrounds.py`.
+- **Tageszeit und PV-Leistung:** Die zentrale Energy-State-Schicht liefert
+  fertige Sky-Tokens für Phase, Helligkeit, Sättigung und Glow.
+- **Living-Sky-Consumer:** `static/background.js` enthält keine Schwellenwerte
+  und interpretiert keine Rohdaten. Er wendet nur die State-Tokens an.
+- **Bewegung:** Zwei große Gradient-Layer driften ausschließlich über
+  compositor-freundliche Transforms mit 140 bzw. 180 Sekunden Laufzeit.
+- **Barrierefreiheit:** `prefers-reduced-motion` deaktiviert Drift und
+  Übergänge vollständig.
 
-> **Hinweis zur Wetterquelle:** EnergyRadar besitzt aktuell **keine
-> Wetterdaten** (nur Fronius-PV-Werte). Deshalb steuert heute die **Tageszeit**
-> den Himmel, der Wetterzustand hat den Standard `sunny`. Die Architektur ist
-> vollständig: Sobald eine Wetterquelle existiert, genügt
-> `window.energyRadarWeather = "rain"` (o. Ä.) – der Crossfade zum passenden
-> Bild passiert automatisch.
+EnergyRadar besitzt aktuell keine Wetter- oder Netzbezugsdaten. Niedrige
+PV-Leistung wird deshalb nicht als Netzbezug interpretiert; der zentrale State
+führt diese Information ausdrücklich als `unknown`.
+
+## Energy Intelligence Layer
+
+`static/energy-state.js` ist die einzige Präsentationsschicht zwischen
+Rohtelemetrie und UI. Sie publiziert unveränderliche Snapshots mit:
+
+- `phase`, `production`, `trend`, `connection` und `source`
+- einem faktenbasierten `assessment`
+- zentralen `appearance`-Tokens für Living Sky, Accent und Chart
+- einem zentralen `motion`-Profil einschließlich Reduced Motion
+
+`app.js` reicht API-Werte über `updateTelemetry(...)` hinein. Living Sky,
+Energy Presence, Verbindungsstatus, Farbakzente und Animationen abonnieren
+denselben State und enthalten keine eigenen Leistungsschwellen. Aussagen über
+Wetter, zukünftige Peaks, Batterien oder Geräte werden ohne entsprechende
+Datenquelle nicht erzeugt.
 
 ---
 
@@ -179,13 +182,12 @@ energyradar/
     desktop.py            ← nativer Wrapper (Start, Fenster, Shutdown)
     config.py             ← DATA_DIR: schreibbarer Ort, wenn gepackt
     static/
-        background.js     ← BackgroundManager (Living Sky)
-        assets/backgrounds/  ← lokale Himmel-Platzhalter (WebP)
+        energy-state.js   ← zentrale Präsentations- und Zustandslogik
+        background.js     ← Living-Sky-Consumer des Energy State
     app.py, collectors/, services/, models/, templates/   (Backend unverändert)
 EnergyRadar.spec          ← PyInstaller-Konfiguration (macOS + Windows)
 build_macos.sh            ← Build → dist/EnergyRadar.app
 build_windows.ps1         ← Build → dist/EnergyRadar/EnergyRadar.exe
 build/make_ico.py         ← erzeugt das Windows-Icon
-build/make_backgrounds.py ← erzeugt die Himmel-Platzhalter
 requirements-build.txt    ← Build-Werkzeuge
 ```

@@ -1,9 +1,85 @@
-// ---------- Zentrale Zahlenformatierung (deutsch) ----------
-// Eine einzige Quelle für Rundung und Darstellung. Erleichtert spätere i18n.
+// ---------- Sprache & zentrale Texte ----------
+
+// Deutsch und Englisch werden direkt aus der Systemsprache gewählt. Alle
+// anderen Sprachen fallen bewusst auf Englisch zurück, bis sie unterstützt sind.
+const LANGUAGE = (navigator.languages?.[0] || navigator.language || "en")
+  .toLowerCase()
+  .startsWith("de") ? "de" : "en";
+const LOCALE = LANGUAGE === "de" ? "de-DE" : "en-US";
+
+const messages = {
+  de: {
+    themeToggle: "Darstellung wechseln",
+    energyState: "Aktueller Energiezustand",
+    currentPower: "Aktuelle Leistung",
+    assessment: "Energy Presence",
+    today: "Heute",
+    peak: "Peak heute",
+    year: "Dieses Jahr",
+    lifetime: "Gesamt",
+    todayChart: "Heutiger Verlauf",
+    connecting: "⚪ Verbinde …",
+    live: "🟢 Live von Fronius",
+    demo: "🟠 Demo-Modus",
+    offline: "🔴 Offline",
+    updated: "Zuletzt aktualisiert",
+    connectionOffline: "Offline",
+    productionUnknown: "Produktionsstatus unbekannt",
+    productionNone: "Keine Solarproduktion",
+    productionLow: "Geringe Solarproduktion",
+    productionMedium: "Mittlere Solarproduktion",
+    productionHigh: "Hohe Solarproduktion",
+    trendRising: "Produktion steigt",
+    trendFalling: "Produktion fällt",
+    trendStable: "Produktion ist stabil",
+  },
+  en: {
+    themeToggle: "Switch appearance",
+    energyState: "Current energy status",
+    currentPower: "Current Power",
+    assessment: "Assessment",
+    today: "Today",
+    peak: "Today's Peak",
+    year: "This Year",
+    lifetime: "Lifetime",
+    todayChart: "Today's Production",
+    connecting: "⚪ Connecting …",
+    live: "🟢 Live from Fronius",
+    demo: "🟠 Demo Mode",
+    offline: "🔴 Offline",
+    updated: "Last updated",
+    connectionOffline: "Offline",
+    productionUnknown: "Production status unknown",
+    productionNone: "No solar production",
+    productionLow: "Low solar production",
+    productionMedium: "Medium solar production",
+    productionHigh: "High solar production",
+    trendRising: "Production is rising",
+    trendFalling: "Production is falling",
+    trendStable: "Production is stable",
+  },
+};
+
+function t(key) {
+  return messages[LANGUAGE][key];
+}
+
+function initLanguage() {
+  document.documentElement.lang = LANGUAGE;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    el.setAttribute("aria-label", t(el.dataset.i18nAria));
+  });
+}
+
+// ---------- Zentrale Zahlenformatierung ----------
+// Eine einzige Quelle für Rundung und Darstellung, passend zur Systemsprache.
 
 const nf = {
-  int: new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }),
-  dec2: new Intl.NumberFormat("de-DE", {
+  int: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 }),
+  dec2: new Intl.NumberFormat(LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }),
@@ -67,10 +143,15 @@ function initTheme() {
 // übergebene, zentrale Formatierungsfunktion.
 function animateNumber(el, target, format) {
   const start = parseFloat((el.dataset.v ?? "0")) || 0;
+  const duration = window.energyState.getSnapshot().motion.valueDurationMs;
+  if (duration === 0 || start === target) {
+    el.textContent = format.format(target);
+    el.dataset.v = target;
+    return;
+  }
   const t0 = performance.now();
-  const dur = 600;
   function step(t) {
-    const p = Math.min((t - t0) / dur, 1);
+    const p = Math.min((t - t0) / duration, 1);
     const eased = 1 - Math.pow(1 - p, 3);
     const v = start + (target - start) * eased;
     el.textContent = format.format(v);
@@ -94,137 +175,42 @@ function displayEnergy(el, kwh) {
   animateNumber(el, kwh, energyFormat(kwh));
 }
 
-// ---------- Assessment (regelbasiert, nur aus vorhandenen Messwerten) ----------
+// ---------- Energy State consumer ----------
 
-// Schwellen entsprechen der Backend-Einordnung, ergänzt um Trend-/Streuungsgrenzen.
-const P_GOOD = 500;        // W – ab hier "gute" Produktion
-const P_EXCELLENT = 1500;  // W – ab hier "exzellente" Produktion
-const P_ACTIVE = 10;       // W – darunter gilt als keine Produktion
-const RISE_FAST = 300;      // W Anstieg über ~10 Minuten = "schnell"
-const NEAR_PEAK_RATIO = 0.9;
-const NEAR_PEAK_MIN = 1000; // erst ab einem realen Tagesmaximum aussagekräftig
-const NEAR_PEAK_FLAT = 150; // "am Peak" nur bei flachem Verlauf, nicht im Anstieg
+function applyEnergyState(state) {
+  const root = document.documentElement;
+  root.dataset.production = state.production;
+  root.dataset.connection = state.connection;
+  root.dataset.motion = state.motion.mode;
+  root.style.setProperty("--energy-accent-dark", state.appearance.accentDark);
+  root.style.setProperty("--energy-accent-light", state.appearance.accentLight);
+  root.style.setProperty("--presence-enter-duration", state.motion.entranceDuration);
 
-// Leistungsänderung über die letzten ~span Messwerte (≈ Minuten).
-function recentChange(powers, span = 10) {
-  const n = powers.length;
-  if (n < 3) return 0;
-  const k = Math.min(span, n - 1);
-  return powers[n - 1] - powers[n - 1 - k];
-}
-
-// Variationskoeffizient der letzten Messwerte – Maß für Schwankung.
-function fluctuation(powers, window = 15) {
-  const n = powers.length;
-  if (n < 6) return 0;
-  const w = powers.slice(n - window);
-  const mean = w.reduce((a, b) => a + b, 0) / w.length;
-  if (mean < 300) return 0; // nahe Null nicht als Schwankung werten
-  const variance = w.reduce((a, b) => a + (b - mean) ** 2, 0) / w.length;
-  return Math.sqrt(variance) / mean;
-}
-
-// Leitet aus den vorhandenen Daten eine ruhige Einordnung und – optional – eine
-// kurze Handlungsempfehlung ab. Reihenfolge = Priorität.
-function assess(d) {
-  const power = d.power;
-  const powers = (d.history || []).map((h) => h.power);
-  const change = recentChange(powers);
-  const cov = fluctuation(powers);
-  const peak = d.peak_today || 0;
-  const now = new Date();
-  const hour = now.getHours() + now.getMinutes() / 60;
-  // "Nahe am Peak" meint ein Plateau auf hohem Niveau – nicht den Anstieg
-  // dorthin (solange die Produktion steigt, ist das Tagesmaximum == aktueller
-  // Wert und läge sonst fälschlich immer "am Peak").
-  const nearPeak =
-    peak >= NEAR_PEAK_MIN &&
-    power >= NEAR_PEAK_RATIO * peak &&
-    Math.abs(change) < NEAR_PEAK_FLAT;
-
-  // Keine Produktion
-  if (power <= P_ACTIVE) {
-    return { text: "🌙 No solar production", action: "" };
+  const powerEl = document.getElementById("power");
+  const unitEl = document.getElementById("power-unit");
+  if (Number.isFinite(state.powerWatts)) {
+    displayPower(powerEl, unitEl, state.powerWatts);
+  } else {
+    powerEl.textContent = "–";
+    powerEl.removeAttribute("data-v");
+    unitEl.textContent = "W";
   }
 
-  // Produktion beginnt (morgens, niedrig, nicht fallend)
-  if (power < P_GOOD && hour < 12 && change >= 0) {
-    return {
-      text: "🌅 Solar production has started",
-      action: "Peak generation may still be ahead.",
-    };
-  }
+  document.getElementById("recommendation").textContent =
+    t(state.assessment.headlineKey);
+  const detailEl = document.getElementById("action");
+  detailEl.textContent = state.assessment.detailKey
+    ? t(state.assessment.detailKey)
+    : "";
+  detailEl.hidden = !state.assessment.detailKey;
 
-  // Produktion klingt aus (abends, niedrig, fallend)
-  if (power < P_GOOD && hour >= 14 && change < 0) {
-    return {
-      text: "🌇 Solar production is winding down",
-      action: "Production is winding down for the day.",
-    };
-  }
+  const badge = document.getElementById("badge");
+  if (state.connection === "connecting") badge.textContent = t("connecting");
+  else if (state.connection === "offline") badge.textContent = t("offline");
+  else if (state.source === "demo") badge.textContent = t("demo");
+  else badge.textContent = t("live");
 
-  // Steigt schnell
-  if (change >= RISE_FAST && power > P_GOOD) {
-    return {
-      text: "☀️ Production is increasing quickly",
-      action: "Peak generation may still be ahead.",
-    };
-  }
-
-  // Nahe am Tagesmaximum (hoch und nicht mehr stark steigend)
-  if (nearPeak) {
-    return {
-      text: "🌞 Near today's production peak",
-      action: "Good time to run energy-intensive appliances.",
-    };
-  }
-
-  // Wechselhaft
-  if (cov >= 0.35) {
-    return {
-      text: "🌤 Solar production is fluctuating",
-      action: "Production is currently variable.",
-    };
-  }
-
-  // Exzellente Produktion
-  if (power > P_EXCELLENT) {
-    return {
-      text: "☀️ Excellent solar production",
-      action: "Good time to run energy-intensive appliances.",
-    };
-  }
-
-  // Gute Produktion
-  if (power > P_GOOD) {
-    return {
-      text: "🌤 Good solar production",
-      action: "Solar production is stable.",
-    };
-  }
-
-  // Eingeschränkte Produktion
-  return {
-    text: "🌥 Limited solar production",
-    action: "Production is currently limited.",
-  };
-}
-
-function renderAssessment(d) {
-  const { text, action } = assess(d);
-  document.getElementById("recommendation").textContent = text;
-  const actionEl = document.getElementById("action");
-  actionEl.textContent = action;
-  actionEl.hidden = !action;
-  document.getElementById("assessment-card").dataset.level = d.level;
-}
-
-function clearAssessment(message) {
-  document.getElementById("recommendation").textContent = message;
-  const actionEl = document.getElementById("action");
-  actionEl.textContent = "";
-  actionEl.hidden = true;
-  document.getElementById("assessment-card").dataset.level = "offline";
+  restyleChart();
 }
 
 // ---------- Tagesdiagramm ----------
@@ -244,10 +230,12 @@ function themeStyles() {
 
 function chartGradient() {
   const s = themeStyles();
-  const ctx = document.getElementById("chart").getContext("2d");
-  const gradient = ctx.createLinearGradient(0, 0, 0, 240);
-  gradient.addColorStop(0, `rgba(${s.fill}, 0.25)`);
-  gradient.addColorStop(1, `rgba(${s.fill}, 0)`);
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+  const height = canvas.parentElement.clientHeight || canvas.clientHeight || 240;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, `rgb(${s.fill} / 0.25)`);
+  gradient.addColorStop(1, `rgb(${s.fill} / 0)`);
   return gradient;
 }
 
@@ -331,6 +319,29 @@ function updateChart(history) {
   chart.update("none");
 }
 
+// Die Diagrammfläche folgt dem verfügbaren Workspace statt einer festen Höhe.
+// Bei Fensteränderungen wird auch der Verlauf an die neue Canvas-Höhe angepasst.
+let chartResizeFrame = 0;
+let chartWidth = 0;
+let chartHeight = 0;
+
+const chartResizeObserver = new ResizeObserver(([entry]) => {
+  if (!chart || !entry) return;
+  const width = Math.round(entry.contentRect.width);
+  const height = Math.round(entry.contentRect.height);
+  if (width === chartWidth && height === chartHeight) return;
+
+  chartWidth = width;
+  chartHeight = height;
+  cancelAnimationFrame(chartResizeFrame);
+  chartResizeFrame = requestAnimationFrame(() => {
+    chart.data.datasets[0].backgroundColor = chartGradient();
+    chart.update("none");
+  });
+});
+
+chartResizeObserver.observe(document.querySelector(".chart-wrap"));
+
 // ---------- Aktualisierung ----------
 
 async function update() {
@@ -339,11 +350,13 @@ async function update() {
     const d = await res.json();
     if (!d.ok) throw new Error("unreachable");
 
-    displayPower(
-      document.getElementById("power"),
-      document.getElementById("power-unit"),
-      d.power
-    );
+    window.energyState.updateTelemetry({
+      connection: "online",
+      source: d.source,
+      powerWatts: d.power,
+      history: d.history,
+      gridImport: d.grid_import,
+    });
 
     displayEnergy(document.getElementById("today"), d.today_kwh);
     displayEnergy(document.getElementById("year"), d.year_kwh);
@@ -355,36 +368,25 @@ async function update() {
         document.getElementById("peak-unit"),
         d.peak_today
       );
-      document.getElementById("peak-time").textContent = d.peak_time + " Uhr";
+      document.getElementById("peak-time").textContent =
+        LANGUAGE === "de" ? d.peak_time + " Uhr" : d.peak_time;
     }
 
     updateChart(d.history);
 
-    renderAssessment(d);
-    setBadge(d.source);
     document.getElementById("updated").textContent =
-      "Zuletzt aktualisiert " + new Date().toLocaleTimeString("de-DE");
+      t("updated") + " " + new Date().toLocaleTimeString(LOCALE);
   } catch {
-    setBadge("offline");
-    clearAssessment(
-      navigator.onLine
-        ? "Wechselrichter nicht erreichbar"
-        : "Keine Netzwerkverbindung"
-    );
+    window.energyState.updateTelemetry({ connection: "offline" });
   }
-}
-
-function setBadge(state) {
-  const badge = document.getElementById("badge");
-  if (state === "live")      badge.textContent = "🟢 Live from Fronius";
-  else if (state === "demo") badge.textContent = "🟠 Demo Mode";
-  else                       badge.textContent = "🔴 Offline";
 }
 
 // ---------- Start ----------
 
+initLanguage();
 initTheme();
 initChart();
+window.energyState.subscribe(applyEnergyState);
 restyleChart();
 update();
 setInterval(update, 5000);
