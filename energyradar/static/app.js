@@ -12,7 +12,7 @@ const messages = {
     themeToggle: "Darstellung wechseln",
     energyState: "Aktueller Energiezustand",
     currentPower: "Aktuelle Leistung",
-    assessment: "Einordnung",
+    assessment: "Energy Presence",
     today: "Heute",
     peak: "Peak heute",
     year: "Dieses Jahr",
@@ -23,23 +23,15 @@ const messages = {
     demo: "🟠 Demo-Modus",
     offline: "🔴 Offline",
     updated: "Zuletzt aktualisiert",
-    inverterUnavailable: "Wechselrichter nicht erreichbar",
-    networkUnavailable: "Keine Netzwerkverbindung",
-    noProduction: "🌙 Keine Solarproduktion",
-    productionStarted: "🌅 Solarproduktion hat begonnen",
-    windingDown: "🌇 Solarproduktion klingt aus",
-    increasingQuickly: "☀️ Produktion steigt schnell",
-    nearPeak: "🌞 Nahe am heutigen Produktionsmaximum",
-    fluctuating: "🌤 Solarproduktion schwankt",
-    excellent: "☀️ Hervorragende Solarproduktion",
-    good: "🌤 Gute Solarproduktion",
-    limited: "🌥 Eingeschränkte Solarproduktion",
-    peakAhead: "Die höchste Leistung liegt voraussichtlich noch vor dir.",
-    downForDay: "Die Produktion geht für heute zurück.",
-    appliances: "Guter Zeitpunkt für energieintensive Geräte.",
-    variable: "Die Produktion ist derzeit wechselhaft.",
-    stable: "Die Solarproduktion ist stabil.",
-    productionLimited: "Die Produktion ist derzeit begrenzt.",
+    connectionOffline: "Offline",
+    productionUnknown: "Produktionsstatus unbekannt",
+    productionNone: "Keine Solarproduktion",
+    productionLow: "Geringe Solarproduktion",
+    productionMedium: "Mittlere Solarproduktion",
+    productionHigh: "Hohe Solarproduktion",
+    trendRising: "Produktion steigt",
+    trendFalling: "Produktion fällt",
+    trendStable: "Produktion ist stabil",
   },
   en: {
     themeToggle: "Switch appearance",
@@ -56,23 +48,15 @@ const messages = {
     demo: "🟠 Demo Mode",
     offline: "🔴 Offline",
     updated: "Last updated",
-    inverterUnavailable: "Inverter unavailable",
-    networkUnavailable: "No network connection",
-    noProduction: "🌙 No solar production",
-    productionStarted: "🌅 Solar production has started",
-    windingDown: "🌇 Solar production is winding down",
-    increasingQuickly: "☀️ Production is increasing quickly",
-    nearPeak: "🌞 Near today's production peak",
-    fluctuating: "🌤 Solar production is fluctuating",
-    excellent: "☀️ Excellent solar production",
-    good: "🌤 Good solar production",
-    limited: "🌥 Limited solar production",
-    peakAhead: "Peak generation may still be ahead.",
-    downForDay: "Production is winding down for the day.",
-    appliances: "Good time to run energy-intensive appliances.",
-    variable: "Production is currently variable.",
-    stable: "Solar production is stable.",
-    productionLimited: "Production is currently limited.",
+    connectionOffline: "Offline",
+    productionUnknown: "Production status unknown",
+    productionNone: "No solar production",
+    productionLow: "Low solar production",
+    productionMedium: "Medium solar production",
+    productionHigh: "High solar production",
+    trendRising: "Production is rising",
+    trendFalling: "Production is falling",
+    trendStable: "Production is stable",
   },
 };
 
@@ -159,16 +143,15 @@ function initTheme() {
 // übergebene, zentrale Formatierungsfunktion.
 function animateNumber(el, target, format) {
   const start = parseFloat((el.dataset.v ?? "0")) || 0;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reducedMotion || start === target) {
+  const duration = window.energyState.getSnapshot().motion.valueDurationMs;
+  if (duration === 0 || start === target) {
     el.textContent = format.format(target);
     el.dataset.v = target;
     return;
   }
   const t0 = performance.now();
-  const dur = 520;
   function step(t) {
-    const p = Math.min((t - t0) / dur, 1);
+    const p = Math.min((t - t0) / duration, 1);
     const eased = 1 - Math.pow(1 - p, 3);
     const v = start + (target - start) * eased;
     el.textContent = format.format(v);
@@ -192,137 +175,42 @@ function displayEnergy(el, kwh) {
   animateNumber(el, kwh, energyFormat(kwh));
 }
 
-// ---------- Assessment (regelbasiert, nur aus vorhandenen Messwerten) ----------
+// ---------- Energy State consumer ----------
 
-// Schwellen entsprechen der Backend-Einordnung, ergänzt um Trend-/Streuungsgrenzen.
-const P_GOOD = 500;        // W – ab hier "gute" Produktion
-const P_EXCELLENT = 1500;  // W – ab hier "exzellente" Produktion
-const P_ACTIVE = 10;       // W – darunter gilt als keine Produktion
-const RISE_FAST = 300;      // W Anstieg über ~10 Minuten = "schnell"
-const NEAR_PEAK_RATIO = 0.9;
-const NEAR_PEAK_MIN = 1000; // erst ab einem realen Tagesmaximum aussagekräftig
-const NEAR_PEAK_FLAT = 150; // "am Peak" nur bei flachem Verlauf, nicht im Anstieg
+function applyEnergyState(state) {
+  const root = document.documentElement;
+  root.dataset.production = state.production;
+  root.dataset.connection = state.connection;
+  root.dataset.motion = state.motion.mode;
+  root.style.setProperty("--energy-accent-dark", state.appearance.accentDark);
+  root.style.setProperty("--energy-accent-light", state.appearance.accentLight);
+  root.style.setProperty("--presence-enter-duration", state.motion.entranceDuration);
 
-// Leistungsänderung über die letzten ~span Messwerte (≈ Minuten).
-function recentChange(powers, span = 10) {
-  const n = powers.length;
-  if (n < 3) return 0;
-  const k = Math.min(span, n - 1);
-  return powers[n - 1] - powers[n - 1 - k];
-}
-
-// Variationskoeffizient der letzten Messwerte – Maß für Schwankung.
-function fluctuation(powers, window = 15) {
-  const n = powers.length;
-  if (n < 6) return 0;
-  const w = powers.slice(n - window);
-  const mean = w.reduce((a, b) => a + b, 0) / w.length;
-  if (mean < 300) return 0; // nahe Null nicht als Schwankung werten
-  const variance = w.reduce((a, b) => a + (b - mean) ** 2, 0) / w.length;
-  return Math.sqrt(variance) / mean;
-}
-
-// Leitet aus den vorhandenen Daten eine ruhige Einordnung und – optional – eine
-// kurze Handlungsempfehlung ab. Reihenfolge = Priorität.
-function assess(d) {
-  const power = d.power;
-  const powers = (d.history || []).map((h) => h.power);
-  const change = recentChange(powers);
-  const cov = fluctuation(powers);
-  const peak = d.peak_today || 0;
-  const now = new Date();
-  const hour = now.getHours() + now.getMinutes() / 60;
-  // "Nahe am Peak" meint ein Plateau auf hohem Niveau – nicht den Anstieg
-  // dorthin (solange die Produktion steigt, ist das Tagesmaximum == aktueller
-  // Wert und läge sonst fälschlich immer "am Peak").
-  const nearPeak =
-    peak >= NEAR_PEAK_MIN &&
-    power >= NEAR_PEAK_RATIO * peak &&
-    Math.abs(change) < NEAR_PEAK_FLAT;
-
-  // Keine Produktion
-  if (power <= P_ACTIVE) {
-    return { text: t("noProduction"), action: "" };
+  const powerEl = document.getElementById("power");
+  const unitEl = document.getElementById("power-unit");
+  if (Number.isFinite(state.powerWatts)) {
+    displayPower(powerEl, unitEl, state.powerWatts);
+  } else {
+    powerEl.textContent = "–";
+    powerEl.removeAttribute("data-v");
+    unitEl.textContent = "W";
   }
 
-  // Produktion beginnt (morgens, niedrig, nicht fallend)
-  if (power < P_GOOD && hour < 12 && change >= 0) {
-    return {
-      text: t("productionStarted"),
-      action: t("peakAhead"),
-    };
-  }
+  document.getElementById("recommendation").textContent =
+    t(state.assessment.headlineKey);
+  const detailEl = document.getElementById("action");
+  detailEl.textContent = state.assessment.detailKey
+    ? t(state.assessment.detailKey)
+    : "";
+  detailEl.hidden = !state.assessment.detailKey;
 
-  // Produktion klingt aus (abends, niedrig, fallend)
-  if (power < P_GOOD && hour >= 14 && change < 0) {
-    return {
-      text: t("windingDown"),
-      action: t("downForDay"),
-    };
-  }
+  const badge = document.getElementById("badge");
+  if (state.connection === "connecting") badge.textContent = t("connecting");
+  else if (state.connection === "offline") badge.textContent = t("offline");
+  else if (state.source === "demo") badge.textContent = t("demo");
+  else badge.textContent = t("live");
 
-  // Steigt schnell
-  if (change >= RISE_FAST && power > P_GOOD) {
-    return {
-      text: t("increasingQuickly"),
-      action: t("peakAhead"),
-    };
-  }
-
-  // Nahe am Tagesmaximum (hoch und nicht mehr stark steigend)
-  if (nearPeak) {
-    return {
-      text: t("nearPeak"),
-      action: t("appliances"),
-    };
-  }
-
-  // Wechselhaft
-  if (cov >= 0.35) {
-    return {
-      text: t("fluctuating"),
-      action: t("variable"),
-    };
-  }
-
-  // Exzellente Produktion
-  if (power > P_EXCELLENT) {
-    return {
-      text: t("excellent"),
-      action: t("appliances"),
-    };
-  }
-
-  // Gute Produktion
-  if (power > P_GOOD) {
-    return {
-      text: t("good"),
-      action: t("stable"),
-    };
-  }
-
-  // Eingeschränkte Produktion
-  return {
-    text: t("limited"),
-    action: t("productionLimited"),
-  };
-}
-
-function renderAssessment(d) {
-  const { text, action } = assess(d);
-  document.getElementById("recommendation").textContent = text;
-  const actionEl = document.getElementById("action");
-  actionEl.textContent = action;
-  actionEl.hidden = !action;
-  document.getElementById("assessment-card").dataset.level = d.level;
-}
-
-function clearAssessment(message) {
-  document.getElementById("recommendation").textContent = message;
-  const actionEl = document.getElementById("action");
-  actionEl.textContent = "";
-  actionEl.hidden = true;
-  document.getElementById("assessment-card").dataset.level = "offline";
+  restyleChart();
 }
 
 // ---------- Tagesdiagramm ----------
@@ -346,8 +234,8 @@ function chartGradient() {
   const ctx = canvas.getContext("2d");
   const height = canvas.parentElement.clientHeight || canvas.clientHeight || 240;
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, `rgba(${s.fill}, 0.25)`);
-  gradient.addColorStop(1, `rgba(${s.fill}, 0)`);
+  gradient.addColorStop(0, `rgb(${s.fill} / 0.25)`);
+  gradient.addColorStop(1, `rgb(${s.fill} / 0)`);
   return gradient;
 }
 
@@ -462,16 +350,13 @@ async function update() {
     const d = await res.json();
     if (!d.ok) throw new Error("unreachable");
 
-    window.energyRadarSky?.update({
-      power: d.power,
-      gridImport: d.grid_import === true,
+    window.energyState.updateTelemetry({
+      connection: "online",
+      source: d.source,
+      powerWatts: d.power,
+      history: d.history,
+      gridImport: d.grid_import,
     });
-
-    displayPower(
-      document.getElementById("power"),
-      document.getElementById("power-unit"),
-      d.power
-    );
 
     displayEnergy(document.getElementById("today"), d.today_kwh);
     displayEnergy(document.getElementById("year"), d.year_kwh);
@@ -489,26 +374,11 @@ async function update() {
 
     updateChart(d.history);
 
-    renderAssessment(d);
-    setBadge(d.source);
     document.getElementById("updated").textContent =
       t("updated") + " " + new Date().toLocaleTimeString(LOCALE);
   } catch {
-    window.energyRadarSky?.update({ power: 0, disconnected: true });
-    setBadge("offline");
-    clearAssessment(
-      navigator.onLine
-        ? t("inverterUnavailable")
-        : t("networkUnavailable")
-    );
+    window.energyState.updateTelemetry({ connection: "offline" });
   }
-}
-
-function setBadge(state) {
-  const badge = document.getElementById("badge");
-  if (state === "live")      badge.textContent = t("live");
-  else if (state === "demo") badge.textContent = t("demo");
-  else                       badge.textContent = t("offline");
 }
 
 // ---------- Start ----------
@@ -516,6 +386,7 @@ function setBadge(state) {
 initLanguage();
 initTheme();
 initChart();
+window.energyState.subscribe(applyEnergyState);
 restyleChart();
 update();
 setInterval(update, 5000);

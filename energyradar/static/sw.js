@@ -1,12 +1,13 @@
 // Version bei jeder Änderung an den Shell-Dateien erhöhen, sonst liefert der
 // Service Worker (Cache-first) die alten Dateien weiter aus.
-const CACHE = "energyradar-v13";
+const CACHE = "energyradar-v15";
 
 const SHELL = [
   "/",
-  "/static/style.css?v=7",
-  "/static/app.js?v=6",
-  "/static/background.js?v=3",
+  "/static/style.css?v=9",
+  "/static/energy-state.js?v=2",
+  "/static/app.js?v=8",
+  "/static/background.js?v=4",
   "/static/vendor/chart.umd.js",
   "/static/offline.html",
   "/static/fonts/Inter-Regular.woff2",
