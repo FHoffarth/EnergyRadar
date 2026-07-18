@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -14,8 +14,10 @@
 <meta name="apple-mobile-web-app-title" content="EnergyRadar">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+<link rel="preload" href="/static/fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/Inter-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
 
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
 
@@ -32,17 +34,17 @@
     <p class="tagline">Understand your energy.</p>
   </div>
   <div class="header-controls">
-    <div class="badge" id="badge">⚪ Verbinde …</div>
-    <button class="theme-toggle" id="theme-toggle" aria-label="Design wechseln">🌙</button>
+    <div class="badge" id="badge" data-i18n="connecting">⚪ Connecting …</div>
+    <button class="theme-toggle" id="theme-toggle" data-i18n-aria="themeToggle" aria-label="Switch appearance">🌙</button>
   </div>
 </header>
 
 <main class="workspace">
 
-  <section class="energy-presence" aria-label="Aktueller Energiezustand">
+  <section class="energy-presence" data-i18n-aria="energyState" aria-label="Current energy status">
     <!-- Current Situation -->
     <div class="hero">
-      <div class="label">Current Power</div>
+      <div class="label" data-i18n="currentPower">Current Power</div>
       <div class="power">
         <span id="power">–</span><span class="unit" id="power-unit">W</span>
       </div>
@@ -50,8 +52,8 @@
 
     <!-- Assessment -->
     <div class="assessment" id="assessment-card">
-      <div class="label">Assessment</div>
-      <div class="recommendation" id="recommendation">Verbinde …</div>
+      <div class="label" data-i18n="assessment">Assessment</div>
+      <div class="recommendation" id="recommendation" data-i18n="connecting">⚪ Connecting …</div>
       <div class="action" id="action" hidden></div>
     </div>
   </section>
@@ -59,27 +61,27 @@
   <!-- Stats -->
   <section class="stats">
     <div class="stat">
-      <div class="label">Today</div>
+      <div class="label" data-i18n="today">Today</div>
       <div class="value"><span id="today">–</span> <span class="unit">kWh</span></div>
     </div>
     <div class="stat">
-      <div class="label">Höchste Leistung heute</div>
+      <div class="label" data-i18n="peak">Today's Peak</div>
       <div class="value"><span id="peak">–</span> <span class="unit" id="peak-unit">W</span></div>
       <div class="sub" id="peak-time"></div>
     </div>
     <div class="stat">
-      <div class="label">This Year</div>
+      <div class="label" data-i18n="year">This Year</div>
       <div class="value"><span id="year">–</span> <span class="unit">kWh</span></div>
     </div>
     <div class="stat">
-      <div class="label">Lifetime</div>
+      <div class="label" data-i18n="lifetime">Lifetime</div>
       <div class="value"><span id="total">–</span> <span class="unit">kWh</span></div>
     </div>
   </section>
 
   <!-- Tagesdiagramm -->
   <section class="chart-card">
-    <div class="label">Heutiger Verlauf</div>
+    <div class="label" data-i18n="todayChart">Today's Production</div>
     <div class="chart-wrap">
       <canvas id="chart"></canvas>
     </div>
@@ -89,12 +91,15 @@
 
 <footer>
   <span id="updated"></span>
-  <span class="copyright">© 2026 Florian Hoffarth</span>
+  <span class="footer-meta">
+    <span class="version">EnergyRadar v1.0</span>
+    <span class="copyright">© 2026 Florian Hoffarth</span>
+  </span>
 </footer>
 
 <script src="/static/vendor/chart.umd.js"></script>
 <script src="/static/background.js"></script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=5"></script>
 
 </body>
 </html>

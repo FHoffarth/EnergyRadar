@@ -1,3 +1,35 @@
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/Inter-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/Inter-Medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/Inter-SemiBold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/Inter-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* EnergyRadar – adaptive Desktop-Arbeitsfläche.
    Dunkel ist Standard, [data-theme="light"] überschreibt. */
 
@@ -57,7 +89,10 @@ body {
     max(0.6rem, env(safe-area-inset-bottom));
   background: transparent;
   color: var(--text);
-  font-family: "Fira Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   transition: color 0.25s ease;
 }
 
@@ -108,8 +143,8 @@ body {
 
 h1 {
   font-size: clamp(1.1rem, 1.6vw, 1.4rem);
-  font-weight: 650;
-  letter-spacing: 0.015em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -152,10 +187,16 @@ h1 {
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: background 0.25s ease, transform 0.2s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
-.theme-toggle:hover { transform: translateY(-1px); }
+.theme-toggle:hover {
+  background: var(--card-soft);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  transform: translateY(-1px);
+}
+
+.theme-toggle:active { transform: translateY(0) scale(0.96); }
 
 .theme-toggle:focus-visible {
   outline: 2px solid var(--accent);
@@ -178,7 +219,8 @@ h1 {
   box-shadow: var(--card-shadow);
   backdrop-filter: blur(var(--card-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  transition: background 0.25s ease;
+  animation: workspace-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: background 0.25s ease, border-color 0.25s ease;
 }
 
 .label {
@@ -188,6 +230,8 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.13em;
 }
+
+.hero .label { opacity: 0.76; }
 
 .energy-presence {
   display: grid;
@@ -212,7 +256,7 @@ h1 {
 .power {
   margin-top: 0.35rem;
   color: var(--accent);
-  font-size: clamp(3.25rem, 11vw, 5.8rem);
+  font-size: clamp(3.7rem, 12vw, 6.4rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.045em;
@@ -220,10 +264,10 @@ h1 {
 }
 
 .power .unit {
-  margin-left: 0.35rem;
+  margin-left: 0.42rem;
   color: var(--muted);
-  font-size: 0.27em;
-  font-weight: 450;
+  font-size: 0.24em;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -239,7 +283,7 @@ h1 {
 .recommendation {
   margin-top: 0.45rem;
   font-size: clamp(1rem, 1.8vw, 1.35rem);
-  font-weight: 550;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -261,21 +305,22 @@ h1 {
 .stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-block: 1px solid var(--divider);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--card-soft) 70%, transparent);
 }
 
 .stat {
   min-width: 0;
-  padding: clamp(0.7rem, 1.5vw, 1rem);
+  padding: clamp(0.78rem, 1.6vw, 1.08rem);
 }
 
 .stat:nth-child(even) { border-left: 1px solid var(--divider); }
 .stat:nth-child(n + 3) { border-top: 1px solid var(--divider); }
 
 .stat .value {
-  margin-top: 0.35rem;
+  margin-top: 0.42rem;
   font-size: clamp(1.15rem, 2vw, 1.55rem);
-  font-weight: 620;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -283,7 +328,7 @@ h1 {
 .stat .unit {
   color: var(--muted);
   font-size: 0.68rem;
-  font-weight: 450;
+  font-weight: 500;
 }
 
 .stat .sub {
@@ -295,6 +340,7 @@ h1 {
 
 /* The chart consumes the remaining workspace height. */
 .chart-card {
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -304,10 +350,18 @@ h1 {
 }
 
 .chart-wrap {
+  min-width: 0;
   flex: 1 1 auto;
   min-height: 10rem;
   margin-top: 0.55rem;
   position: relative;
+  overflow: hidden;
+}
+
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
 }
 
 footer {
@@ -317,11 +371,25 @@ footer {
   gap: 1rem;
   padding-inline: clamp(0.2rem, 0.8vw, 0.6rem);
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: 0.7rem;
+  font-weight: 400;
   letter-spacing: 0.015em;
 }
 
 .copyright { opacity: 0.78; }
+
+.footer-meta {
+  display: flex;
+  gap: 0.7rem;
+  white-space: nowrap;
+}
+
+.version { opacity: 0.56; }
+
+@keyframes workspace-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* Compact: phones and narrow desktop windows. */
 @media (max-width: 39.99rem) {
@@ -361,7 +429,7 @@ footer {
     grid-template-columns: minmax(18rem, 0.75fr) minmax(28rem, 1.25fr);
   }
 
-  .power { font-size: clamp(4.4rem, 6.5vw, 6.5rem); }
+  .power { font-size: clamp(4.8rem, 7vw, 7.1rem); }
 }
 
 /* Large Desktop: cap line lengths and let the chart gain the extra space. */
@@ -375,7 +443,7 @@ footer {
 }
 
 /* Short windows stay usable and scroll only when the content truly cannot fit. */
-@media (max-height: 43.74rem) {
+@media (max-height: 44rem) {
   body { gap: 0.5rem; padding-block: 0.5rem; }
   .workspace { grid-template-rows: auto auto minmax(9rem, 1fr); gap: 0.6rem; }
   .hero, .assessment { padding-block: 0.65rem; }
@@ -384,6 +452,6 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body, .workspace, .theme-toggle { transition: none; }
+  body, .workspace, .theme-toggle { animation: none; transition: none; }
   .sky__layer { transition: none; }
 }
