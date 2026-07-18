@@ -1,3 +1,8 @@
-flask
-requests
-pywebview
+flask==3.1.3
+requests==2.34.2
+pywebview==6.2.1
+
+# Auf Windows bildet pywebview sein WinForms/WebView2-Backend ueber pythonnet
+# ab. Diese beiden Pins gehoeren zur getesteten Python-3.14-Packaging-Kette.
+pythonnet==3.1.0
+clr_loader==0.3.1
