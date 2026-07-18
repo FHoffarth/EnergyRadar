@@ -88,11 +88,18 @@ Ergebnis: `dist/EnergyRadar/EnergyRadar.exe` (Doppelklick).
 ### Automatischer Build (GitHub Actions)
 
 Bei jedem Push auf `main` baut [`.github/workflows/build.yml`](.github/workflows/build.yml)
-EnergyRadar parallel auf `windows-latest` und `macos-latest` (über die obigen
+EnergyRadar parallel auf `windows-latest` und `macos-13` (über die obigen
 Build‑Skripte) und lädt die Ergebnisse als Artefakte hoch:
 
 - **EnergyRadar-windows** – der lauffähige Ordner mit `EnergyRadar.exe`
-- **EnergyRadar-macos** – die gepackte `EnergyRadar.app`
+- **EnergyRadar-macos** – die gepackte `EnergyRadar.app` (x86_64; läuft nativ
+  auf Intel-Macs und per Rosetta 2 auf Apple Silicon)
+
+> **Warum `macos-13`?** PyInstaller baut immer für die Architektur des Runners.
+> `macos-latest` ist Apple Silicon (arm64) und erzeugt eine App, die auf
+> Intel-Macs nicht startet. Der Intel-Runner `macos-13` erzeugt eine x86_64-App,
+> die auf beiden Architekturen läuft. Der Build-Log enthält einen Diagnose-Schritt
+> (`file`, `lipo`, `otool`, `codesign`, `spctl`, `plutil`) zur Kontrolle.
 
 Herunterladbar im jeweiligen Workflow‑Lauf unter *Actions → Artifacts*. Keine
 Secrets nötig. Manuell startbar über *Run workflow*.

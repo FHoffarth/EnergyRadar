@@ -75,10 +75,17 @@ jobs:
 
   # --------------------------------------------------------------------- #
   # macOS: erzeugt dist/EnergyRadar.app via build_macos.sh
+  #
+  # WICHTIG – Architektur: PyInstaller cross-compiliert nicht, sondern baut für
+  # die Architektur des Runners. 'macos-latest' ist inzwischen Apple Silicon
+  # (arm64) und erzeugt daher eine reine arm64-App, die auf Intel-Macs NICHT
+  # startet ("Dieses Programm wird auf dem Mac nicht unterstützt").
+  # Der Intel-Runner 'macos-13' (x86_64) erzeugt eine x86_64-App, die nativ auf
+  # Intel-Macs UND per Rosetta 2 auf Apple Silicon läuft.
   # --------------------------------------------------------------------- #
   macos:
-    name: Build macOS (.app)
-    runs-on: macos-latest
+    name: Build macOS (Intel .app)
+    runs-on: macos-13   # Intel/x86_64-Runner – bewusst NICHT macos-latest (arm64)
     timeout-minutes: 30
     steps:
       - name: Code auschecken
@@ -104,6 +111,23 @@ jobs:
       - name: Build-Ergebnis prüfen
         run: |
           test -d "dist/EnergyRadar.app" || { echo "dist/EnergyRadar.app fehlt."; exit 1; }
+
+      # Diagnose: macht Architektur (x86_64/arm64) und Bundle-Eigenschaften im
+      # Log sichtbar. Rein informativ – schlägt nie fehl (eine unsignierte App
+      # lässt codesign/spctl mit non-zero enden, das ist hier erwartet).
+      - name: Diagnose (Architektur & Bundle)
+        run: |
+          set +e
+          APP="dist/EnergyRadar.app"
+          BIN="$APP/Contents/MacOS/EnergyRadar"
+          echo "== file (Dateityp/Architektur) =="       ; file "$BIN"
+          echo "== lipo -archs (enthaltene Architekturen) ==" ; lipo -archs "$BIN"
+          echo "== otool -hv (Mach-O Header) =="          ; otool -hv "$BIN"
+          echo "== otool -L (verlinkte Libraries) =="     ; otool -L "$BIN" | head -n 20
+          echo "== Info.plist =="                         ; plutil -p "$APP/Contents/Info.plist"
+          echo "== codesign (Signaturstatus) =="          ; codesign -dvvv "$APP" 2>&1
+          echo "== spctl (Gatekeeper-Bewertung) =="       ; spctl -a -t exec -vvv "$APP" 2>&1
+          exit 0
 
       # ditto erhält Bundle-Struktur und Ausführungsrechte (anders als ein
       # normales zip). So bleibt die .app nach dem Download lauffähig.
