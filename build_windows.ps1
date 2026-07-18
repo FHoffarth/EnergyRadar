@@ -37,6 +37,7 @@ if ($LASTEXITCODE -ne 0) {
 # erwarteten Verzeichnisstruktur liegen. So scheitert der Build frueh statt
 # erst beim Doppelklick auf eine unvollstaendige EXE.
 $requiredBundleFiles = @(
+    "dist/EnergyRadar/_internal/python3.dll",
     "dist/EnergyRadar/_internal/pythonnet/runtime/Python.Runtime.dll",
     "dist/EnergyRadar/_internal/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
     "dist/EnergyRadar/_internal/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
