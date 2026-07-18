@@ -75,6 +75,7 @@ jobs:
         run: |
           $process = Start-Process -FilePath "dist/EnergyRadar/EnergyRadar.exe" -PassThru
           $deadline = (Get-Date).AddSeconds(30)
+          $stableAfter = (Get-Date).AddSeconds(15)
           $started = $false
 
           try {
@@ -90,8 +91,8 @@ jobs:
                 throw "PyInstaller meldet beim Start eine unbehandelte Ausnahme."
               }
 
-              if ($process.MainWindowTitle -eq "EnergyRadar") {
-                Write-Host "Start erfolgreich: EnergyRadar-Fenster ist sichtbar."
+              if ((Get-Date) -ge $stableAfter -and $process.MainWindowTitle -eq "EnergyRadar") {
+                Write-Host "Start erfolgreich: EnergyRadar-Fenster ist seit 15 Sekunden stabil."
                 $started = $true
                 break
               }
