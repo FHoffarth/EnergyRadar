@@ -17,14 +17,15 @@
 <link rel="preload" href="/static/fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/Inter-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
 
-<link rel="stylesheet" href="/static/style.css?v=5">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 
-<!-- Living Sky: atmosphärischer Hintergrund, liegt hinter allen Inhalten -->
-<div class="sky" aria-hidden="true">
-  <img class="sky__layer" id="sky-a" alt="" decoding="async">
-  <img class="sky__layer" id="sky-b" alt="" decoding="async">
+<!-- Living Sky: zustandsbasierte CSS-Atmosphäre hinter allen Inhalten -->
+<div class="sky" id="living-sky" aria-hidden="true">
+  <div class="sky__atmosphere"></div>
+  <div class="sky__glow"></div>
+  <div class="sky__stars"></div>
   <div class="sky__scrim"></div>
 </div>
 
@@ -98,8 +99,8 @@
 </footer>
 
 <script src="/static/vendor/chart.umd.js"></script>
-<script src="/static/background.js"></script>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/background.js?v=3"></script>
+<script src="/static/app.js?v=6"></script>
 
 </body>
 </html>

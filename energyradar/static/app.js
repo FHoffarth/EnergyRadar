@@ -462,6 +462,11 @@ async function update() {
     const d = await res.json();
     if (!d.ok) throw new Error("unreachable");
 
+    window.energyRadarSky?.update({
+      power: d.power,
+      gridImport: d.grid_import === true,
+    });
+
     displayPower(
       document.getElementById("power"),
       document.getElementById("power-unit"),
@@ -489,6 +494,7 @@ async function update() {
     document.getElementById("updated").textContent =
       t("updated") + " " + new Date().toLocaleTimeString(LOCALE);
   } catch {
+    window.energyRadarSky?.update({ power: 0, disconnected: true });
     setBadge("offline");
     clearAssessment(
       navigator.onLine
