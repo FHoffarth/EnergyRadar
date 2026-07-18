@@ -88,7 +88,11 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,          # kein Konsolenfenster – rein grafische App
-    disable_windowed_traceback=True,
+    # PyInstaller's opt-out flag breaks Python.Runtime.Loader resolution in
+    # Windows builds produced by actions/setup-python 3.14. Keep the standard
+    # windowed traceback handler enabled; it is dormant during normal startup
+    # and preserves actionable diagnostics if startup ever fails again.
+    disable_windowed_traceback=False,
     icon=icon,
 )
 
