@@ -11,8 +11,6 @@ Build:  pyinstaller EnergyRadar.spec        (siehe README / Build-Skripte)
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
-
 APP_NAME = "EnergyRadar"
 PKG = Path("energyradar")
 
@@ -23,7 +21,13 @@ datas = [
     (str(PKG / "templates"), "templates"),
     (str(PKG / "static"), "static"),
 ]
-datas += collect_data_files("webview")  # pywebview-Frontend-Ressourcen
+
+# pywebview 6.x liefert einen eigenen PyInstaller-Hook. Dieser sammelt unter
+# Windows webview/lib (inkl. WebView2Loader.dll) und auf allen Plattformen die
+# JavaScript-Ressourcen. pythonnet und clr_loader liefern ebenfalls Hooks fuer
+# Python.Runtime.dll bzw. ClrLoader.dll. Eine zweite, manuelle Vollsammlung von
+# webview wuerde plattformfremde Backends einziehen und die Hook-Ergebnisse
+# duplizieren.
 
 # Module, die dynamisch (in Funktionen) importiert werden.
 hiddenimports = [
@@ -32,7 +36,6 @@ hiddenimports = [
     "services.decision", "services.storage",
     "models.energy",
 ]
-hiddenimports += collect_submodules("webview")
 
 # --- Plattform-Icon -------------------------------------------------------- #
 if sys.platform == "darwin":
