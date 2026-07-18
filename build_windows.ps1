@@ -33,10 +33,20 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller ist mit Exitcode $LASTEXITCODE fehlgeschlagen."
 }
 
+# Browser-Downloads erhalten unter Windows Mark-of-the-Web. Explorer vererbt
+# diese Internetzone beim Entpacken an die .NET-Assemblies im Bundle. Die
+# Runtime-Konfiguration erlaubt dem lokalen, vertrauenswürdigen Desktop-Bundle,
+# diese Assemblies über Assembly.LoadFrom zu laden.
+Copy-Item `
+    -LiteralPath "packaging/windows/EnergyRadar.exe.config" `
+    -Destination "dist/EnergyRadar/EnergyRadar.exe.config" `
+    -Force
+
 # Die drei projektexternen Loader-Bausteine muessen in ihrer von den Hooks
 # erwarteten Verzeichnisstruktur liegen. So scheitert der Build frueh statt
 # erst beim Doppelklick auf eine unvollstaendige EXE.
 $requiredBundleFiles = @(
+    "dist/EnergyRadar/EnergyRadar.exe.config",
     "dist/EnergyRadar/_internal/python3.dll",
     "dist/EnergyRadar/_internal/pythonnet/runtime/Python.Runtime.dll",
     "dist/EnergyRadar/_internal/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
