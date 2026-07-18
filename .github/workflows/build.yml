@@ -66,6 +66,48 @@ jobs:
             throw "Erwartete Datei dist/EnergyRadar/EnergyRadar.exe fehlt."
           }
 
+      # Eine reine Dateiprüfung erkennt keine Loader-Fehler. Dieser Test startet
+      # exakt das spätere Release-Bundle und wartet auf ein echtes App-Fenster.
+      - name: Start-Smoke-Test (gepackte EXE)
+        shell: pwsh
+        env:
+          ENERGYRADAR_DEMO: "1"
+        run: |
+          $process = Start-Process -FilePath "dist/EnergyRadar/EnergyRadar.exe" -PassThru
+          $deadline = (Get-Date).AddSeconds(30)
+          $started = $false
+
+          try {
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+
+              if ($process.HasExited) {
+                throw "EnergyRadar wurde beim Start mit Exitcode $($process.ExitCode) beendet."
+              }
+
+              if ($process.MainWindowTitle -like "*Unhandled exception*") {
+                throw "PyInstaller meldet beim Start eine unbehandelte Ausnahme."
+              }
+
+              if ($process.MainWindowTitle -eq "EnergyRadar") {
+                Write-Host "Start erfolgreich: EnergyRadar-Fenster ist sichtbar."
+                $started = $true
+                break
+              }
+            }
+
+            if (-not $started) {
+              throw "Innerhalb von 30 Sekunden erschien kein EnergyRadar-Fenster."
+            }
+          }
+          finally {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
       # Der gesamte Ordner ist lauffähig (EnergyRadar.exe + _internal/).
       # upload-artifact packt den Inhalt automatisch in ein ZIP.
       - name: Artefakt hochladen (EnergyRadar.exe)

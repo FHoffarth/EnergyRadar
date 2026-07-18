@@ -37,6 +37,21 @@ hiddenimports = [
     "models.energy",
 ]
 
+binaries = []
+
+# pythonnet 3.1 targets CPython's stable ABI on Windows. Stable-ABI consumers
+# resolve their symbols through python3.dll, which forwards them to the active
+# version-specific runtime (here python314.dll). PyInstaller normally discovers
+# this DLL through binary dependency analysis, but the Python distribution used
+# by actions/setup-python does not cause it to be collected automatically.
+if sys.platform == "win32":
+    python_stable_abi = Path(sys.base_prefix) / "python3.dll"
+    if not python_stable_abi.is_file():
+        raise FileNotFoundError(
+            f"CPython stable ABI DLL fehlt: {python_stable_abi}"
+        )
+    binaries.append((str(python_stable_abi), "."))
+
 # --- Plattform-Icon -------------------------------------------------------- #
 if sys.platform == "darwin":
     icon = "build/EnergyRadar.icns"
@@ -50,7 +65,7 @@ block_cipher = None
 a = Analysis(
     [str(PKG / "desktop.py")],
     pathex=[str(PKG)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
