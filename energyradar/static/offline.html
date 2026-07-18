@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EnergyRadar – Offline</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: #07111E;
+    color: #FFFFFF;
+    font-family: "Fira Sans", system-ui, -apple-system, sans-serif;
+    text-align: center;
+    padding: 24px;
+  }
+  h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
+  p { color: #7A8DA0; margin: 0; max-width: 320px; line-height: 1.5; }
+  button {
+    margin-top: 16px;
+    background: #FFD54A;
+    color: #07111E;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 24px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #F2F5F8; color: #0B1B2B; }
+    p { color: #5C6B7A; }
+  }
+</style>
+</head>
+<body>
+  <div style="font-size:3rem">🌙</div>
+  <h1>Du bist offline</h1>
+  <p>EnergyRadar braucht eine Verbindung zu deinem Heimnetz, um Live-Daten vom Wechselrichter zu laden.</p>
+  <button onclick="location.reload()">Erneut versuchen</button>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Build-Ausgaben
+/dist/
+/build/pyi/
+/build/EnergyRadar/
+/build/EnergyRadar.iconset/
+/build/EnergyRadar.icns
+
+# Lokale Laufzeitdaten (Entwicklung)
+/energyradar/database/
+/energyradar/window.json
+*.log

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>EnergyRadar</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" id="meta-theme" content="#07111E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EnergyRadar">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Living Sky: atmosphärischer Hintergrund, liegt hinter allen Inhalten -->
+<div class="sky" aria-hidden="true">
+  <img class="sky__layer" id="sky-a" alt="" decoding="async">
+  <img class="sky__layer" id="sky-b" alt="" decoding="async">
+  <div class="sky__scrim"></div>
+</div>
+
+<button class="theme-toggle" id="theme-toggle" aria-label="Design wechseln">🌙</button>
+
+<header>
+  <h1>☀️ EnergyRadar</h1>
+  <p class="tagline">Understand your energy.</p>
+  <div class="badge" id="badge">⚪ Verbinde …</div>
+</header>
+
+<main>
+
+  <!-- Current Situation -->
+  <section class="card hero">
+    <div class="label">Current Power</div>
+    <div class="power">
+      <span id="power">–</span><span class="unit" id="power-unit">W</span>
+    </div>
+  </section>
+
+  <!-- Assessment -->
+  <section class="card assessment" id="assessment-card">
+    <div class="label">Assessment</div>
+    <div class="recommendation" id="recommendation">Verbinde …</div>
+    <div class="action" id="action" hidden></div>
+  </section>
+
+  <!-- Stats -->
+  <section class="stats">
+    <div class="card stat">
+      <div class="label">Today</div>
+      <div class="value"><span id="today">–</span> <span class="unit">kWh</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Höchste Leistung heute</div>
+      <div class="value"><span id="peak">–</span> <span class="unit" id="peak-unit">W</span></div>
+      <div class="sub" id="peak-time"></div>
+    </div>
+    <div class="card stat">
+      <div class="label">This Year</div>
+      <div class="value"><span id="year">–</span> <span class="unit">kWh</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Lifetime</div>
+      <div class="value"><span id="total">–</span> <span class="unit">kWh</span></div>
+    </div>
+  </section>
+
+  <!-- Tagesdiagramm -->
+  <section class="card chart-card">
+    <div class="label">Heutiger Verlauf</div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span id="updated"></span>
+</footer>
+
+<script src="/static/vendor/chart.umd.js"></script>
+<script src="/static/background.js"></script>
+<script src="/static/app.js"></script>
+
+</body>
+</html>

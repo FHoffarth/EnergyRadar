@@ -1,0 +1,3 @@
+# Nur zum Bauen der Desktop-App nötig (nicht zur Laufzeit).
+pyinstaller
+pillow

@@ -1,0 +1,238 @@
+/* EnergyRadar – Themes über CSS-Variablen.
+   Dunkel ist Standard, [data-theme="light"] überschreibt.
+   app.js setzt data-theme (System-Erkennung oder manuelle Wahl). */
+
+:root {
+  --bg: #07111E;
+  --card: rgba(15, 30, 44, 0.66);
+  --card-border: rgba(255, 255, 255, 0.07);
+  --card-blur: 20px;
+  --text: #FFFFFF;
+  --muted: #7A8DA0;
+  --accent: #FFD54A;
+  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --chart-line: #FFD54A;
+  --chart-fill: 255, 213, 74;
+  --chart-grid: rgba(122, 141, 160, 0.12);
+  --tooltip-bg: #0F1E2C;
+  --scrim-top: rgba(7, 17, 30, 0.26);
+  --scrim-bottom: rgba(7, 17, 30, 0.55);
+}
+
+[data-theme="light"] {
+  --bg: #F2F5F8;
+  --card: rgba(255, 255, 255, 0.64);
+  --card-border: rgba(11, 27, 43, 0.06);
+  --card-blur: 20px;
+  --text: #0B1B2B;
+  --muted: #5C6B7A;
+  --accent: #E8A200;
+  --card-shadow: 0 8px 24px rgba(11, 27, 43, 0.12);
+  --chart-line: #E8A200;
+  --chart-fill: 232, 162, 0;
+  --chart-grid: rgba(92, 107, 122, 0.16);
+  --tooltip-bg: #0B1B2B;
+  --scrim-top: rgba(242, 245, 248, 0.18);
+  --scrim-bottom: rgba(242, 245, 248, 0.42);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: var(--bg); }
+
+body {
+  background: transparent; /* der Living-Sky-Hintergrund liegt dahinter */
+  color: var(--text);
+  font-family: "Fira Sans", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(40px + env(safe-area-inset-top)) 20px 40px;
+  transition: color 0.25s ease;
+}
+
+/* ---------- Living Sky (atmosphärischer Hintergrund) ---------- */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;               /* immer hinter allen Inhalten */
+  overflow: hidden;
+  background: var(--bg);     /* ruhige Basisfarbe, falls ein Bild fehlt */
+}
+
+.sky__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 2.5s ease-in-out; /* weicher Crossfade, GPU-Opacity */
+  will-change: opacity;
+}
+
+.sky__layer.is-visible { opacity: 1; }
+
+/* Leichter Verlauf für dauerhaft gute Lesbarkeit über jedem Himmel. */
+.sky__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--scrim-top), var(--scrim-bottom));
+}
+
+header { text-align: center; margin-bottom: 36px; }
+
+h1 { font-size: 1.6rem; font-weight: 600; letter-spacing: 0.5px; }
+
+.tagline {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.badge {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  box-shadow: var(--card-shadow);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.25s ease;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+main { width: 100%; max-width: 640px; display: grid; gap: 16px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  transition: background 0.25s ease;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Current Situation */
+.hero { text-align: center; padding: 48px 24px; }
+.hero .label { justify-content: center; }
+
+.power {
+  margin-top: 12px;
+  font-size: clamp(4.2rem, 15vw, 7rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.power .unit {
+  font-size: 0.3em;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+/* Assessment */
+.recommendation { margin-top: 10px; font-size: 1.15rem; }
+
+.action {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.action[hidden] { display: none; }
+
+.assessment { border-left: 3px solid var(--muted); }
+.assessment[data-level="excellent"] { border-left-color: var(--accent); }
+.assessment[data-level="good"]      { border-left-color: #FFE58F; }
+.assessment[data-level="limited"]   { border-left-color: #8FB4D9; }
+.assessment[data-level="none"]      { border-left-color: #3A4E63; }
+.assessment[data-level="offline"]   { border-left-color: #B0413E; }
+
+/* Stats */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.stat .value {
+  margin-top: 10px;
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .unit { font-size: 0.75rem; color: var(--muted); font-weight: 400; }
+
+.stat .sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tagesdiagramm */
+.chart-card { padding: 24px 24px 16px; }
+
+.chart-wrap {
+  margin-top: 16px;
+  height: 240px;
+  position: relative;
+}
+
+@media (max-width: 520px) {
+  .stats { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body, .card, .theme-toggle { transition: none; }
+  .sky__layer { transition: none; } /* kein Crossfade bei reduzierter Bewegung */
+}
+
+footer {
+  margin-top: 28px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
