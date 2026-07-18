@@ -79,15 +79,15 @@ jobs:
   # macOS: erzeugt dist/EnergyRadar.app via build_macos.sh
   #
   # WICHTIG – Architektur: PyInstaller cross-compiliert nicht, sondern baut für
-  # die Architektur des Runners. 'macos-latest' ist inzwischen Apple Silicon
-  # (arm64) und erzeugt daher eine reine arm64-App, die auf Intel-Macs NICHT
-  # startet ("Dieses Programm wird auf dem Mac nicht unterstützt").
-  # Der Intel-Runner 'macos-13' (x86_64) erzeugt eine x86_64-App, die nativ auf
+  # die Architektur des Runners. 'macos-latest' ist Apple Silicon (arm64) und
+  # erzeugt daher eine reine arm64-App, die auf Intel-Macs NICHT startet.
+  # 'macos-13' wurde am 4. Dezember 2025 stillgelegt. Der offizielle
+  # x86_64-Nachfolger 'macos-15-intel' erzeugt eine Intel-App, die nativ auf
   # Intel-Macs UND per Rosetta 2 auf Apple Silicon läuft.
   # --------------------------------------------------------------------- #
   macos:
     name: Build macOS (Intel .app)
-    runs-on: macos-13   # Intel/x86_64-Runner – bewusst NICHT macos-latest (arm64)
+    runs-on: macos-15-intel   # Intel/x86_64 – bewusst NICHT macos-latest (arm64)
     timeout-minutes: 30
     steps:
       - name: Code auschecken
