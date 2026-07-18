@@ -1,6 +1,6 @@
 // Version bei jeder Änderung an den Shell-Dateien erhöhen, sonst liefert der
 // Service Worker (Cache-first) die alten Dateien weiter aus.
-const CACHE = "energyradar-v2";
+const CACHE = "energyradar-v4";
 
 const SHELL = [
   "/",

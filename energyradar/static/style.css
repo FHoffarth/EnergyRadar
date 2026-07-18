@@ -1,16 +1,17 @@
-/* EnergyRadar – Themes über CSS-Variablen.
-   Dunkel ist Standard, [data-theme="light"] überschreibt.
-   app.js setzt data-theme (System-Erkennung oder manuelle Wahl). */
+/* EnergyRadar – adaptive Desktop-Arbeitsfläche.
+   Dunkel ist Standard, [data-theme="light"] überschreibt. */
 
 :root {
   --bg: #07111E;
   --card: rgba(15, 30, 44, 0.66);
-  --card-border: rgba(255, 255, 255, 0.07);
+  --card-soft: rgba(255, 255, 255, 0.035);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --divider: rgba(255, 255, 255, 0.075);
   --card-blur: 20px;
   --text: #FFFFFF;
-  --muted: #7A8DA0;
+  --muted: #8A9BAD;
   --accent: #FFD54A;
-  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --card-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
   --chart-line: #FFD54A;
   --chart-fill: 255, 213, 74;
   --chart-grid: rgba(122, 141, 160, 0.12);
@@ -21,13 +22,15 @@
 
 [data-theme="light"] {
   --bg: #F2F5F8;
-  --card: rgba(255, 255, 255, 0.64);
-  --card-border: rgba(11, 27, 43, 0.06);
+  --card: rgba(255, 255, 255, 0.68);
+  --card-soft: rgba(11, 27, 43, 0.025);
+  --card-border: rgba(11, 27, 43, 0.07);
+  --divider: rgba(11, 27, 43, 0.08);
   --card-blur: 20px;
   --text: #0B1B2B;
   --muted: #5C6B7A;
   --accent: #E8A200;
-  --card-shadow: 0 8px 24px rgba(11, 27, 43, 0.12);
+  --card-shadow: 0 14px 38px rgba(11, 27, 43, 0.1);
   --chart-line: #E8A200;
   --chart-fill: 232, 162, 0;
   --chart-grid: rgba(92, 107, 122, 0.16);
@@ -38,27 +41,33 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { background: var(--bg); }
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
 
 body {
-  background: transparent; /* der Living-Sky-Hintergrund liegt dahinter */
-  color: var(--text);
-  font-family: "Fira Sans", system-ui, -apple-system, sans-serif;
   min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: calc(40px + env(safe-area-inset-top)) 20px 40px;
+  gap: clamp(0.65rem, 1.6vh, 1rem);
+  padding: max(0.75rem, env(safe-area-inset-top)) clamp(0.75rem, 2.4vw, 2rem)
+    max(0.6rem, env(safe-area-inset-bottom));
+  background: transparent;
+  color: var(--text);
+  font-family: "Fira Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: color 0.25s ease;
 }
 
-/* ---------- Living Sky (atmosphärischer Hintergrund) ---------- */
+/* ---------- Living Sky ---------- */
 .sky {
   position: fixed;
   inset: 0;
-  z-index: -1;               /* immer hinter allen Inhalten */
+  z-index: -1;
   overflow: hidden;
-  background: var(--bg);     /* ruhige Basisfarbe, falls ein Bild fehlt */
+  background: var(--bg);
 }
 
 .sky__layer {
@@ -68,75 +77,104 @@ body {
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 2.5s ease-in-out; /* weicher Crossfade, GPU-Opacity */
+  transition: opacity 2.5s ease-in-out;
   will-change: opacity;
 }
 
 .sky__layer.is-visible { opacity: 1; }
 
-/* Leichter Verlauf für dauerhaft gute Lesbarkeit über jedem Himmel. */
 .sky__scrim {
   position: absolute;
   inset: 0;
   background: linear-gradient(to bottom, var(--scrim-top), var(--scrim-bottom));
 }
 
-header { text-align: center; margin-bottom: 36px; }
+/* ---------- Native-feeling top bar ---------- */
+.app-header {
+  width: min(100%, 86rem);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: clamp(0.2rem, 0.8vw, 0.6rem);
+}
 
-h1 { font-size: 1.6rem; font-weight: 600; letter-spacing: 0.5px; }
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+h1 {
+  font-size: clamp(1.1rem, 1.6vw, 1.4rem);
+  font-weight: 650;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
+}
 
 .tagline {
   color: var(--muted);
-  font-size: 0.9rem;
-  margin-top: 4px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.badge,
+.theme-toggle {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(var(--card-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
 }
 
 .badge {
-  display: inline-block;
-  margin-top: 12px;
-  padding: 4px 12px;
+  padding: 0.3rem 0.7rem;
   border-radius: 999px;
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
   color: var(--muted);
-  font-size: 0.75rem;
-  letter-spacing: 0.5px;
+  font-size: 0.7rem;
+  letter-spacing: 0.035em;
+  white-space: nowrap;
 }
 
 .theme-toggle {
-  position: fixed;
-  top: calc(16px + env(safe-area-inset-top));
-  right: 16px;
-  width: 40px;
-  height: 40px;
+  width: 2rem;
+  aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
-  box-shadow: var(--card-shadow);
-  font-size: 1.1rem;
+  color: var(--text);
+  font-size: 0.9rem;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.25s ease;
+  display: grid;
+  place-items: center;
+  transition: background 0.25s ease, transform 0.2s ease;
 }
+
+.theme-toggle:hover { transform: translateY(-1px); }
 
 .theme-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-main { width: 100%; max-width: 640px; display: grid; gap: 16px; }
-
-.card {
+/* ---------- One continuous workspace ---------- */
+.workspace {
+  width: min(100%, 86rem);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(13rem, 1fr);
+  gap: clamp(0.8rem, 1.6vh, 1.1rem);
+  padding: clamp(0.9rem, 2vw, 1.5rem);
+  overflow: hidden;
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 16px;
-  padding: 24px;
+  border-radius: clamp(1rem, 2vw, 1.5rem);
   box-shadow: var(--card-shadow);
   backdrop-filter: blur(var(--card-blur)) saturate(140%);
   -webkit-backdrop-filter: blur(var(--card-blur)) saturate(140%);
@@ -145,94 +183,207 @@ main { width: 100%; max-width: 640px; display: grid; gap: 16px; }
 
 .label {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  letter-spacing: 0.13em;
 }
 
-/* Current Situation */
-.hero { text-align: center; padding: 48px 24px; }
-.hero .label { justify-content: center; }
+.energy-presence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: stretch;
+}
+
+.hero,
+.assessment {
+  min-width: 0;
+  padding: clamp(0.85rem, 2vw, 1.35rem);
+}
+
+.hero {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
 
 .power {
-  margin-top: 12px;
-  font-size: clamp(4.2rem, 15vw, 7rem);
+  margin-top: 0.35rem;
+  color: var(--accent);
+  font-size: clamp(3.25rem, 11vw, 5.8rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  line-height: 1;
+  letter-spacing: -0.045em;
+  line-height: 0.96;
 }
 
 .power .unit {
-  font-size: 0.3em;
-  font-weight: 400;
+  margin-left: 0.35rem;
   color: var(--muted);
-  margin-left: 8px;
+  font-size: 0.27em;
+  font-weight: 450;
+  letter-spacing: 0;
 }
 
-/* Assessment */
-.recommendation { margin-top: 10px; font-size: 1.15rem; }
+.assessment {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-left: 0.2rem solid var(--muted);
+  border-radius: 0.4rem;
+  background: var(--card-soft);
+}
+
+.recommendation {
+  margin-top: 0.45rem;
+  font-size: clamp(1rem, 1.8vw, 1.35rem);
+  font-weight: 550;
+  line-height: 1.3;
+}
 
 .action {
-  margin-top: 8px;
+  margin-top: 0.3rem;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
-.action[hidden] { display: none; }
 
-.assessment { border-left: 3px solid var(--muted); }
+.action[hidden] { display: none; }
 .assessment[data-level="excellent"] { border-left-color: var(--accent); }
 .assessment[data-level="good"]      { border-left-color: #FFE58F; }
 .assessment[data-level="limited"]   { border-left-color: #8FB4D9; }
 .assessment[data-level="none"]      { border-left-color: #3A4E63; }
 .assessment[data-level="offline"]   { border-left-color: #B0413E; }
 
-/* Stats */
+/* KPIs read as one information rail, not four separate cards. */
 .stats {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-block: 1px solid var(--divider);
 }
+
+.stat {
+  min-width: 0;
+  padding: clamp(0.7rem, 1.5vw, 1rem);
+}
+
+.stat:nth-child(even) { border-left: 1px solid var(--divider); }
+.stat:nth-child(n + 3) { border-top: 1px solid var(--divider); }
 
 .stat .value {
-  margin-top: 10px;
-  font-size: 1.4rem;
-  font-weight: 600;
+  margin-top: 0.35rem;
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  font-weight: 620;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.stat .unit { font-size: 0.75rem; color: var(--muted); font-weight: 400; }
+.stat .unit {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 450;
+}
 
 .stat .sub {
-  margin-top: 4px;
+  margin-top: 0.12rem;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
 }
 
-/* Tagesdiagramm */
-.chart-card { padding: 24px 24px 16px; }
+/* The chart consumes the remaining workspace height. */
+.chart-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(0.8rem, 1.5vw, 1.1rem);
+  border-radius: 0.85rem;
+  background: var(--card-soft);
+}
 
 .chart-wrap {
-  margin-top: 16px;
-  height: 240px;
+  flex: 1 1 auto;
+  min-height: 10rem;
+  margin-top: 0.55rem;
   position: relative;
 }
 
-@media (max-width: 520px) {
-  .stats { grid-template-columns: 1fr; }
+footer {
+  width: min(100%, 86rem);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: clamp(0.2rem, 0.8vw, 0.6rem);
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.015em;
+}
+
+.copyright { opacity: 0.78; }
+
+/* Compact: phones and narrow desktop windows. */
+@media (max-width: 39.99rem) {
+  .app-header { align-items: flex-start; }
+  .brand { flex-direction: column; gap: 0.05rem; }
+  .badge { max-width: 8.5rem; overflow: hidden; text-overflow: ellipsis; }
+  .workspace { overflow: visible; }
+}
+
+/* Laptop: MacBook Air and common app-window sizes. */
+@media (min-width: 40rem) {
+  .energy-presence {
+    grid-template-columns: minmax(13rem, 0.85fr) minmax(18rem, 1.15fr);
+  }
+
+  .hero { text-align: left; }
+
+  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .stat + .stat { border-left: 1px solid var(--divider); }
+  .stat:nth-child(n + 3) { border-top: 0; }
+}
+
+@media (min-width: 40rem) and (min-height: 34rem) {
+  body {
+    height: 100vh;
+    height: 100svh;
+  }
+}
+
+/* Desktop: more breathing room without wasting vertical space. */
+@media (min-width: 68.75rem) {
+  .workspace,
+  .app-header,
+  footer { width: min(94vw, 90rem); }
+
+  .energy-presence {
+    grid-template-columns: minmax(18rem, 0.75fr) minmax(28rem, 1.25fr);
+  }
+
+  .power { font-size: clamp(4.4rem, 6.5vw, 6.5rem); }
+}
+
+/* Large Desktop: cap line lengths and let the chart gain the extra space. */
+@media (min-width: 100rem) {
+  .workspace,
+  .app-header,
+  footer { width: min(88vw, 100rem); }
+
+  .workspace { padding-inline: 1.75rem; }
+  .energy-presence { grid-template-columns: minmax(22rem, 0.7fr) minmax(34rem, 1.3fr); }
+}
+
+/* Short windows stay usable and scroll only when the content truly cannot fit. */
+@media (max-height: 43.74rem) {
+  body { gap: 0.5rem; padding-block: 0.5rem; }
+  .workspace { grid-template-rows: auto auto minmax(9rem, 1fr); gap: 0.6rem; }
+  .hero, .assessment { padding-block: 0.65rem; }
+  .power { font-size: clamp(2.9rem, 8vh, 4.2rem); }
+  .chart-wrap { min-height: 8rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body, .card, .theme-toggle { transition: none; }
-  .sky__layer { transition: none; } /* kein Crossfade bei reduzierter Bewegung */
-}
-
-footer {
-  margin-top: 28px;
-  color: var(--muted);
-  font-size: 0.75rem;
+  body, .workspace, .theme-toggle { transition: none; }
+  .sky__layer { transition: none; }
 }

@@ -26,54 +26,59 @@
   <div class="sky__scrim"></div>
 </div>
 
-<button class="theme-toggle" id="theme-toggle" aria-label="Design wechseln">🌙</button>
-
-<header>
-  <h1>☀️ EnergyRadar</h1>
-  <p class="tagline">Understand your energy.</p>
-  <div class="badge" id="badge">⚪ Verbinde …</div>
+<header class="app-header">
+  <div class="brand">
+    <h1>☀️ EnergyRadar</h1>
+    <p class="tagline">Understand your energy.</p>
+  </div>
+  <div class="header-controls">
+    <div class="badge" id="badge">⚪ Verbinde …</div>
+    <button class="theme-toggle" id="theme-toggle" aria-label="Design wechseln">🌙</button>
+  </div>
 </header>
 
-<main>
+<main class="workspace">
 
-  <!-- Current Situation -->
-  <section class="card hero">
-    <div class="label">Current Power</div>
-    <div class="power">
-      <span id="power">–</span><span class="unit" id="power-unit">W</span>
+  <section class="energy-presence" aria-label="Aktueller Energiezustand">
+    <!-- Current Situation -->
+    <div class="hero">
+      <div class="label">Current Power</div>
+      <div class="power">
+        <span id="power">–</span><span class="unit" id="power-unit">W</span>
+      </div>
     </div>
-  </section>
 
-  <!-- Assessment -->
-  <section class="card assessment" id="assessment-card">
-    <div class="label">Assessment</div>
-    <div class="recommendation" id="recommendation">Verbinde …</div>
-    <div class="action" id="action" hidden></div>
+    <!-- Assessment -->
+    <div class="assessment" id="assessment-card">
+      <div class="label">Assessment</div>
+      <div class="recommendation" id="recommendation">Verbinde …</div>
+      <div class="action" id="action" hidden></div>
+    </div>
   </section>
 
   <!-- Stats -->
   <section class="stats">
-    <div class="card stat">
+    <div class="stat">
       <div class="label">Today</div>
       <div class="value"><span id="today">–</span> <span class="unit">kWh</span></div>
     </div>
-    <div class="card stat">
+    <div class="stat">
       <div class="label">Höchste Leistung heute</div>
       <div class="value"><span id="peak">–</span> <span class="unit" id="peak-unit">W</span></div>
       <div class="sub" id="peak-time"></div>
     </div>
-    <div class="card stat">
+    <div class="stat">
       <div class="label">This Year</div>
       <div class="value"><span id="year">–</span> <span class="unit">kWh</span></div>
     </div>
-    <div class="card stat">
+    <div class="stat">
       <div class="label">Lifetime</div>
       <div class="value"><span id="total">–</span> <span class="unit">kWh</span></div>
     </div>
   </section>
 
   <!-- Tagesdiagramm -->
-  <section class="card chart-card">
+  <section class="chart-card">
     <div class="label">Heutiger Verlauf</div>
     <div class="chart-wrap">
       <canvas id="chart"></canvas>
@@ -84,6 +89,7 @@
 
 <footer>
   <span id="updated"></span>
+  <span class="copyright">© 2026 Florian Hoffarth</span>
 </footer>
 
 <script src="/static/vendor/chart.umd.js"></script>

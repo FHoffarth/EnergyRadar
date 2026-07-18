@@ -244,8 +244,10 @@ function themeStyles() {
 
 function chartGradient() {
   const s = themeStyles();
-  const ctx = document.getElementById("chart").getContext("2d");
-  const gradient = ctx.createLinearGradient(0, 0, 0, 240);
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+  const height = canvas.parentElement.clientHeight || canvas.clientHeight || 240;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
   gradient.addColorStop(0, `rgba(${s.fill}, 0.25)`);
   gradient.addColorStop(1, `rgba(${s.fill}, 0)`);
   return gradient;
@@ -330,6 +332,17 @@ function updateChart(history) {
   chart.data.datasets[0].data = history.map((h) => h.power);
   chart.update("none");
 }
+
+// Die Diagrammfläche folgt dem verfügbaren Workspace statt einer festen Höhe.
+// Bei Fensteränderungen wird auch der Verlauf an die neue Canvas-Höhe angepasst.
+const chartResizeObserver = new ResizeObserver(() => {
+  if (!chart) return;
+  chart.data.datasets[0].backgroundColor = chartGradient();
+  chart.resize();
+  chart.update("none");
+});
+
+chartResizeObserver.observe(document.querySelector(".chart-wrap"));
 
 // ---------- Aktualisierung ----------
 
