@@ -1,4 +1,7 @@
 # Python
+.env
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 
@@ -12,4 +15,8 @@ __pycache__/
 # Lokale Laufzeitdaten (Entwicklung)
 /energyradar/database/
 /energyradar/window.json
+logs/
 *.log
+
+.DS_Store
+Thumbs.db

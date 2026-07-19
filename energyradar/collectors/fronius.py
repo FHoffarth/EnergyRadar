@@ -16,6 +16,8 @@ from models.energy import EnergyReading
 
 def read() -> EnergyReading:
     """Liest Live-Daten von der Fronius Solar API."""
+    if not config.FRONIUS_URL:
+        raise RuntimeError("FRONIUS_URL is not configured")
     raw = requests.get(config.FRONIUS_URL, timeout=5).json()
     site = raw["Body"]["Data"]["Site"]
     return EnergyReading(

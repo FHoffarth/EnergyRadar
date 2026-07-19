@@ -61,4 +61,4 @@ def index():
 
 if __name__ == "__main__":
     _seed_demo_history()
-    app.run(host=config.HOST, port=config.PORT, debug=True)
+    app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)

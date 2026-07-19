@@ -4,10 +4,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 
-FRONIUS_URL = os.environ.get(
-    "FRONIUS_URL",
-    "http://192.168.178.75/solar_api/v1/GetPowerFlowRealtimeData.fcgi",
-)
+FRONIUS_URL = os.environ.get("FRONIUS_URL")
 
 DEMO = os.environ.get("ENERGYRADAR_DEMO") == "1"
 
@@ -33,5 +30,6 @@ DB_PATH = DATA_DIR / "database" / "energy.db"
 # Messwerte höchstens einmal pro Minute persistieren
 STORE_INTERVAL_SECONDS = 60
 
-HOST = "0.0.0.0"
-PORT = 5000
+HOST = os.environ.get("ENERGYRADAR_HOST", "127.0.0.1")
+PORT = int(os.environ.get("ENERGYRADAR_PORT", "5000"))
+DEBUG = os.environ.get("ENERGYRADAR_DEBUG") == "1"

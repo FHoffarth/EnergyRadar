@@ -40,6 +40,11 @@ die die vorhandene Architektur vollständig erhält.
 
 ## Entwicklungsmodus
 
+EnergyRadar benötigt Python 3.10 oder neuer und wurde in diesem Audit mit
+Python 3.14.6 validiert. Die verfügbaren Umgebungsvariablen sind mit sicheren
+Platzhaltern in [`.env.example`](.env.example) dokumentiert; `.env`-Dateien
+werden nicht automatisch geladen.
+
 Reine Web‑Ansicht im Browser (wie bisher):
 
 ```bash
@@ -57,8 +62,9 @@ pip install -r requirements.txt
 ENERGYRADAR_DEMO=1 python desktop.py  # öffnet das App-Fenster
 ```
 
-Ohne `ENERGYRADAR_DEMO=1` verbindet sich EnergyRadar mit dem echten
-Wechselrichter (`FRONIUS_URL`, siehe `config.py`).
+Für den Live-Modus muss `FRONIUS_URL` explizit auf den lokalen Fronius-Endpunkt
+gesetzt werden. Ohne Demo-Modus und ohne `FRONIUS_URL` zeigt EnergyRadar den
+Offline-Zustand, ohne einen Netzwerkaufruf zu versuchen.
 
 ---
 
@@ -150,6 +156,9 @@ In der gepackten App wird ins beschreibbare Benutzerverzeichnis geschrieben
 
 Dort liegen `database/energy.db`, `energyradar.log` und `window.json`.
 Im Entwicklungsmodus bleibt alles wie bisher im Projektordner.
+
+Haushaltsmesswerte, lokale Gerätekonfiguration, Logs, Bytecode und virtuelle
+Umgebungen sind von Git ausgeschlossen und dürfen nicht committed werden.
 
 ---
 
