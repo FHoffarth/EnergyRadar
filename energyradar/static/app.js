@@ -28,7 +28,7 @@ const messages = {
     productionNone: "Keine Solarproduktion",
     productionLow: "Geringe Solarproduktion",
     productionMedium: "Mittlere Solarproduktion",
-    productionHigh: "Hohe Solarproduktion",
+    productionHigh: "Deine Anlage läuft heute hervorragend.",
     trendRising: "Produktion steigt",
     trendFalling: "Produktion fällt",
     trendStable: "Produktion ist stabil",
