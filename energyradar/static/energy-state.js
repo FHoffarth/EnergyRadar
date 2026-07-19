@@ -34,7 +34,7 @@
     low:     { dark: [255, 229, 143], light: [190, 132, 0] },
     medium:  { dark: [255, 213, 74],  light: [232, 162, 0] },
     high:    { dark: [255, 199, 55],  light: [218, 139, 0] },
-    offline: { dark: [176, 65, 62],   light: [176, 65, 62] },
+    unreachable: { dark: [202, 104, 82], light: [166, 72, 55] },
   };
 
   let telemetry = {
@@ -110,8 +110,14 @@
     if (connection === "connecting") {
       return { headlineKey: "connecting", detailKey: null };
     }
-    if (connection === "offline") {
-      return { headlineKey: "connectionOffline", detailKey: null };
+    if (connection === "unconfigured") {
+      return { headlineKey: "noDataSource", detailKey: "connectFroniusPrompt" };
+    }
+    if (connection === "testing") {
+      return { headlineKey: "testingConnection", detailKey: null };
+    }
+    if (connection === "unreachable") {
+      return { headlineKey: "deviceUnreachable", detailKey: "checkConnectionPrompt" };
     }
 
     const headlineKey = {
@@ -160,7 +166,7 @@
       glow *= 0.72;
     }
 
-    if (connection === "offline") {
+    if (connection === "unreachable") {
       brightness *= 0.92;
       saturation *= 0.9;
       glow *= 0.8;
@@ -197,7 +203,7 @@
     const time = deriveTime(new Date());
     const production = deriveProduction(telemetry.powerWatts, telemetry.connection);
     const trend = deriveTrend(telemetry.history, production);
-    const accentKey = telemetry.connection === "offline" ? "offline" : production;
+    const accentKey = telemetry.connection === "unreachable" ? "unreachable" : production;
     const accent = accentTokens[accentKey] || accentTokens.unknown;
 
     return freezeState({
@@ -212,6 +218,7 @@
       appearance: {
         accentDark: rgb(accent.dark),
         accentLight: rgb(accent.light),
+        gaugeFraction: clamp((Number(telemetry.powerWatts) || 0) / MAX_VISUAL_POWER),
         sky: {
           ...time.sky,
           ...deriveEnergyVisual(
@@ -234,9 +241,15 @@
   }
 
   function updateTelemetry(next = {}) {
-    const online = next.connection === "online";
+    const supportedConnections = new Set([
+      "connecting", "unconfigured", "testing", "online", "unreachable",
+    ]);
+    const connection = supportedConnections.has(next.connection)
+      ? next.connection
+      : "connecting";
+    const online = connection === "online";
     telemetry = {
-      connection: online ? "online" : next.connection === "offline" ? "offline" : "connecting",
+      connection,
       source: online && (next.source === "live" || next.source === "demo") ? next.source : null,
       powerWatts: online && Number.isFinite(Number(next.powerWatts)) ? Math.max(0, Number(next.powerWatts)) : null,
       history: online && Array.isArray(next.history) ? next.history : [],

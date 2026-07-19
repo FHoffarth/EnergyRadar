@@ -23,7 +23,12 @@ def _user_data_dir() -> Path:
 # Als gepackte App (PyInstaller) liegt das Bundle schreibgeschützt vor, deshalb
 # gehören Datenbank und Log in ein beschreibbares Benutzerverzeichnis. In der
 # Entwicklung bleibt alles wie bisher im Projektordner.
-DATA_DIR = _user_data_dir() if getattr(sys, "frozen", False) else BASE_DIR
+USER_DATA_DIR = _user_data_dir()
+DATA_DIR = USER_DATA_DIR if getattr(sys, "frozen", False) else BASE_DIR
+
+# Die lokale Geräteadresse ist immer benutzerspezifisch. Sie darf auch im
+# Entwicklungsmodus niemals versehentlich im Repository landen.
+DATA_SOURCE_CONFIG_PATH = USER_DATA_DIR / "data-source.json"
 
 DB_PATH = DATA_DIR / "database" / "energy.db"
 

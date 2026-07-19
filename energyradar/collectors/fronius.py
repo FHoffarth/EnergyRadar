@@ -7,18 +7,54 @@ Keine Bewertung, keine Speicherung.
 import math
 import random
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import requests
 
 import config
 from models.energy import EnergyReading
+from services import data_source
 
 
 def read() -> EnergyReading:
     """Liest Live-Daten von der Fronius Solar API."""
-    if not config.FRONIUS_URL:
+    selected = data_source.effective()
+    if not selected:
         raise RuntimeError("FRONIUS_URL is not configured")
-    raw = requests.get(config.FRONIUS_URL, timeout=5).json()
+    return read_url(
+        selected["url"],
+        require_local=selected["source"] != "environment",
+    )
+
+
+def read_url(url: str, *, require_local: bool = True) -> EnergyReading:
+    """Read one endpoint with redirect and SSRF protection.
+
+    UI-managed targets must resolve only to local/private addresses. The
+    environment override is an explicit trusted-operator escape hatch, but it
+    still permits only HTTP(S), forbids embedded credentials and redirects.
+    """
+    if require_local:
+        target = data_source.normalize_address(url)
+        data_source.validate_resolved_target(target)
+    else:
+        parts = urlsplit(url)
+        if (
+            parts.scheme.lower() not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            raise ValueError("Invalid FRONIUS_URL override")
+        target = url
+
+    response = requests.get(
+        target,
+        timeout=(1.5, 3.0),
+        allow_redirects=False,
+    )
+    response.raise_for_status()
+    raw = response.json()
     site = raw["Body"]["Data"]["Site"]
     return EnergyReading(
         timestamp=datetime.now(),

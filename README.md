@@ -62,9 +62,19 @@ pip install -r requirements.txt
 ENERGYRADAR_DEMO=1 python desktop.py  # öffnet das App-Fenster
 ```
 
-Für den Live-Modus muss `FRONIUS_URL` explizit auf den lokalen Fronius-Endpunkt
-gesetzt werden. Ohne Demo-Modus und ohne `FRONIUS_URL` zeigt EnergyRadar den
-Offline-Zustand, ohne einen Netzwerkaufruf zu versuchen.
+Im Live-Modus kann die Fronius-Anlage direkt in der App über ihre private
+IP-Adresse oder einen lokalen Hostnamen verbunden werden. EnergyRadar testet
+die Verbindung vor dem Speichern und akzeptiert über die Oberfläche nur Ziele
+im lokalen beziehungsweise privaten Netzwerk. Ohne Konfiguration zeigt die App
+„Keine Datenquelle eingerichtet“ und führt keinen Geräte- oder Netzwerkaufruf
+aus.
+
+Die Einstellung liegt ausschließlich im Benutzerprofil als
+`data-source.json`: unter Windows in `%LOCALAPPDATA%\EnergyRadar\`, unter macOS
+in `~/Library/Application Support/EnergyRadar/`. `FRONIUS_URL` bleibt als
+expliziter Operator-Override verfügbar und hat Vorrang vor der lokal
+gespeicherten Einstellung; ein aktiver Override kann in der App weder geändert
+noch entfernt werden.
 
 ---
 
@@ -121,9 +131,9 @@ Build‑Skripte) und lädt die Ergebnisse als Artefakte hoch:
 > (`file`, `lipo`, `otool`, `codesign`, `spctl`, `plutil`) zur Kontrolle.
 
 Herunterladbar im jeweiligen Workflow‑Lauf unter *Actions → Artifacts*. Keine
-Secrets nötig. Manuell startbar über *Run workflow*. Bei einem `v*`-Tag erzeugt
-die Pipeline zusätzlich einen GitHub Release mit den stabil benannten Windows-
-und macOS-ZIP-Dateien sowie `SHA256SUMS.txt`.
+Secrets nötig. Manuell startbar über *Run workflow*. Ein `v*`-Tag erzeugt nur
+geprüfte Build-Artefakte. Die öffentliche Veröffentlichung erfolgt getrennt
+über den manuellen Release-Workflow und sein geschütztes Environment-Gate.
 
 ---
 
@@ -154,7 +164,8 @@ In der gepackten App wird ins beschreibbare Benutzerverzeichnis geschrieben
 | macOS     | `~/Library/Application Support/EnergyRadar/`             |
 | Windows   | `%LOCALAPPDATA%\EnergyRadar\`                            |
 
-Dort liegen `database/energy.db`, `energyradar.log` und `window.json`.
+Dort liegen `database/energy.db`, `energyradar.log`, `window.json` und – falls
+in der App eingerichtet – `data-source.json`.
 Im Entwicklungsmodus bleibt alles wie bisher im Projektordner.
 
 Haushaltsmesswerte, lokale Gerätekonfiguration, Logs, Bytecode und virtuelle
