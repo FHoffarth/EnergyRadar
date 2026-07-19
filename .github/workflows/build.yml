@@ -255,62 +255,65 @@ jobs:
           retention-days: 30
 
   # --------------------------------------------------------------------- #
-  # Release: Ein v*-Tag veröffentlicht exakt die oben gebauten Artefakte.
-  # Apple Silicon wird erst ergänzt, sobald ein separater arm64-Build
-  # validiert ist.
+  # Packaging: bereitet die Release-Dateien vor, veröffentlicht sie aber
+  # ausschließlich als internes Actions-Artefakt. Ein Tag-Push erzeugt
+  # dadurch niemals automatisch ein öffentliches GitHub Release.
   # --------------------------------------------------------------------- #
-  release:
-    name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+  package:
+    name: Prepare release assets
     needs: [windows, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: write
     steps:
       - name: Windows-Artefakt herunterladen
         uses: actions/download-artifact@v4
         with:
           name: EnergyRadar-windows
-          path: release/EnergyRadar-Windows-x64
+          path: package-input/EnergyRadar-Windows-x64
 
       - name: macOS-Artefakt herunterladen
         uses: actions/download-artifact@v4
         with:
           name: EnergyRadar-macos
-          path: release/macos
+          path: package-input/macos
 
       - name: Release-Dateien paketieren und prüfen
         shell: bash
         run: |
           set -euo pipefail
-          test -f "release/EnergyRadar-Windows-x64/EnergyRadar.exe"
-          test -f "release/macos/EnergyRadar-macos.zip"
+          test -f "package-input/EnergyRadar-Windows-x64/EnergyRadar.exe"
+          test -f "package-input/macos/EnergyRadar-macos.zip"
+          mkdir release-assets
 
           (
-            cd release
-            zip -q -r "EnergyRadar-Windows-x64.zip" "EnergyRadar-Windows-x64"
-            mv "macos/EnergyRadar-macos.zip" "EnergyRadar-macOS-Intel.zip"
+            cd package-input
+            zip -q -r "../release-assets/EnergyRadar-Windows-x64.zip" "EnergyRadar-Windows-x64"
+            mv "macos/EnergyRadar-macos.zip" "../release-assets/EnergyRadar-macOS-Intel.zip"
+            cd ../release-assets
             sha256sum \
               "EnergyRadar-Windows-x64.zip" \
               "EnergyRadar-macOS-Intel.zip" \
               > "SHA256SUMS.txt"
           )
 
-      - name: GitHub Release erstellen und Assets veröffentlichen
+      - name: Release-fertige Dateien prüfen
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" \
-              --verify-tag \
-              --title "EnergyRadar $GITHUB_REF_NAME" \
-              --generate-notes
-          gh release upload "$GITHUB_REF_NAME" \
-            "release/EnergyRadar-Windows-x64.zip" \
-            "release/EnergyRadar-macOS-Intel.zip" \
-            "release/SHA256SUMS.txt" \
-            --clobber
+          cd release-assets
+
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          test "$actual_files" = "$(printf '%s\n' "$expected_files" | sort)"
+          sha256sum --check --strict SHA256SUMS.txt
+
+      - name: Release-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnergyRadar-release-assets
+          path: |
+            release-assets/EnergyRadar-Windows-x64.zip
+            release-assets/EnergyRadar-macOS-Intel.zip
+            release-assets/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

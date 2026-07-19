@@ -1,0 +1,259 @@
+name: Publish Release
+
+# Public release publication is deliberately separate from tag-based builds.
+# The caller must select an already successful tag build by its immutable ID.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag (for example v0.5.5)
+        required: true
+        type: string
+      build_run_id:
+        description: Successful Build workflow run ID for this tag
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_ARTIFACT_NAME: EnergyRadar-release-assets
+  BUILD_WORKFLOW_PATH: .github/workflows/build.yml
+
+jobs:
+  validate:
+    name: Validate tag and build provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+    steps:
+      - name: Validate input, tag and build run
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ ! "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid build run ID: $BUILD_RUN_ID" >&2
+            exit 1
+          fi
+
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+            > tag-ref.json
+          tag_sha="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" \
+            --jq '.sha')"
+
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" \
+            > build-run.json
+
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow_path "$BUILD_WORKFLOW_PATH" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg tag_sha "$tag_sha" \
+            '
+              .repository.full_name == $repository and
+              .path == $workflow_path and
+              .event == "push" and
+              .status == "completed" and
+              .conclusion == "success" and
+              .head_branch == $release_tag and
+              .head_sha == $tag_sha
+            ' build-run.json >/dev/null || {
+              echo "Build run does not match repository, workflow, tag or commit." >&2
+              jq '{repository: .repository.full_name, path, event, status, conclusion, head_branch, head_sha}' build-run.json >&2
+              exit 1
+            }
+
+          echo "Validated provenance: $RELEASE_TAG -> $tag_sha (run $BUILD_RUN_ID)"
+
+      - name: Validate protected release environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/environments/github-release" \
+            > environment.json || {
+              echo "The github-release environment is missing or unreadable." >&2
+              exit 1
+            }
+
+          jq -e '
+            any(
+              .protection_rules[]?;
+              .type == "required_reviewers" and
+              (.reviewers | length) > 0 and
+              (.prevent_self_review == false)
+            )
+          ' environment.json >/dev/null || {
+            echo "github-release needs a required reviewer and solo-maintainer self-review enabled." >&2
+            exit 1
+          }
+
+      - name: Download verified build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
+          path: release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.build_run_id }}
+
+      - name: Validate file contract and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          if [[ "$actual_files" != "$(printf '%s\n' "$expected_files" | sort)" ]]; then
+            echo "Unexpected release artifact contents:" >&2
+            printf '%s\n' "$actual_files" >&2
+            exit 1
+          fi
+          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip'
+          actual_checksum_entries="$(awk '
+            /^[[:xdigit:]]{64}  [^/]+$/ { print $2; next }
+            { exit 2 }
+          ' SHA256SUMS.txt | sort)" || {
+            echo "SHA256SUMS.txt has an invalid format." >&2
+            exit 1
+          }
+          if [[ "$actual_checksum_entries" != "$(printf '%s\n' "$expected_checksum_entries" | sort)" ]]; then
+            echo "SHA256SUMS.txt does not contain exactly the allowed assets." >&2
+            exit 1
+          fi
+
+          sha256sum --check --strict SHA256SUMS.txt
+
+  publish:
+    name: Publish approved GitHub Release
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-release
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+    steps:
+      - name: Revalidate tag and build provenance after approval
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_sha="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" \
+            --jq '.sha')"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" \
+            > build-run.json
+
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow_path "$BUILD_WORKFLOW_PATH" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg tag_sha "$tag_sha" \
+            '
+              .repository.full_name == $repository and
+              .path == $workflow_path and
+              .event == "push" and
+              .status == "completed" and
+              .conclusion == "success" and
+              .head_branch == $release_tag and
+              .head_sha == $tag_sha
+            ' build-run.json >/dev/null || {
+              echo "Tag or build provenance changed after approval was requested." >&2
+              exit 1
+            }
+
+      - name: Download validated build artifact again
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
+          path: release
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.build_run_id }}
+
+      - name: Revalidate allowlist and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          test "$actual_files" = "$(printf '%s\n' "$expected_files" | sort)"
+
+          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip'
+          actual_checksum_entries="$(awk '
+            /^[[:xdigit:]]{64}  [^/]+$/ { print $2; next }
+            { exit 2 }
+          ' SHA256SUMS.txt | sort)"
+          test "$actual_checksum_entries" = "$(printf '%s\n' "$expected_checksum_entries" | sort)"
+          sha256sum --check --strict SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_status="$(curl --silent --show-error \
+            --output existing-release.json \
+            --write-out '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          case "$release_status" in
+            404) ;;
+            200)
+              echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
+              exit 1
+              ;;
+            *)
+              echo "Could not safely determine whether release $RELEASE_TAG exists (HTTP $release_status)." >&2
+              exit 1
+              ;;
+          esac
+
+          gh release create "$RELEASE_TAG" \
+            "release/EnergyRadar-Windows-x64.zip" \
+            "release/EnergyRadar-macOS-Intel.zip" \
+            "release/SHA256SUMS.txt" \
+            --draft \
+            --verify-tag \
+            --title "EnergyRadar $RELEASE_TAG" \
+            --generate-notes
+
+          gh release edit "$RELEASE_TAG" --draft=false
