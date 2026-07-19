@@ -66,11 +66,31 @@ jobs:
             throw "Erwartete Datei dist/EnergyRadar/EnergyRadar.exe fehlt."
           }
 
+      - name: Desktop-Fensterzustand testen
+        shell: pwsh
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
       # Eine reine Dateiprüfung erkennt keine Loader-Fehler. Dieser Test startet
       # exakt das spätere Release-Bundle und wartet auf ein echtes App-Fenster.
       - name: Start-Smoke-Test (gepackte EXE)
         shell: pwsh
         run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class WindowAudit {
+              [StructLayout(LayoutKind.Sequential)]
+              public struct RECT { public int Left, Top, Right, Bottom; }
+              [DllImport("user32.dll")]
+              public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+              [DllImport("user32.dll")]
+              public static extern bool IsWindowVisible(IntPtr hWnd);
+              [DllImport("user32.dll")]
+              public static extern bool IsIconic(IntPtr hWnd);
+          }
+          '@
+
           # Browser + Explorer simulieren: Der ZIP-Download markiert die
           # Runtime-Dateien als Internetinhalt (ZoneId=3). Die EXE selbst bleibt
           # unmarkiert, weil ein nicht-interaktiver Runner den SmartScreen-Dialog
@@ -79,6 +99,19 @@ jobs:
           Get-ChildItem "dist/EnergyRadar/_internal" -Recurse -File | ForEach-Object {
             Set-Content -LiteralPath $_.FullName -Stream Zone.Identifier -Value $zone
           }
+
+          # Exakt die v0.5.4-Regression nachstellen: Windows meldet fuer ein
+          # minimiertes Fenster -32000/-32000. Der Build muss diesen Zustand
+          # verwerfen und trotzdem ein sichtbares Fenster auf einem Monitor
+          # oeffnen. Das isolierte Profil schliesst Entwicklerzustand aus.
+          $smokeProfile = Join-Path $env:RUNNER_TEMP "energyradar-window-smoke"
+          $smokeData = Join-Path $smokeProfile "EnergyRadar"
+          New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
+          '{"width":980,"height":900,"x":-32000,"y":-32000}' |
+            Set-Content -LiteralPath (Join-Path $smokeData "window.json") -Encoding utf8
+          $env:LOCALAPPDATA = $smokeProfile
+          Remove-Item Env:FRONIUS_URL -ErrorAction SilentlyContinue
+          Remove-Item Env:ENERGYRADAR_DEMO -ErrorAction SilentlyContinue
 
           $process = Start-Process -FilePath "dist/EnergyRadar/EnergyRadar.exe" -PassThru
           $deadline = (Get-Date).AddSeconds(30)
@@ -99,7 +132,33 @@ jobs:
               }
 
               if ((Get-Date) -ge $stableAfter -and $process.MainWindowTitle -eq "EnergyRadar") {
-                Write-Host "Start erfolgreich: EnergyRadar-Fenster ist seit 15 Sekunden stabil."
+                $handle = [IntPtr]$process.MainWindowHandle
+                if ($handle -eq [IntPtr]::Zero) {
+                  throw "EnergyRadar hat kein Top-Level-Fensterhandle."
+                }
+                if (-not [WindowAudit]::IsWindowVisible($handle)) {
+                  throw "EnergyRadar-Fenster ist nicht sichtbar."
+                }
+                if ([WindowAudit]::IsIconic($handle)) {
+                  throw "EnergyRadar-Fenster ist minimiert."
+                }
+
+                $rect = New-Object WindowAudit+RECT
+                if (-not [WindowAudit]::GetWindowRect($handle, [ref]$rect)) {
+                  throw "Fenstergeometrie konnte nicht gelesen werden."
+                }
+                $onScreen = [System.Windows.Forms.Screen]::AllScreens | Where-Object {
+                  $bounds = $_.Bounds
+                  $rect.Right -gt $bounds.Left -and
+                  $rect.Left -lt $bounds.Right -and
+                  $rect.Bottom -gt $bounds.Top -and
+                  $rect.Top -lt $bounds.Bottom
+                }
+                if (-not $onScreen) {
+                  throw "EnergyRadar-Fenster liegt ausserhalb aller Monitore: $($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)"
+                }
+
+                Write-Host "Start erfolgreich: sichtbares EnergyRadar-Fenster ist seit 15 Sekunden stabil."
                 $started = $true
                 break
               }

@@ -10,6 +10,7 @@ Gepackt:       EnergyRadar.app / EnergyRadar.exe (Doppelklick)
 
 import json
 import logging
+import os
 import socket
 import sys
 import threading
@@ -37,6 +38,10 @@ REVEAL_FALLBACK = 12.0  # Splash spätestens danach schließen
 
 log = logging.getLogger("energyradar.desktop")
 
+# Windows moves minimized windows to a sentinel position near -32000/-32000.
+# It is not a real desktop coordinate and must never become a start position.
+WINDOWS_MINIMIZED_SENTINEL = -30000
+
 
 # --------------------------------------------------------------------------- #
 # Infrastruktur
@@ -54,6 +59,12 @@ def _setup_logging() -> None:
     )
     # Zugriffs-Logs von Werkzeug nicht sichtbar machen.
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+
+def _startup_milestone(name: str, **details) -> None:
+    """Write distinct packaged-startup phases to the existing file log."""
+    suffix = " ".join(f"{key}={value}" for key, value in details.items())
+    log.info("STARTUP %s%s", name, f" {suffix}" if suffix else "")
 
 
 def _free_port() -> int:
@@ -117,7 +128,13 @@ def _load_window_state() -> dict:
         if w >= MIN_SIZE[0] and h >= MIN_SIZE[1]:
             state["width"], state["height"] = w, h
         if data.get("x") is not None and data.get("y") is not None:
-            state["x"], state["y"] = int(data["x"]), int(data["y"])
+            x, y = int(data["x"]), int(data["y"])
+            if _is_window_position_visible(x, y, state["width"], state["height"]):
+                state["x"], state["y"] = x, y
+            else:
+                log.warning(
+                    "STARTUP saved_window_position_rejected x=%s y=%s", x, y
+                )
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return state
@@ -131,11 +148,37 @@ def _save_window_state(state: dict) -> None:
         log.warning("Fensterzustand konnte nicht gespeichert werden: %s", exc)
 
 
+def _windows_rect_intersects_monitor(x: int, y: int, width: int, height: int) -> bool:
+    """Return whether a rectangle intersects an active Windows monitor."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT(x, y, x + width, y + height)
+        # MONITOR_DEFAULTTONULL avoids silently selecting the primary monitor.
+        return bool(ctypes.windll.user32.MonitorFromRect(ctypes.byref(rect), 0))
+    except (AttributeError, OSError):
+        # The sentinel check still prevents the concrete minimize regression.
+        return True
+
+
+def _is_window_position_visible(x: int, y: int, width: int, height: int) -> bool:
+    if x <= WINDOWS_MINIMIZED_SENTINEL or y <= WINDOWS_MINIMIZED_SENTINEL:
+        return False
+    if sys.platform == "win32":
+        return _windows_rect_intersects_monitor(x, y, width, height)
+    return True
+
+
 def _capture_geometry(window, state: dict) -> None:
     """Aktuelle Größe/Position vom lebenden Fenster lesen (best effort)."""
     try:
-        state["width"], state["height"] = int(window.width), int(window.height)
-        state["x"], state["y"] = int(window.x), int(window.y)
+        width, height = int(window.width), int(window.height)
+        x, y = int(window.x), int(window.y)
+        if width >= MIN_SIZE[0] and height >= MIN_SIZE[1]:
+            state["width"], state["height"] = width, height
+        if _is_window_position_visible(x, y, state["width"], state["height"]):
+            state["x"], state["y"] = x, y
     except (TypeError, AttributeError):  # pragma: no cover - Fenster evtl. weg
         pass
 
@@ -145,10 +188,12 @@ def _track_window(window, state: dict) -> None:
     (Werte müssen vor dem Zerstören gelesen werden – daher über Events.)"""
 
     def _on_resized(width: int, height: int) -> None:
-        state["width"], state["height"] = width, height
+        if width >= MIN_SIZE[0] and height >= MIN_SIZE[1]:
+            state["width"], state["height"] = width, height
 
     def _on_moved(x: int, y: int) -> None:
-        state["x"], state["y"] = x, y
+        if _is_window_position_visible(x, y, state["width"], state["height"]):
+            state["x"], state["y"] = x, y
 
     window.events.resized += _on_resized
     window.events.moved += _on_moved
@@ -254,6 +299,8 @@ def _build_menu() -> list:
 
 def main() -> None:
     _setup_logging()
+    _startup_milestone("process_started", pid=os.getpid())
+    _startup_milestone("configuration_loaded", data_dir=config.DATA_DIR)
     log.info("%s %s startet …", APP_NAME, APP_VERSION)
 
     state = _load_window_state()
@@ -266,9 +313,11 @@ def main() -> None:
         port = _free_port()
         server = FlaskServer(HOST, port)
         server.start()
+        _startup_milestone("flask_thread_started", port=port)
     except Exception:  # noqa: BLE001 - jede Startstörung führt zur Fehlerseite
         log.exception("Flask-Server konnte nicht gestartet werden.")
 
+    _startup_milestone("window_creation_requested", kind="splash")
     splash = webview.create_window(
         APP_NAME,
         html=_SPLASH_HTML,
@@ -279,50 +328,67 @@ def main() -> None:
         on_top=True,
         background_color=BACKGROUND,
     )
+    _startup_milestone("window_created", kind="splash")
 
     revealed = threading.Event()
 
     def boot() -> None:
         """Läuft nach dem Öffnen des GUI-Loops: wartet auf den Server und
         blendet dann das Hauptfenster ein (oder die Fehlerseite)."""
-        ready = _wait_until_ready(HOST, port, STARTUP_TIMEOUT) if port else False
-        if not ready:
-            log.error("Server nicht erreichbar – Fehlerseite wird angezeigt.")
-            error = webview.create_window(
-                APP_NAME, html=_ERROR_HTML,
-                width=DEFAULT_SIZE[0], height=DEFAULT_SIZE[1], min_size=MIN_SIZE,
-                background_color=BACKGROUND,
-            )
-            error.events.shown += _close_splash
-            return
-
-        main_win = webview.create_window(
-            APP_NAME,
-            url=f"http://{HOST}:{port}/",
-            width=state["width"], height=state["height"],
-            x=state["x"], y=state["y"],
-            min_size=MIN_SIZE,
-            resizable=True,
-            background_color=BACKGROUND,
-            hidden=True,
-        )
-        _track_window(main_win, state)
-
-        def _reveal() -> None:
-            if revealed.is_set():
+        _startup_milestone("webview_event_loop_entered")
+        try:
+            ready = _wait_until_ready(HOST, port, STARTUP_TIMEOUT) if port else False
+            if not ready:
+                log.error("Server nicht erreichbar – Fehlerseite wird angezeigt.")
+                error = webview.create_window(
+                    APP_NAME, html=_ERROR_HTML,
+                    width=DEFAULT_SIZE[0], height=DEFAULT_SIZE[1], min_size=MIN_SIZE,
+                    background_color=BACKGROUND,
+                )
+                error.events.shown += _close_splash
                 return
-            revealed.set()
-            _close_splash()
-            try:
-                main_win.show()
-            except Exception:  # noqa: BLE001 - defensiv
-                pass
-            # Startgeometrie sichern, damit Position auch ohne Verschieben gilt.
-            threading.Timer(0.7, _capture_geometry, args=(main_win, state)).start()
 
-        main_win.events.loaded += _reveal
-        # Sicherheitsnetz, falls 'loaded' ausbleibt.
-        threading.Timer(REVEAL_FALLBACK, _reveal).start()
+            _startup_milestone("server_reachable", port=port)
+            _startup_milestone(
+                "window_creation_requested", kind="main",
+                x=state["x"], y=state["y"],
+            )
+            main_win = webview.create_window(
+                APP_NAME,
+                url=f"http://{HOST}:{port}/",
+                width=state["width"], height=state["height"],
+                x=state["x"], y=state["y"],
+                min_size=MIN_SIZE,
+                resizable=True,
+                background_color=BACKGROUND,
+                hidden=True,
+            )
+            _startup_milestone("window_created", kind="main")
+            _track_window(main_win, state)
+
+            def _reveal() -> None:
+                if revealed.is_set():
+                    return
+                revealed.set()
+                _close_splash()
+                try:
+                    main_win.show()
+                    _startup_milestone(
+                        "window_shown", x=main_win.x, y=main_win.y,
+                        width=main_win.width, height=main_win.height,
+                    )
+                except Exception:  # noqa: BLE001 - callback needs a traceback
+                    log.exception("STARTUP fatal_exception phase=window_show")
+                # Startgeometrie sichern, damit Position auch ohne Verschieben gilt.
+                threading.Timer(0.7, _capture_geometry, args=(main_win, state)).start()
+
+            main_win.events.loaded += _reveal
+            # Sicherheitsnetz, falls 'loaded' ausbleibt.
+            threading.Timer(REVEAL_FALLBACK, _reveal).start()
+        except Exception:  # noqa: BLE001 - callback exceptions are otherwise hidden
+            log.exception("STARTUP fatal_exception phase=boot")
+            _close_splash()
+            raise
 
     def _close_splash() -> None:
         try:
@@ -330,7 +396,12 @@ def main() -> None:
         except Exception:  # noqa: BLE001 - Splash evtl. schon zu
             pass
 
-    webview.start(boot, menu=_build_menu())
+    _startup_milestone("webview_start_requested")
+    try:
+        webview.start(boot, menu=_build_menu())
+    except Exception:  # noqa: BLE001 - windowed build has no stderr
+        log.exception("STARTUP fatal_exception phase=webview_start")
+        raise
 
     # Sauberes Herunterfahren: Server stoppen, Port freigeben, Thread beenden.
     if server is not None:
