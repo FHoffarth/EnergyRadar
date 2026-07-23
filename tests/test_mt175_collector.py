@@ -20,9 +20,9 @@ from zoneinfo import ZoneInfo
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "energyradar"))
 
-import config as cfg_module               # noqa: E402
-from collectors import mt175 as collector  # noqa: E402
-from models.mt175 import MT175Reading      # noqa: E402
+from energyradar import config as cfg_module               # noqa: E402
+from energyradar.collectors import mt175 as collector  # noqa: E402
+from energyradar.models.mt175 import MT175Reading      # noqa: E402
 
 
 # ---------------------------------------------------------------------------

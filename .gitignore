@@ -1,22 +1,43 @@
 # Python
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 __pycache__/
 *.py[cod]
+*.db
+*.sqlite
+*.sqlite3
 
 # Build-Ausgaben
 /dist/
-/build/pyi/
-/build/EnergyRadar/
-/build/EnergyRadar.iconset/
-/build/EnergyRadar.icns
+/build/
+/release/
+/artifacts/
+/installer/Output/
+/frontend/react-ui/dist/
+/frontend/react-ui/node_modules/
 
 # Lokale Laufzeitdaten (Entwicklung)
 /energyradar/database/
 /energyradar/window.json
+/energyradar/ui-settings.json
+/energyradar/data-source.json
+/energyradar/weather-cache.json
 logs/
 *.log
+*.dmp
+
+# Lokale Audit-, Recovery- und Build-Ausgaben
+/*.zip
+/energyradar/*.zip
+/pyinstaller_log.txt
+/pytest_output.txt
+/inno_log.txt
+/restore_*.py
+/fix_imports.py
+/review_artifacts/pre_release/sample_*
 
 .DS_Store
 Thumbs.db

@@ -14,7 +14,7 @@ import socket
 from pathlib import Path
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
-import config
+from energyradar import config
 
 
 PROVIDER = "fronius"
@@ -126,7 +126,9 @@ def validate_resolved_target(url: str) -> None:
             raise UnsafeTargetError("Only local or private-network devices are allowed.")
         return
 
+    old_timeout = socket.getdefaulttimeout()
     try:
+        socket.setdefaulttimeout(1.0)
         addresses = {
             ipaddress.ip_address(item[4][0])
             for item in socket.getaddrinfo(
@@ -137,6 +139,8 @@ def validate_resolved_target(url: str) -> None:
         }
     except (OSError, ValueError) as exc:
         raise TargetResolutionError("The local device could not be resolved.") from exc
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
     if not addresses or any(not _is_allowed_ip(address) for address in addresses):
         raise UnsafeTargetError("The hostname does not resolve only to local addresses.")
@@ -189,13 +193,39 @@ def remove_saved() -> bool:
 
 
 def effective() -> dict | None:
-    """Resolve environment override, saved config, then unconfigured state."""
+    """Resolve environment override, saved config, ui-settings, then unconfigured state."""
     if config.FRONIUS_URL:
         return {"provider": PROVIDER, "url": config.FRONIUS_URL, "source": "environment"}
-    return load_saved()
+    saved = load_saved()
+    if saved:
+        return saved
+    from energyradar.ui import settings as ui_settings
+    try:
+        raw_dict = ui_settings.load_raw_dict()
+        if "fronius_address" in raw_dict and raw_dict["fronius_address"]:
+            url = normalize_address(str(raw_dict["fronius_address"]).strip())
+            return {"provider": PROVIDER, "url": url, "source": "saved"}
+    except Exception:
+        pass
+    return None
 
 
 def display_address(url: str) -> str:
     """Return the editable origin without exposing the fixed API path."""
+    if not url:
+        return ""
+    parts = urlsplit(url if "://" in url else f"http://{url}")
+    return urlunsplit((parts.scheme or "http", parts.netloc, "", "", "")).rstrip("/")
+
+
+def mask_address_credentials(url: str) -> str:
+    """Mask any username/password or query parameters in a display address."""
+    if not url:
+        return ""
+    if "://" not in url:
+        url = f"http://{url}"
     parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, "", "", "")).rstrip("/")
+    hostname = parts.hostname or ""
+    port_str = f":{parts.port}" if parts.port else ""
+    scheme = parts.scheme or "http"
+    return f"{scheme}://{hostname}{port_str}".rstrip("/")

@@ -5,7 +5,7 @@ hart codiert sein. Alle Texte kommen von hier, damit eine spätere
 Erweiterung um andere Sprachen ohne Refaktorierung möglich ist.
 
 Verwendung:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
     S.verdict_importing(820)  # → "Du beziehst gerade 820 W aus dem Netz."
 """
 from __future__ import annotations

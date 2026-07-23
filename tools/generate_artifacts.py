@@ -4,9 +4,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
-import config
-from services.export import ExportManager
-from services.backup import BackupManager
+from energyradar import config
+from energyradar.services.export import ExportManager
+from energyradar.services.backup import BackupManager
 from datetime import datetime
 
 def generate_artifacts():

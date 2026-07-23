@@ -10,8 +10,8 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "energyradar"))
 
-import config  # noqa: E402
-from services import data_source  # noqa: E402
+from energyradar import config  # noqa: E402
+from energyradar.services import data_source  # noqa: E402
 
 
 class DataSourceNormalizationTests(unittest.TestCase):
@@ -62,13 +62,18 @@ class DataSourcePersistenceTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "data-source.json"
+        self.ui_path = Path(self.directory.name) / "ui-settings.json"
         self.path_patch = patch.object(data_source, "_config_path", return_value=self.path)
         self.path_patch.start()
+        from energyradar.ui import settings as ui_settings
+        self.ui_patch = patch.object(ui_settings, "_settings_path", return_value=self.ui_path)
+        self.ui_patch.start()
         self.env_patch = patch.object(config, "FRONIUS_URL", None)
         self.env_patch.start()
 
     def tearDown(self):
         self.env_patch.stop()
+        self.ui_patch.stop()
         self.path_patch.stop()
         self.directory.cleanup()
 

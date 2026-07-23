@@ -56,37 +56,61 @@ class NowViewModel:
     # MT175-spezifisch
     pin_locked: bool        # True wenn Zähler nicht entsperrt
 
+    # Solar-Prognose (Sprint 5D)
+    solar_forecast: Optional[dict] = None
+
 
 @dataclass
 class TodayViewModel:
-    generated_kwh: Optional[float]    # aus Fronius energy_today
+    generated_kwh: Optional[float]
     generated_label: str
-    import_total_kwh: Optional[float] # MT175 ImportActive (Gesamtzähler)
+    consumption_kwh: Optional[float]
+    consumption_label: str
+    import_total_kwh: Optional[float]
     import_total_label: str
-    export_total_kwh: Optional[float] # MT175 ExportActive (Gesamtzähler)
+    export_total_kwh: Optional[float]
     export_total_label: str
-    history: List[dict]               # [{"time": "HH:MM", "powerW": int}]
+    self_consumption_pct: Optional[int]
+    autarky_pct: Optional[int]
+    coverage: dict
+    period: dict
+    history: List[dict]
     has_data: bool
     has_source: bool
+
+    # Solar-Prognose (Sprint 5E)
+    solar_forecast: Optional[dict] = None
 
 
 @dataclass
 class DeviceCardViewModel:
-    device_id: str          # "fronius" | "mt175"
-    name: str
-    # "connected" | "unavailable" | "error" | "unconfigured"
-    status: str
-    last_seen_label: str    # "Zuletzt gesehen vor 3 Minuten" | "Noch nie"
-    available_measurements: List[str]
-    unavailable_measurements: List[str]
-    address: str            # Adresse zur Anzeige
-    has_error: bool
-    error_message: str
+    device_id: str               # "fronius_primary" | "mt175_primary"
+    device_type: str             # "inverter" | "smart_meter"
+    display_name: str            # "Fronius Wechselrichter" | "ISKRA MT175"
+    connection_status: str       # "connected" | "stale" | "offline" | "error" | "unconfigured" | "testing"
+    data_status: str             # "complete" | "partial" | "unavailable" | "error" | "unconfigured"
+    configuration_status: str    # "configured" | "unconfigured"
+    address_display: str         # "192.168.1.40"
+    protocol: str                # "Fronius Solar API v1" | "Tasmota SML / HTTP"
+    firmware: Optional[str]      # None or "1.24.5"
+    last_seen_at: Optional[str]  # ISO string or None
+    last_measurement_at: Optional[str] # ISO string or None
+    last_successful_test_at: Optional[str] # ISO string or None
+    last_error_at: Optional[str] # ISO string or None
+    capabilities: List[str]      # ["current_power", "daily_energy"]
+    data_quality_label: str      # "Vollständig", "Teilweise verfügbar", "Kein Signal"
+    pin_status: str              # "locked" | "unlocked" | "not_applicable"
+    pin_instructions: Optional[str] # None or instruction string
+    user_message: str            # Friendly message for the user
+    technical_error: Optional[str] # Technical error message or None
 
 
 @dataclass
 class SettingsViewModel:
-    fronius_address: str
+    settings: dict              # Rohe gespeicherte Nutzerentscheidungen (mit null)
+    effective_settings: dict    # Effektive Laufzeitwerte inkl. Defaults
+    system: dict                # Schreibgeschützte Laufzeit-Systeminfos
+    fronius_address: str        # Für Abwärtskompatibilität
     fronius_editable: bool
     mt175_address: str
     refresh_seconds: int
@@ -99,12 +123,12 @@ class SettingsViewModel:
 # ------------------------------------------------------------------ #
 
 def _fmt_power(watts: Optional[float]) -> str:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
     return S.fmt_power(watts)
 
 
 def _fmt_energy(kwh: Optional[float]) -> str:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
     return S.fmt_energy(kwh)
 
 
@@ -139,7 +163,7 @@ def build_now_vm(
     mt175_error: Optional[str],
     stale_threshold_s: float,
 ) -> NowViewModel:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
 
     # --- PV-Leistung ---
     pv_power_w: Optional[float] = None
@@ -213,6 +237,15 @@ def build_now_vm(
         mt175=mt175,
     )
 
+    # Solar-Prognose (Sprint 5D)
+    try:
+        from energyradar.services.forecast import SolarForecastEngine
+        forecast_report = SolarForecastEngine().generate_forecast()
+        solar_forecast_dict = forecast_report.to_dict()
+    except Exception as exc:
+        log.warning("Fehler beim Erstellen des Forecast-Viewmodels: %s", exc)
+        solar_forecast_dict = None
+
     return NowViewModel(
         verdict=verdict,
         verdict_kind=verdict_kind,
@@ -228,6 +261,7 @@ def build_now_vm(
         data_quality=data_quality,
         freshness_label=freshness_label,
         pin_locked=pin_locked,
+        solar_forecast=solar_forecast_dict,
     )
 
 
@@ -242,7 +276,7 @@ def _make_verdict(
     no_source: bool,
     data_quality: str,
 ) -> tuple[str, str]:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
 
     if no_source:
         return S.verdict_no_source(), "no_source"
@@ -271,7 +305,7 @@ def _make_freshness_label(
     fronius,
     mt175,
 ) -> str:
-    from ui.strings_de import S
+    from energyradar.ui.strings_de import S
 
     if data_quality == "no_source":
         return S.freshness_no_source
@@ -292,7 +326,7 @@ def _make_freshness_label(
     time_str = _time_str(latest)
 
     if data_quality == "stale":
-        from ui.strings_de import _relative_time
+        from energyradar.ui.strings_de import _relative_time
         return S.freshness_stale(_relative_time(latest))
 
     return S.freshness_live(time_str)
@@ -300,42 +334,52 @@ def _make_freshness_label(
 
 # ------------------------------------------------------------------ #
 
-def build_today_vm(*, fronius) -> TodayViewModel:
-    """Heute-Viewmodel aus Fronius-Lesung und historischen Daten."""
-    from ui.strings_de import S
-    from services import storage
+def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
+    """Heute-Viewmodel über HistoryService."""
+    from energyradar.ui.strings_de import S
+    from energyradar.services import history
+    from energyradar import config
+    import zoneinfo
 
-    has_source = fronius is not None
+    has_source = fronius is not None or mt175 is not None
 
-    generated_kwh: Optional[float] = None
-    if fronius is not None:
-        generated_kwh = round(fronius.energy_today / 1000, 2)
+    tz = zoneinfo.ZoneInfo(config.MT175_TIMEZONE)
+    hist_data = history.get_today_history(tz)
 
-    history_raw = storage.history_today()
-    history = [{"time": h["time"], "powerW": round(h["power"])} for h in history_raw]
+    summary = hist_data["summary"]
+
+    gen_kwh = summary["solar_kwh"]
+    cons_kwh = summary["consumption_kwh"]
+    imp_kwh = summary["grid_import_kwh"]
+    exp_kwh = summary["grid_export_kwh"]
+
+    # Solar-Prognose (Sprint 5E)
+    try:
+        from energyradar.services.forecast import SolarForecastEngine
+        forecast_report = SolarForecastEngine().generate_forecast()
+        solar_forecast_dict = forecast_report.to_dict()
+    except Exception as exc:
+        log.warning("Fehler beim Erstellen des Forecast-Viewmodels für Today: %s", exc)
+        solar_forecast_dict = None
 
     return TodayViewModel(
-        generated_kwh=generated_kwh,
-        generated_label=_fmt_energy(generated_kwh),
-        import_total_kwh=None,
-        import_total_label=S.label_unknown,
-        export_total_kwh=None,
-        export_total_label=S.label_unknown,
-        history=history,
-        has_data=len(history) > 0,
+        generated_kwh=gen_kwh,
+        generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
+        consumption_kwh=cons_kwh,
+        consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
+        import_total_kwh=imp_kwh,
+        import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
+        export_total_kwh=exp_kwh,
+        export_total_label=_fmt_energy(exp_kwh) if exp_kwh is not None else S.label_unknown,
+        self_consumption_pct=summary["self_consumption_pct"],
+        autarky_pct=summary["autarky_pct"],
+        coverage=hist_data["coverage"],
+        period=hist_data["period"],
+        history=hist_data["points"],
+        has_data=len(hist_data["points"]) > 0,
         has_source=has_source,
+        solar_forecast=solar_forecast_dict,
     )
-
-
-def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
-    """Heute-Viewmodel mit Netzzähler-Totals."""
-    vm = build_today_vm(fronius=fronius)
-    if mt175 is not None:
-        vm.import_total_kwh = mt175.grid_import_total_kwh
-        vm.import_total_label = _fmt_energy(mt175.grid_import_total_kwh)
-        vm.export_total_kwh = mt175.grid_export_total_kwh
-        vm.export_total_label = _fmt_energy(mt175.grid_export_total_kwh)
-    return vm
 
 
 def build_devices_vm(
@@ -346,118 +390,190 @@ def build_devices_vm(
     mt175_configured: bool,
     fronius_error: Optional[str],
     mt175_error: Optional[str],
+    mt175_address: str = "",
+    test_results: Optional[dict] = None,
 ) -> list[DeviceCardViewModel]:
-    from ui.strings_de import S
-    from services import data_source as ds
+    from energyradar.ui.strings_de import S
+    from energyradar.services import data_source as ds
+
+    if test_results is None:
+        test_results = {}
 
     cards = []
 
-    # --- Fronius-Karte ---
-    if fronius is not None:
-        f_status = "connected"
-        f_last = S.device_last_seen(fronius.timestamp) if fronius.timestamp else S.device_last_seen_never
-        f_avail = [S.avail_pv_power, S.avail_energy_today, S.avail_energy_year, S.avail_energy_total]
-        f_unavail: list[str] = []
-        f_err = ""
-    elif fronius_configured and fronius_error:
-        f_status = "error"
-        f_last = S.device_last_seen_never
-        f_avail = []
-        f_unavail = [S.avail_pv_power, S.avail_energy_today, S.avail_energy_year, S.avail_energy_total]
-        f_err = fronius_error
-    elif fronius_configured:
-        f_status = "unavailable"
-        f_last = S.device_last_seen_never
-        f_avail = []
-        f_unavail = [S.avail_pv_power]
-        f_err = ""
-    else:
-        f_status = "unconfigured"
-        f_last = S.device_last_seen_never
-        f_avail = []
-        f_unavail = []
-        f_err = ""
-
+    # --- Fronius Wechselrichter ---
     src = ds.effective()
-    fronius_addr = (
-        ds.display_address(src["url"])
-        if src and src.get("source") == "saved"
-        else ""
-    )
+    raw_f_addr = src["url"] if src and src.get("url") else ""
+    f_addr_display = ds.mask_address_credentials(raw_f_addr)
+
+    f_firmware = getattr(fronius, "firmware", None) if fronius else None
+
+    if not fronius_configured:
+        f_conn = "unconfigured"
+        f_data = "unconfigured"
+        f_msg = "Wechselrichter ist noch nicht eingerichtet."
+        f_quality = "Nicht eingerichtet"
+        f_caps = []
+    elif fronius is not None:
+        f_conn = "connected"
+        f_data = "complete"
+        f_msg = "Der Wechselrichter liefert aktuelle Energiedaten."
+        f_quality = "Vollständig"
+        f_caps = ["current_power", "daily_energy"]
+    elif fronius_error:
+        f_conn = "error"
+        f_data = "error"
+        f_msg = "Der Wechselrichter antwortet gerade nicht."
+        f_quality = "Fehler"
+        f_caps = []
+    else:
+        f_conn = "offline"
+        f_data = "unavailable"
+        f_msg = "Kein Signal vom Wechselrichter empfangen."
+        f_quality = "Kein Signal"
+        f_caps = []
+
+    f_last_seen = fronius.timestamp.isoformat() if fronius and fronius.timestamp else None
+    f_last_meas = fronius.timestamp.isoformat() if fronius and fronius.timestamp else None
+    f_last_err = datetime.now(timezone.utc).isoformat() if fronius_error else None
+
+    f_test = test_results.get("fronius_primary")
+    f_last_test = f_test.get("tested_at") if f_test and f_test.get("ok") else None
 
     cards.append(DeviceCardViewModel(
-        device_id="fronius",
-        name=S.device_fronius,
-        status=f_status,
-        last_seen_label=f_last,
-        available_measurements=f_avail,
-        unavailable_measurements=f_unavail,
-        address=fronius_addr,
-        has_error=bool(fronius_error),
-        error_message=f_err[:120] if f_err else "",
+        device_id="fronius_primary",
+        device_type="inverter",
+        display_name="Fronius Wechselrichter",
+        connection_status=f_conn,
+        data_status=f_data,
+        configuration_status="configured" if fronius_configured else "unconfigured",
+        address_display=f_addr_display,
+        protocol="Fronius Solar API v1",
+        firmware=f_firmware,
+        last_seen_at=f_last_seen,
+        last_measurement_at=f_last_meas,
+        last_successful_test_at=f_last_test,
+        last_error_at=f_last_err,
+        capabilities=f_caps,
+        data_quality_label=f_quality,
+        pin_status="not_applicable",
+        pin_instructions=None,
+        user_message=f_msg,
+        technical_error=fronius_error[:120] if fronius_error else None,
     ))
 
-    # --- MT175-Karte ---
-    if mt175 is not None:
-        m_status = "connected"
-        m_last = S.device_last_seen(mt175.received_at)
-        m_avail = [S.avail_grid_import, S.avail_grid_export, S.avail_grid_phases]
-        m_unavail: list[str] = []
+    # --- ISKRA MT175 Smart Meter ---
+    m_addr_display = ds.mask_address_credentials(mt175_address)
+    m_firmware = getattr(mt175, "firmware", None) if mt175 else None
+
+    if not mt175_configured:
+        m_conn = "unconfigured"
+        m_data = "unconfigured"
+        m_pin = "not_applicable"
+        m_msg = "Smart Meter ist noch nicht eingerichtet."
+        m_quality = "Nicht eingerichtet"
+        m_caps = []
+        m_instructions = None
+    elif mt175 is not None:
+        m_conn = "connected"
         if mt175.current_power_w is None:
-            m_avail_extra = []
-            m_unavail = [S.unavail_pin_locked]
+            m_data = "partial"
+            m_pin = "locked"
+            m_msg = "Zählerstände sind verfügbar. Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
+            m_quality = "Teilweise verfügbar"
+            m_caps = ["grid_import_total", "grid_export_total"]
+            m_instructions = "Am Zähler ist die PIN-Freigabe erforderlich. Die Eingabe erfolgt je nach Zählermodell über die optische Taste beziehungsweise eine Lichtquelle. Bitte beachte die Anleitung deines Messstellenbetreibers."
         else:
-            m_avail = [S.avail_grid_power] + m_avail
-            m_unavail = []
-        m_err = ""
-    elif mt175_configured and mt175_error:
-        m_status = "error"
-        m_last = S.device_last_seen_never
-        m_avail = []
-        m_unavail = [S.avail_grid_power, S.avail_grid_import, S.avail_grid_export]
-        m_err = mt175_error
-    elif mt175_configured:
-        m_status = "unavailable"
-        m_last = S.device_last_seen_never
-        m_avail = []
-        m_unavail = [S.avail_grid_power]
-        m_err = ""
+            m_data = "complete"
+            m_pin = "unlocked"
+            m_msg = "Der Smart Meter liefert Zählerstände und aktuelle Netzleistung."
+            m_quality = "Vollständig"
+            m_caps = ["grid_import_total", "grid_export_total", "current_power"]
+            m_instructions = None
+    elif mt175_error:
+        m_conn = "error"
+        m_data = "error"
+        m_pin = "not_applicable"
+        m_msg = "Der Smart Meter antwortet gerade nicht."
+        m_quality = "Fehler"
+        m_caps = []
+        m_instructions = None
     else:
-        m_status = "unconfigured"
-        m_last = S.device_last_seen_never
-        m_avail = []
-        m_unavail = []
-        m_err = ""
+        m_conn = "offline"
+        m_data = "unavailable"
+        m_pin = "not_applicable"
+        m_msg = "Kein Signal vom Smart Meter empfangen."
+        m_quality = "Kein Signal"
+        m_caps = []
+        m_instructions = None
+
+    m_last_seen = mt175.received_at.isoformat() if mt175 and mt175.received_at else None
+    m_last_meas = mt175.received_at.isoformat() if mt175 and mt175.received_at else None
+    m_last_err = datetime.now(timezone.utc).isoformat() if mt175_error else None
+
+    m_test = test_results.get("mt175_primary")
+    m_last_test = m_test.get("tested_at") if m_test and m_test.get("ok") else None
 
     cards.append(DeviceCardViewModel(
-        device_id="mt175",
-        name=S.device_mt175,
-        status=m_status,
-        last_seen_label=m_last,
-        available_measurements=m_avail,
-        unavailable_measurements=m_unavail,
-        address="",    # wird dynamisch aus Settings befüllt
-        has_error=bool(mt175_error),
-        error_message=m_err[:120] if m_err else "",
+        device_id="mt175_primary",
+        device_type="smart_meter",
+        display_name="ISKRA MT175",
+        connection_status=m_conn,
+        data_status=m_data,
+        configuration_status="configured" if mt175_configured else "unconfigured",
+        address_display=m_addr_display,
+        protocol="Tasmota SML / HTTP",
+        firmware=m_firmware,
+        last_seen_at=m_last_seen,
+        last_measurement_at=m_last_meas,
+        last_successful_test_at=m_last_test,
+        last_error_at=m_last_err,
+        capabilities=m_caps,
+        data_quality_label=m_quality,
+        pin_status=m_pin,
+        pin_instructions=m_instructions,
+        user_message=m_msg,
+        technical_error=mt175_error[:120] if mt175_error else None,
     ))
 
     return cards
 
 
-def build_settings_vm(
-    *,
-    fronius_address: str,
-    fronius_editable: bool,
-    mt175_address: str,
-    refresh_seconds: int,
-    timezone_str: str,
-    theme: str,
-) -> SettingsViewModel:
+def build_settings_vm() -> SettingsViewModel:
+    from energyradar import config
+    from energyradar.ui import settings as ui_settings
+    from energyradar.services import data_source as ds
+
+    raw_dict = ui_settings.load_raw_dict()
+    effective_dict = ui_settings.resolve_effective(raw_dict)
+
+    src = ds.effective()
+    fronius_addr = ""
+    fronius_editable = True
+    if src is not None:
+        if src.get("source") == "saved":
+            fronius_addr = ds.display_address(src["url"])
+            fronius_editable = True
+        elif src.get("source") == "environment":
+            fronius_addr = ds.display_address(src["url"])
+            fronius_editable = False
+
+    system_info = {
+        "app_version": config.APP_VERSION,
+        "build": config.APP_BUILD,
+        "database_schema_version": config.SCHEMA_VERSION,
+        "database_path": str(config.DB_PATH),
+        "log_path": str(config.DATA_DIR / "energyradar.log"),
+    }
+
     return SettingsViewModel(
-        fronius_address=fronius_address,
+        settings=raw_dict,
+        effective_settings=effective_dict,
+        system=system_info,
+        fronius_address=fronius_addr,
         fronius_editable=fronius_editable,
-        mt175_address=mt175_address,
-        refresh_seconds=refresh_seconds,
-        timezone=timezone_str,
-        theme=theme,
+        mt175_address=effective_dict.get("mt175_address", ""),
+        refresh_seconds=effective_dict.get("refresh_seconds", 5),
+        timezone=config.MT175_TIMEZONE,
+        theme=effective_dict.get("theme", "dark"),
     )

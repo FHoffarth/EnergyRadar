@@ -33,8 +33,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
-import config
-from models.mt175 import MT175Reading
+from energyradar import config
+from energyradar.models.mt175 import MT175Reading
 
 # Fixed Tasmota query that returns the sensor status block.
 _TASMOTA_PATH = "/cm?cmnd=Status%2010"
@@ -215,3 +215,24 @@ def read_url(url: str) -> MT175Reading:
     response = requests.get(endpoint, timeout=(1.5, 3.0), allow_redirects=False)
     response.raise_for_status()
     return parse(response.json())
+
+
+def read_demo() -> MT175Reading:
+    """Demo-Quelle für ISKRA MT175 Smart Meter mit plausiblem Live-Netzfluss."""
+    import random
+    from energyradar.collectors import fronius
+    now = datetime.now(_local_zone())
+    pv_w = fronius._demo_power(now)
+    home_w = 1100.0 + random.uniform(-100, 100)
+    grid_w = home_w - pv_w  # Negative = Export, Positive = Import
+    return MT175Reading(
+        timestamp=now,
+        received_at=datetime.now(timezone.utc),
+        grid_import_total_kwh=9755.0 + (now.hour * 0.4),
+        grid_export_total_kwh=12399.0 + (now.hour * 1.8),
+        current_power_w=grid_w,
+        phase_l1_w=grid_w / 3.0,
+        phase_l2_w=grid_w / 3.0,
+        phase_l3_w=grid_w / 3.0,
+        meter_id="DEMO-MT175-8842",
+    )

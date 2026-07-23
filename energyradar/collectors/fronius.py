@@ -11,9 +11,9 @@ from urllib.parse import urlsplit
 
 import requests
 
-import config
-from models.energy import EnergyReading
-from services import data_source
+from energyradar import config
+from energyradar.models.energy import EnergyReading
+from energyradar.services import data_source
 
 
 def read() -> EnergyReading:

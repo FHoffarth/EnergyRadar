@@ -1,7 +1,9 @@
 
-APP_VERSION = "0.9"
-APP_STAGE = "Beta"
-APP_BUILD = "2026.07.22"
+APP_VERSION = "0.5.0-rc1"
+APP_STAGE = "Release Candidate"
+APP_BUILD = "2026.07.23"
+SCHEMA_VERSION = 2
+
 import os
 import sys
 from pathlib import Path

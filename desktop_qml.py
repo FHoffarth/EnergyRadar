@@ -8,7 +8,7 @@ from pathlib import Path
 from energyradar import config
 
 # Add the app directory to sys.path so its internal imports work
-sys.path.insert(0, str(config.BASE_DIR))
+
 
 from PySide6.QtGui import QGuiApplication, QFontDatabase, QIcon
 from PySide6.QtQml import QQmlApplicationEngine

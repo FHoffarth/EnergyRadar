@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "energyradar"))
 
 import app as application  # noqa: E402
-import config  # noqa: E402
+from energyradar import config  # noqa: E402
 
 
 class DataSourceApiTests(unittest.TestCase):
