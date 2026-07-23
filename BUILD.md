@@ -1,6 +1,6 @@
 # EnergyRadar Build Instructions
 
-Diese Dokumentation beschreibt den Build-Prozess für die Windows Beta-Version von EnergyRadar.
+Diese Dokumentation beschreibt den kanonischen Build-Prozess für Windows und macOS.
 
 ## Voraussetzungen
 1. **Python 3.14 x64** mit den Abhängigkeiten aus `energyradar/requirements.txt`.
@@ -28,7 +28,9 @@ Diese Dokumentation beschreibt den Build-Prozess für die Windows Beta-Version v
    python tools/build.py
    ```
    Dieses Skript leert die Ordner `build` und `dist` und führt PyInstaller mit `packaging/EnergyRadar.spec` aus.
-   Das Ergebnis ist `dist/EnergyRadar/` mit Python-Runtime, PySide6/QtWebEngine und dem gebauten React-Frontend.
+   Das Ergebnis ist unter Windows `dist/EnergyRadar/` und unter macOS
+   `dist/EnergyRadar.app`. Beide enthalten Python-Runtime, PySide6/QtWebEngine
+   und dasselbe gebaute React-Frontend.
 
 3. **Installer erstellen (Inno Setup)**
    Kompiliere das Setup-Skript `installer/EnergyRadar.iss`:
@@ -43,6 +45,8 @@ Diese Dokumentation beschreibt den Build-Prozess für die Windows Beta-Version v
 
 ## Hinweise zu Pfaden
 - Das React-Produktionsbundle und die App-Icons werden über den `datas`-Parameter in der `.spec`-Datei eingebunden.
+- `packaging/EnergyRadar.spec` ist die einzige PyInstaller-Spezifikation.
+- Lokale Builds und GitHub Actions rufen ausschließlich `python tools/build.py` auf.
 - Einstiegspunkt des Desktop-Builds ist `desktop_web.py`.
 - Die UI läuft lokal in QtWebEngine; Python und React kommunizieren über QWebChannel.
 - Nutzerdaten (Datenbank, Settings) werden *niemals* in das Installationsverzeichnis (`%ProgramFiles%`) geschrieben.

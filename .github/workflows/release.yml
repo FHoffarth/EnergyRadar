@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing release tag (for example v0.5.5)
+        description: Existing release tag (for example v0.5.0-rc2 or v0.5.0)
         required: true
         type: string
       build_run_id:
@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc[1-9][0-9]*)?$ ]]; then
             echo "Invalid release tag: $RELEASE_TAG" >&2
             exit 1
           fi
