@@ -1,38 +1,24 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Activity, BarChart2, Cpu, Settings, Zap, Database } from 'lucide-react';
+import { useEnergyProvider } from '../../providers/EnergyProviderContext';
+import { Activity, BarChart2, Cpu, Settings, Zap, Database, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function Sidebar() {
-  const { view, setView, status, powerData } = useApp();
+interface SidebarProps {
+  onOpenSetupWizard?: () => void;
+}
 
-  const statusPresentation = {
-    live: {
-      label: 'Live',
-      detail: powerData.lastUpdated || 'Aktuelle Messwerte',
-      dot: 'bg-emerald-500',
-    },
-    stale: {
-      label: 'Veraltet',
-      detail: powerData.lastUpdated || 'Letzte Messung ist veraltet',
-      dot: 'bg-amber-500',
-    },
-    meter_locked: {
-      label: 'Teilweise verfügbar',
-      detail: 'Zähler-PIN erforderlich',
-      dot: 'bg-amber-500',
-    },
-    error: {
-      label: 'Nicht erreichbar',
-      detail: 'Verbindung fehlgeschlagen',
-      dot: 'bg-rose-500',
-    },
-    no_data: {
-      label: 'Keine Daten',
-      detail: 'Keine Datenquelle eingerichtet',
-      dot: 'bg-slate-400',
-    },
-  }[status];
+export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
+  const { view, setView, status } = useApp();
+  const { snapshot, providerType } = useEnergyProvider();
+
+  const qualityPresentation = {
+    live: { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' },
+    stale: { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' },
+    partial: { label: 'Teilweise verfügbar', detail: 'Zähler-PIN erforderlich', dot: 'bg-amber-500' },
+    error: { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' },
+    unavailable: { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' },
+  }[snapshot.quality] || { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
 
   const navItems = [
     { id: 'now', label: 'Jetzt', icon: Activity },
@@ -46,10 +32,15 @@ export function Sidebar() {
     <aside className="w-64 flex-shrink-0 z-20 bg-[#F1F1EF] dark:bg-[#1C1C1E] border-r border-[#E5E5E3] dark:border-slate-800 flex flex-col h-full">
       <div className="p-8 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#1C1C1E] dark:bg-white rounded-xl flex items-center justify-center shadow-sm">
-            <Zap className="w-6 h-6 text-white dark:text-[#1C1C1E]" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-emerald-500 p-[1px] shadow-sm">
+            <div className="w-full h-full bg-[#F1F1EF] dark:bg-[#1C1C1E] rounded-[11px] flex items-center justify-center">
+              <Activity className="w-5 h-5 text-sky-500" />
+            </div>
           </div>
-          <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100">EnergyRadar</span>
+          <div>
+            <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
+            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{providerType === 'demo' ? 'Demo-Modus' : 'Desktop-Bridge'}</span>
+          </div>
         </div>
       </div>
 
@@ -75,15 +66,25 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-6">
+      <div className="p-6 space-y-3">
         <div className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-2xl border border-[#E5E5E3] dark:border-slate-700">
           <p className="text-xs text-[#6E6E6E] dark:text-slate-400 font-medium uppercase tracking-wider mb-2">Datenstatus</p>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${statusPresentation.dot}`}></div>
-            <span className="text-sm font-semibold text-[#1C1C1E] dark:text-slate-200">{statusPresentation.label}</span>
+            <div className={`w-2 h-2 rounded-full ${qualityPresentation.dot}`} />
+            <span className="text-sm font-semibold text-[#1C1C1E] dark:text-slate-200">{qualityPresentation.label}</span>
           </div>
-          <p className="text-[11px] text-[#8E8E8E] dark:text-slate-500 mt-1">{statusPresentation.detail}</p>
+          <p className="text-[11px] text-[#8E8E8E] dark:text-slate-500 mt-1">{qualityPresentation.detail}</p>
         </div>
+
+        {onOpenSetupWizard && (
+          <button
+            onClick={onOpenSetupWizard}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Datenquelle einrichten
+          </button>
+        )}
       </div>
     </aside>
   );
