@@ -90,6 +90,8 @@ function processNowViewModel(raw: Record<string, any>) {
     grid: toDataState(grid, forceUnknown),
     home: toDataState(home, forceUnknown),
     lastUpdated: raw.freshness_label || null,
+    verdict: raw.verdict,
+    verdict_kind: raw.verdict_kind,
   };
 
   nowData$.set({ power, status });

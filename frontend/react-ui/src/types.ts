@@ -15,6 +15,8 @@ export interface PowerData {
   grid: DataState<number>;  // positive = grid draw, negative = feed-in
   home: DataState<number>;
   lastUpdated: string | null;
+  verdict?: string;
+  verdict_kind?: string;
   solar_forecast?: SolarForecastReportData | null;
 }
 
