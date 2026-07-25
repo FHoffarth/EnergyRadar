@@ -211,3 +211,69 @@ export interface SolarForecastReportData {
   data_basis: string[];
   warnings: string[];
 }
+
+// ── Provider Model Types ───────────────────────────────────────────
+
+export type DemoPresetId = 'sunny_midday' | 'evening_peak' | 'cloudy_heatpump' | 'partial_sensor_drop';
+
+export type DataOrigin = 'observed' | 'calculated' | 'estimated' | 'simulated' | 'unavailable';
+
+export type DataQuality = 'live' | 'stale' | 'partial' | 'unavailable' | 'error';
+
+export type ProviderType = 'demo' | 'bridge' | 'none';
+
+export interface EnergyValue {
+  valueKw: number | null;
+  origin: DataOrigin;
+  sourceLabel?: string;
+}
+
+export interface EnergyAssessment {
+  verdict: string;
+  kind: string | null;
+  confidence?: string | null;
+}
+
+export interface EnergySnapshot {
+  timestamp: string | null;
+  quality: DataQuality;
+  solar: EnergyValue;
+  homeLoad: EnergyValue;
+  grid: EnergyValue;
+  battery: {
+    powerKw: number | null;
+    stateOfChargePercent: number | null;
+    origin: DataOrigin;
+  } | null;
+  assessment: EnergyAssessment | null;
+  warnings: string[];
+  solarForecast?: SolarForecastReportData | null;
+}
+
+export interface TimelineEntry {
+  time: string;
+  solarKw: number | null;
+  homeLoadKw: number | null;
+  gridKw: number | null;
+  batteryPct: number | null;
+  origin: DataOrigin;
+}
+
+export interface DemoDeviceSummary {
+  id: string;
+  name: string;
+  category: string;
+  status: 'active' | 'idle' | 'last_known' | 'unknown';
+  powerWatts: number | null;
+  origin: DataOrigin;
+  lastSeen: string;
+  smartShedEnabled: boolean;
+  notes: string;
+  iconName: string;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
+  latencyMs: number | null;
+}

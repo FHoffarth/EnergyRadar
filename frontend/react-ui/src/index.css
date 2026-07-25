@@ -1,1 +1,40 @@
 @import "tailwindcss";
+
+@theme {
+  --color-radar-bg: #090D16;
+  --color-radar-bgLight: #F8FAFC;
+  --color-radar-surface: #111726;
+  --color-radar-surfaceLight: #FFFFFF;
+  --color-radar-surfaceHighlight: #1A2338;
+  --color-radar-surfaceHighlightLight: #F1F5F9;
+  --color-radar-border: #1F2B44;
+  --color-radar-borderLight: #E2E8F0;
+  --color-radar-accent: #0284C7;
+  --color-radar-solar: #D97706;
+  --color-radar-grid: #E11D48;
+  --color-radar-battery: #059669;
+  --color-radar-home: #4F46E5;
+  --font-sans: 'Manrope', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif';
+  --font-metric: 'Manrope', 'system-ui', 'sans-serif';
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: local('Manrope'), local('Manrope-Regular'), system-ui, -apple-system, sans-serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
