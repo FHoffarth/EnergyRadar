@@ -1,78 +1,92 @@
 name: Build
 
-# Baut EnergyRadar bei jedem Push auf main automatisch für Windows und macOS
-# und lädt die fertigen Programme als Artefakte hoch. Zusätzlich manuell
-# über den "Run workflow"-Knopf startbar. Keine Secrets nötig.
 on:
+  pull_request:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches:
+      - main
+      - "release/**"
+    tags:
+      - "v*"
   workflow_dispatch:
 
-# Laufende Builds für denselben Ref abbrechen, wenn neu gepusht wird –
-# spart Runner-Zeit und vermeidet veraltete Artefakte.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
-# Minimale Rechte: der Workflow liest nur den Code, mehr braucht er nicht.
 permissions:
   contents: read
 
 env:
-  # Der macOS-Build bleibt unabhängig vom explizit auf Python 3.14 x64
-  # festgelegten Windows-Build.
+  NODE_VERSION: "22"
+  WINDOWS_PYTHON_VERSION: "3.14"
   MACOS_PYTHON_VERSION: "3.12"
 
 jobs:
-  # --------------------------------------------------------------------- #
-  # Windows: erzeugt dist/EnergyRadar/EnergyRadar.exe via build_windows.ps1
-  # --------------------------------------------------------------------- #
   windows:
     name: Build Windows (.exe)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
-      - name: Code auschecken
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Python einrichten
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/react-ui/package-lock.json
+
+      - name: Build React UI
+        working-directory: frontend/react-ui
+        shell: pwsh
+        run: |
+          npm.cmd ci
+          npm.cmd run lint
+          npm.cmd run build
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # Muss mit der Versions-/Architekturpruefung in build_windows.ps1
-          # uebereinstimmen.
-          python-version: "3.14"
+          python-version: ${{ env.WINDOWS_PYTHON_VERSION }}
           architecture: x64
           cache: pip
           cache-dependency-path: |
             energyradar/requirements.txt
             requirements-build.txt
 
-      - name: pip aktualisieren
-        shell: pwsh
-        run: python -m pip install --upgrade pip
-
-      # Nutzt das vorhandene Build-Skript (Requirements + Icon + PyInstaller).
-      - name: Build (PyInstaller)
+      - name: Install Python dependencies
         shell: pwsh
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          ./build_windows.ps1
+          python -m pip install --upgrade pip
+          python -m pip install -r energyradar/requirements.txt -r requirements-build.txt
 
-      - name: Build-Ergebnis prüfen
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest tests/ -v
+
+      - name: Build canonical desktop bundle
+        run: python tools/build.py
+
+      - name: Validate bundle contract
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/EnergyRadar/EnergyRadar.exe")) {
-            throw "Erwartete Datei dist/EnergyRadar/EnergyRadar.exe fehlt."
+          $requiredFiles = @(
+            "dist/EnergyRadar/EnergyRadar.exe",
+            "dist/EnergyRadar/_internal/react-ui/dist/index.html",
+            "dist/EnergyRadar/_internal/PySide6/Qt6WebEngineCore.dll",
+            "dist/EnergyRadar/_internal/PySide6/QtWebEngineProcess.exe",
+            "dist/EnergyRadar/_internal/PySide6/plugins/platforms/qwindows.dll"
+          )
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "Incomplete Windows bundle: $file is missing."
+            }
           }
 
-      - name: Desktop-Fensterzustand testen
-        shell: pwsh
-        run: python -m unittest discover -s tests -p "test_*.py" -v
-
-      # Eine reine Dateiprüfung erkennt keine Loader-Fehler. Dieser Test startet
-      # exakt das spätere Release-Bundle und wartet auf ein echtes App-Fenster.
-      - name: Start-Smoke-Test (gepackte EXE)
+      - name: Packaged startup smoke
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Windows.Forms
@@ -91,19 +105,6 @@ jobs:
           }
           '@
 
-          # Browser + Explorer simulieren: Der ZIP-Download markiert die
-          # Runtime-Dateien als Internetinhalt (ZoneId=3). Die EXE selbst bleibt
-          # unmarkiert, weil ein nicht-interaktiver Runner den SmartScreen-Dialog
-          # nicht bestätigen kann. Der relevante .NET-Loader-Pfad bleibt markiert.
-          $zone = "[ZoneTransfer]`r`nZoneId=3"
-          Get-ChildItem "dist/EnergyRadar/_internal" -Recurse -File | ForEach-Object {
-            Set-Content -LiteralPath $_.FullName -Stream Zone.Identifier -Value $zone
-          }
-
-          # Exakt die v0.5.4-Regression nachstellen: Windows meldet fuer ein
-          # minimiertes Fenster -32000/-32000. Der Build muss diesen Zustand
-          # verwerfen und trotzdem ein sichtbares Fenster auf einem Monitor
-          # oeffnen. Das isolierte Profil schliesst Entwicklerzustand aus.
           $smokeProfile = Join-Path $env:RUNNER_TEMP "energyradar-window-smoke"
           $smokeData = Join-Path $smokeProfile "EnergyRadar"
           New-Item -ItemType Directory -Path $smokeData -Force | Out-Null
@@ -115,37 +116,28 @@ jobs:
 
           $process = Start-Process -FilePath "dist/EnergyRadar/EnergyRadar.exe" -PassThru
           $deadline = (Get-Date).AddSeconds(30)
-          $stableAfter = (Get-Date).AddSeconds(15)
+          $stableAfter = (Get-Date).AddSeconds(10)
           $started = $false
 
           try {
             while ((Get-Date) -lt $deadline) {
               Start-Sleep -Milliseconds 500
               $process.Refresh()
-
               if ($process.HasExited) {
-                throw "EnergyRadar wurde beim Start mit Exitcode $($process.ExitCode) beendet."
+                throw "EnergyRadar exited during startup with code $($process.ExitCode)."
               }
-
-              if ($process.MainWindowTitle -like "*Unhandled exception*") {
-                throw "PyInstaller meldet beim Start eine unbehandelte Ausnahme."
-              }
-
               if ((Get-Date) -ge $stableAfter -and $process.MainWindowTitle -eq "EnergyRadar") {
                 $handle = [IntPtr]$process.MainWindowHandle
-                if ($handle -eq [IntPtr]::Zero) {
-                  throw "EnergyRadar hat kein Top-Level-Fensterhandle."
-                }
-                if (-not [WindowAudit]::IsWindowVisible($handle)) {
-                  throw "EnergyRadar-Fenster ist nicht sichtbar."
+                if ($handle -eq [IntPtr]::Zero -or -not [WindowAudit]::IsWindowVisible($handle)) {
+                  throw "EnergyRadar did not create a visible top-level window."
                 }
                 if ([WindowAudit]::IsIconic($handle)) {
-                  throw "EnergyRadar-Fenster ist minimiert."
+                  throw "EnergyRadar restored in a minimized state."
                 }
 
                 $rect = New-Object WindowAudit+RECT
                 if (-not [WindowAudit]::GetWindowRect($handle, [ref]$rect)) {
-                  throw "Fenstergeometrie konnte nicht gelesen werden."
+                  throw "Could not read the EnergyRadar window geometry."
                 }
                 $onScreen = [System.Windows.Forms.Screen]::AllScreens | Where-Object {
                   $bounds = $_.Bounds
@@ -155,17 +147,15 @@ jobs:
                   $rect.Top -lt $bounds.Bottom
                 }
                 if (-not $onScreen) {
-                  throw "EnergyRadar-Fenster liegt ausserhalb aller Monitore: $($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)"
+                  throw "EnergyRadar window is outside every monitor."
                 }
-
-                Write-Host "Start erfolgreich: sichtbares EnergyRadar-Fenster ist seit 15 Sekunden stabil."
+                Write-Host "Visible on-screen EnergyRadar window verified."
                 $started = $true
                 break
               }
             }
-
             if (-not $started) {
-              throw "Innerhalb von 30 Sekunden erschien kein EnergyRadar-Fenster."
+              throw "No EnergyRadar window appeared within 30 seconds."
             }
           }
           finally {
@@ -175,9 +165,16 @@ jobs:
             }
           }
 
-      # Der gesamte Ordner ist lauffähig (EnergyRadar.exe + _internal/).
-      # upload-artifact packt den Inhalt automatisch in ein ZIP.
-      - name: Artefakt hochladen (EnergyRadar.exe)
+          $diagnosticLog = Join-Path $smokeData "energyradar.log"
+          if (-not (Test-Path -LiteralPath $diagnosticLog)) {
+            throw "Packaged startup diagnostic log is missing."
+          }
+          if (Select-String -LiteralPath $diagnosticLog -SimpleMatch "[ERROR]" -Quiet) {
+            Get-Content -LiteralPath $diagnosticLog
+            throw "Packaged startup diagnostics contain an error."
+          }
+
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: EnergyRadar-windows
@@ -185,25 +182,29 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # --------------------------------------------------------------------- #
-  # macOS: erzeugt dist/EnergyRadar.app via build_macos.sh
-  #
-  # WICHTIG – Architektur: PyInstaller cross-compiliert nicht, sondern baut für
-  # die Architektur des Runners. 'macos-latest' ist Apple Silicon (arm64) und
-  # erzeugt daher eine reine arm64-App, die auf Intel-Macs NICHT startet.
-  # 'macos-13' wurde am 4. Dezember 2025 stillgelegt. Der offizielle
-  # x86_64-Nachfolger 'macos-15-intel' erzeugt eine Intel-App, die nativ auf
-  # Intel-Macs UND per Rosetta 2 auf Apple Silicon läuft.
-  # --------------------------------------------------------------------- #
   macos:
     name: Build macOS (Intel .app)
-    runs-on: macos-15-intel   # Intel/x86_64 – bewusst NICHT macos-latest (arm64)
-    timeout-minutes: 30
+    runs-on: macos-15-intel
+    timeout-minutes: 35
     steps:
-      - name: Code auschecken
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Python einrichten
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/react-ui/package-lock.json
+
+      - name: Build React UI
+        working-directory: frontend/react-ui
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.MACOS_PYTHON_VERSION }}
@@ -212,41 +213,35 @@ jobs:
             energyradar/requirements.txt
             requirements-build.txt
 
-      - name: pip aktualisieren
-        run: python3 -m pip install --upgrade pip
-
-      # Nutzt das vorhandene Build-Skript (Requirements + .icns + PyInstaller).
-      # sips und iconutil sind auf macOS-Runnern vorinstalliert.
-      - name: Build (PyInstaller)
-        run: bash build_macos.sh
-
-      - name: Build-Ergebnis prüfen
+      - name: Install Python dependencies
         run: |
-          test -d "dist/EnergyRadar.app" || { echo "dist/EnergyRadar.app fehlt."; exit 1; }
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r energyradar/requirements.txt -r requirements-build.txt
 
-      # Diagnose: macht Architektur (x86_64/arm64) und Bundle-Eigenschaften im
-      # Log sichtbar. Rein informativ – schlägt nie fehl (eine unsignierte App
-      # lässt codesign/spctl mit non-zero enden, das ist hier erwartet).
-      - name: Diagnose (Architektur & Bundle)
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python3 -m pytest tests/ -v
+
+      - name: Build canonical desktop bundle
+        run: python3 tools/build.py
+
+      - name: Validate bundle contract
         run: |
-          set +e
+          set -euo pipefail
           APP="dist/EnergyRadar.app"
           BIN="$APP/Contents/MacOS/EnergyRadar"
-          echo "== file (Dateityp/Architektur) =="       ; file "$BIN"
-          echo "== lipo -archs (enthaltene Architekturen) ==" ; lipo -archs "$BIN"
-          echo "== otool -hv (Mach-O Header) =="          ; otool -hv "$BIN"
-          echo "== otool -L (verlinkte Libraries) =="     ; otool -L "$BIN" | head -n 20
-          echo "== Info.plist =="                         ; plutil -p "$APP/Contents/Info.plist"
-          echo "== codesign (Signaturstatus) =="          ; codesign -dvvv "$APP" 2>&1
-          echo "== spctl (Gatekeeper-Bewertung) =="       ; spctl -a -t exec -vvv "$APP" 2>&1
-          exit 0
+          test -x "$BIN"
+          find "$APP" -path "*/react-ui/dist/index.html" -type f | grep -q .
+          find "$APP" -name "QtWebEngineProcess" -type f | grep -q .
+          file "$BIN"
+          lipo -archs "$BIN" | grep -qw x86_64
+          plutil -lint "$APP/Contents/Info.plist"
 
-      # ditto erhält Bundle-Struktur und Ausführungsrechte (anders als ein
-      # normales zip). So bleibt die .app nach dem Download lauffähig.
-      - name: .app paketieren
+      - name: Package macOS app
         run: ditto -c -k --keepParent "dist/EnergyRadar.app" "dist/EnergyRadar-macos.zip"
 
-      - name: Artefakt hochladen (EnergyRadar.app)
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: EnergyRadar-macos
@@ -254,37 +249,31 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # --------------------------------------------------------------------- #
-  # Packaging: bereitet die Release-Dateien vor, veröffentlicht sie aber
-  # ausschließlich als internes Actions-Artefakt. Ein Tag-Push erzeugt
-  # dadurch niemals automatisch ein öffentliches GitHub Release.
-  # --------------------------------------------------------------------- #
   package:
     name: Prepare release assets
     needs: [windows, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Windows-Artefakt herunterladen
+      - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: EnergyRadar-windows
           path: package-input/EnergyRadar-Windows-x64
 
-      - name: macOS-Artefakt herunterladen
+      - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
           name: EnergyRadar-macos
           path: package-input/macos
 
-      - name: Release-Dateien paketieren und prüfen
+      - name: Package and checksum release files
         shell: bash
         run: |
           set -euo pipefail
           test -f "package-input/EnergyRadar-Windows-x64/EnergyRadar.exe"
           test -f "package-input/macos/EnergyRadar-macos.zip"
           mkdir release-assets
-
           (
             cd package-input
             zip -q -r "../release-assets/EnergyRadar-Windows-x64.zip" "EnergyRadar-Windows-x64"
@@ -296,18 +285,17 @@ jobs:
               > "SHA256SUMS.txt"
           )
 
-      - name: Release-fertige Dateien prüfen
+      - name: Validate release asset contract
         shell: bash
         run: |
           set -euo pipefail
           cd release-assets
-
           expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
           actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
           test "$actual_files" = "$(printf '%s\n' "$expected_files" | sort)"
           sha256sum --check --strict SHA256SUMS.txt
 
-      - name: Release-Artefakt hochladen
+      - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
           name: EnergyRadar-release-assets

@@ -1,5 +1,17 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
+
+
+class QualityStatus(str, Enum):
+    VALID = "valid"
+    PARTIAL = "partial"
+    STALE = "stale"
+    LOCKED = "locked"
+    OFFLINE = "offline"
+    INVALID = "invalid"
+    LEGACY = "legacy"
+    UNKNOWN = "unknown"
 
 
 @dataclass

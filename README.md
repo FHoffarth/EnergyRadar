@@ -80,55 +80,54 @@ noch entfernt werden.
 
 ## Production Build
 
-Ergebnis ist eine eigenständige App, die per Doppelklick startet.
+Windows, macOS und GitHub Actions verwenden denselben kanonischen Build:
 
-### Benötigte Pakete
-
-| Zweck        | Datei                     | Pakete                     |
-| ------------ | ------------------------- | -------------------------- |
-| Laufzeit     | `energyradar/requirements.txt` | flask, requests, pywebview |
-| Build        | `requirements-build.txt`  | pyinstaller, pillow        |
-
-### Build macOS
-
-Auf einem **Mac** ausführen:
-
-```bash
-./build_macos.sh
+```text
+desktop_web.py
+→ packaging/EnergyRadar.spec
+→ python tools/build.py
 ```
 
-Installiert die Abhängigkeiten, erzeugt das Icon (`sips` + `iconutil`) und baut
-mit PyInstaller. Ergebnis: `dist/EnergyRadar.app` (Doppelklick oder nach
-*/Programme* ziehen).
-
-### Build Windows
-
-Auf **Windows** ausführen:
+Vor dem Desktop-Build werden das React-Frontend, die Python-Abhängigkeiten und
+die Tests vorbereitet:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build_windows.ps1
+Push-Location frontend/react-ui
+npm.cmd ci
+npm.cmd run lint
+npm.cmd run build
+Pop-Location
+
+python -m pip install -r energyradar/requirements.txt -r requirements-build.txt
+python -m pytest tests/ -v
+python tools/build.py
 ```
 
-Ergebnis: `dist/EnergyRadar/EnergyRadar.exe` (Doppelklick).
+Unter macOS werden `python3`, `npm` und dieselben Schritte verwendet. Die
+Kompatibilitätswrapper `build_windows.ps1` und `build_macos.sh` delegieren
+ausschließlich an `tools/build.py`.
+
+Ergebnisse:
+
+- Windows: `dist/EnergyRadar/EnergyRadar.exe`
+- macOS: `dist/EnergyRadar.app`
 
 > **Kein Cross‑Compile:** Das `.app` lässt sich nur auf einem Mac bauen, die
 > `.exe` nur auf Windows – PyInstaller baut nie für ein fremdes Betriebssystem.
 
 ### Automatischer Build (GitHub Actions)
 
-Bei jedem Push auf `main` und für jeden `v*`-Tag baut [`.github/workflows/build.yml`](.github/workflows/build.yml)
-EnergyRadar parallel auf `windows-latest` und `macos-15-intel` (über die obigen
-Build‑Skripte) und lädt die Ergebnisse als Artefakte hoch:
+Der einzige Desktop-Buildworkflow [`.github/workflows/build.yml`](.github/workflows/build.yml)
+läuft für Pull Requests, `main`, `release/**`, manuelle Starts und `v*`-Tags.
+Windows und macOS führen dieselbe React-/Test-/PyInstaller-Kette aus und laden
+die Ergebnisse als Artefakte hoch:
 
 - **EnergyRadar-windows** – der lauffähige Ordner mit `EnergyRadar.exe`
 - **EnergyRadar-macos** – die gepackte `EnergyRadar.app` (x86_64; läuft nativ
   auf Intel-Macs und per Rosetta 2 auf Apple Silicon)
 
-> **Warum `macos-15-intel`?** PyInstaller baut immer für die Architektur des Runners.
-> `macos-latest` ist Apple Silicon (arm64) und erzeugt eine App, die auf
-> Intel-Macs nicht startet. Der Intel-Runner `macos-15-intel` erzeugt eine x86_64-App,
-> die auf beiden Architekturen läuft. Der Build-Log enthält einen Diagnose-Schritt
-> (`file`, `lipo`, `otool`, `codesign`, `spctl`, `plutil`) zur Kontrolle.
+> **Warum `macos-15-intel`?** PyInstaller baut für die Architektur des Runners.
+> Der Intel-Runner erzeugt die bewusst angebotene x86_64-App.
 
 Herunterladbar im jeweiligen Workflow‑Lauf unter *Actions → Artifacts*. Keine
 Secrets nötig. Manuell startbar über *Run workflow*. Ein `v*`-Tag erzeugt nur
@@ -210,19 +209,14 @@ Datenquelle nicht erzeugt.
 
 ---
 
-## Projektstruktur (Ergänzungen dieses Sprints)
+## Projektstruktur
 
 ```
-energyradar/
-    desktop.py            ← nativer Wrapper (Start, Fenster, Shutdown)
-    config.py             ← DATA_DIR: schreibbarer Ort, wenn gepackt
-    static/
-        energy-state.js   ← zentrale Präsentations- und Zustandslogik
-        background.js     ← Living-Sky-Consumer des Energy State
-    app.py, collectors/, services/, models/, templates/   (Backend unverändert)
-EnergyRadar.spec          ← PyInstaller-Konfiguration (macOS + Windows)
-build_macos.sh            ← Build → dist/EnergyRadar.app
-build_windows.ps1         ← Build → dist/EnergyRadar/EnergyRadar.exe
-build/make_ico.py         ← erzeugt das Windows-Icon
-requirements-build.txt    ← Build-Werkzeuge
+desktop_web.py                    ← einziger Desktop-Einstiegspunkt
+packaging/EnergyRadar.spec        ← einzige PyInstaller-Konfiguration
+tools/build.py                    ← kanonischer lokaler und CI-Build
+frontend/react-ui/                ← React-/TypeScript-Oberfläche
+energyradar/                      ← Domain-, Daten- und Bridge-Module
+.github/workflows/build.yml       ← einziger Desktop-Buildworkflow
+.github/workflows/release.yml     ← getrennte, manuelle Veröffentlichung
 ```

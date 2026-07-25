@@ -25,10 +25,10 @@ import webview  # noqa: E402
 from webview.menu import Menu, MenuAction, MenuSeparator  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-import config  # noqa: E402
+from energyradar import config  # noqa: E402
 
 APP_NAME = "EnergyRadar"
-APP_VERSION = "1.0.0"
+APP_VERSION = config.APP_VERSION
 HOST = "127.0.0.1"
 DEFAULT_SIZE = (980, 900)
 MIN_SIZE = (420, 640)

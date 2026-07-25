@@ -1,10 +1,23 @@
+
+APP_VERSION = "0.5.0-rc1"
+APP_STAGE = "Release Candidate"
+APP_BUILD = "2026.07.23"
+SCHEMA_VERSION = 2
+
 import os
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    BASE_DIR = Path(sys._MEIPASS) / "energyradar"
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 
 FRONIUS_URL = os.environ.get("FRONIUS_URL")
+
+# IANA timezone name used to interpret the naïve local-time string that
+# the Tasmota MT175 bridge returns.  Defaults to Europe/Berlin (CET/CEST).
+MT175_TIMEZONE = os.environ.get("MT175_TIMEZONE", "Europe/Berlin")
 
 DEMO = os.environ.get("ENERGYRADAR_DEMO") == "1"
 

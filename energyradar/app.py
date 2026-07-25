@@ -7,11 +7,15 @@ from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
-import config
-from collectors import fronius
-from services import data_source, decision, storage
+from energyradar import config
+from energyradar.collectors import fronius
+from energyradar.services import data_source, decision, storage
+
+import os
+import sys
 
 app = Flask(__name__)
+
 
 
 def _seed_demo_history() -> None:
