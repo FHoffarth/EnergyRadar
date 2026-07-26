@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-radar-bg: #090D16;
   --color-radar-bgLight: #F8FAFC;
@@ -28,6 +30,22 @@
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+[data-text-size="large"] {
+  font-size: 112.5%;
+}
+
+[data-motion="none"] *, [data-motion="none"] ::before, [data-motion="none"] ::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+[data-motion="reduced"] * {
+  animation-duration: 0.3s !important;
+  transition-duration: 0.3s !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

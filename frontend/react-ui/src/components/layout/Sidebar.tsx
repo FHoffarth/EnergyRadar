@@ -10,15 +10,23 @@ interface SidebarProps {
 
 export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
   const { view, setView, status } = useApp();
-  const { snapshot, providerType } = useEnergyProvider();
+  const { snapshot, sourceType } = useEnergyProvider();
 
-  const qualityPresentation = {
-    live: { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' },
-    stale: { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' },
-    partial: { label: 'Teilweise verfügbar', detail: 'Zähler-PIN erforderlich', dot: 'bg-amber-500' },
-    error: { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' },
-    unavailable: { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' },
-  }[snapshot.quality] || { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
+  const hasObservedSolar = snapshot.solar.origin === 'observed';
+  const hasObservedHome = snapshot.homeLoad.origin === 'observed';
+  const hasObservedGrid = snapshot.grid.origin === 'observed';
+  const solarOnly = hasObservedSolar && !hasObservedHome && !hasObservedGrid;
+  const anyObserved = hasObservedSolar || hasObservedHome || hasObservedGrid;
+
+  const qualityPresentation = solarOnly
+    ? { label: 'Solar aktiv', detail: 'PV-Daten live · Zähler nicht verfügbar', dot: 'bg-emerald-500' }
+    : anyObserved
+    ? { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' }
+    : snapshot.quality === 'stale'
+    ? { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' }
+    : snapshot.quality === 'error'
+    ? { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' }
+    : { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
 
   const navItems = [
     { id: 'now', label: 'Jetzt', icon: Activity },
@@ -39,7 +47,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           </div>
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
-            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{providerType === 'demo' ? 'Demo-Modus' : 'Desktop-Bridge'}</span>
+            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
           </div>
         </div>
       </div>

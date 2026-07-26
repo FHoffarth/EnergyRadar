@@ -32,7 +32,7 @@ export function AppLayout() {
       <LivingSkyBackground />
       <Sidebar onOpenSetupWizard={() => setIsSetupWizardOpen(true)} />
       <main className="flex-1 overflow-y-auto overflow-x-hidden relative flex flex-col z-10">
-        <div className="max-w-[1200px] mx-auto w-full h-full flex flex-col">
+        <div className="flex-1 flex flex-col max-w-[960px] w-full mx-auto">
           {renderView()}
         </div>
       </main>

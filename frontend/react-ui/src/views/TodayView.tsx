@@ -4,10 +4,10 @@ import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Cartes
 import { Sun, Info } from 'lucide-react';
 
 export function TodayView() {
-  const { timeline, providerType } = useEnergyProvider();
+  const { timeline, sourceType } = useEnergyProvider();
 
   const noData = timeline.length === 0;
-  const isDemo = providerType === 'demo';
+  const isDemo = sourceType === 'demo';
 
   return (
     <div className="px-10 py-12 h-full flex flex-col overflow-y-auto">

@@ -1,7 +1,31 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { ViewState, SystemStatus, ThemeMode, PowerData, TodayData, DeviceCardData, SettingsPayload, RawSettings, LocationCandidateData, WeatherReportData } from '../types';
 import { initBridge, QtBridge } from '../lib/bridge';
 import { nowData$, todayData$, startEnergyService } from '../lib/energyService';
+
+export type SearchState = 'idle' | 'loading' | 'results' | 'empty' | 'error' | 'timeout';
+export type SavedLocationState = 'absent' | 'saved';
+export type WeatherTestStatus = 'idle' | 'loading' | 'success' | 'error' | 'timeout';
+
+export interface WeatherSearchState {
+  status: SearchState;
+  requestId: string | null;
+  candidates: LocationCandidateData[];
+  message?: string;
+}
+
+export interface WeatherTestResult {
+  ok: boolean;
+  message: string;
+  latency_ms?: number;
+  [key: string]: unknown;
+}
+
+export interface WeatherTestState {
+  status: WeatherTestStatus;
+  requestId: string | null;
+  result?: WeatherTestResult;
+}
 
 interface AppContextType {
   view: ViewState;
@@ -15,10 +39,10 @@ interface AppContextType {
   testConnectionStatus: Record<string, { testing: boolean; result?: any }>;
   settingsPayload: SettingsPayload | null;
   weatherValidationState: { checking: boolean; result?: any };
-  weatherCandidates: LocationCandidateData[];
-  isSearchingCandidates: boolean;
+  weatherSearchState: WeatherSearchState;
+  savedLocationState: SavedLocationState;
   weatherReport: WeatherReportData | null;
-  weatherTestState: { testing: boolean; result?: any };
+  weatherTestState: WeatherTestState;
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -63,10 +87,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [testConnectionStatus, setTestConnectionStatus] = useState<Record<string, { testing: boolean; result?: any }>>({});
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null);
   const [weatherValidationState, setWeatherValidationState] = useState<{ checking: boolean; result?: any }>({ checking: false });
-  const [weatherCandidates, setWeatherCandidates] = useState<LocationCandidateData[]>([]);
-  const [isSearchingCandidates, setIsSearchingCandidates] = useState(false);
+  const [weatherSearchState, setWeatherSearchState] = useState<WeatherSearchState>({
+    status: 'idle',
+    requestId: null,
+    candidates: [],
+  });
+  const searchOpIdRef = useRef<string | null>(null);
+  const searchSequenceRef = useRef(0);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [weatherReport, setWeatherReport] = useState<WeatherReportData | null>(null);
-  const [weatherTestState, setWeatherTestState] = useState<{ testing: boolean; result?: any }>({ testing: false });
+  const [weatherTestState, setWeatherTestState] = useState<WeatherTestState>({
+    status: 'idle',
+    requestId: null,
+  });
+  const weatherTestOpIdRef = useRef<string | null>(null);
+  const weatherTestSequenceRef = useRef(0);
+  const weatherTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Subscribe to energyService ────────────────────────────────────
   useEffect(() => {
@@ -139,30 +175,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       };
 
-      b.settingsDataChanged.connect(parseSettings);
+      b.settingsDataChanged.connect(() => {
+        parseSettings();
+      });
       parseSettings();
 
-      b.weatherCandidatesResult.connect((_, resJson) => {
+      b.weatherCandidatesResult.connect((opId, resJson) => {
+        if (opId !== searchOpIdRef.current) return;
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+          searchTimeoutRef.current = null;
+        }
         try {
           const res = JSON.parse(resJson);
-          setWeatherCandidates(res.candidates || []);
+          const candidates = Array.isArray(res.candidates) ? res.candidates : [];
+          if (res.ok !== true) {
+            setWeatherSearchState({
+              status: 'error',
+              requestId: opId,
+              candidates: [],
+              message: typeof res.error === 'string' ? res.error : 'Standortsuche fehlgeschlagen.',
+            });
+          } else if (candidates.length === 0) {
+            setWeatherSearchState({ status: 'empty', requestId: opId, candidates: [] });
+          } else {
+            setWeatherSearchState({ status: 'results', requestId: opId, candidates });
+          }
         } catch {
-          setWeatherCandidates([]);
-        } finally {
-          setIsSearchingCandidates(false);
+          setWeatherSearchState({
+            status: 'error',
+            requestId: opId,
+            candidates: [],
+            message: 'Antwort der Standortsuche war ungültig.',
+          });
         }
       });
 
-      b.weatherConnectionTestStarted.connect(() => {
-        setWeatherTestState({ testing: true });
+      b.weatherConnectionTestStarted.connect((opId) => {
+        if (opId !== weatherTestOpIdRef.current) return;
+        setWeatherTestState({ status: 'loading', requestId: opId });
       });
 
-      b.weatherConnectionTestResult.connect((_, resJson) => {
+      b.weatherConnectionTestResult.connect((opId, resJson) => {
+        if (opId !== weatherTestOpIdRef.current) return;
+        if (weatherTestTimeoutRef.current) {
+          clearTimeout(weatherTestTimeoutRef.current);
+          weatherTestTimeoutRef.current = null;
+        }
+        weatherTestOpIdRef.current = null;
         try {
-          const res = JSON.parse(resJson);
-          setWeatherTestState({ testing: false, result: res });
+          const res = JSON.parse(resJson) as WeatherTestResult;
+          if (typeof res?.ok !== 'boolean' || typeof res?.message !== 'string') {
+            throw new Error('invalid payload');
+          }
+          setWeatherTestState({
+            status: res.ok ? 'success' : 'error',
+            requestId: opId,
+            result: res,
+          });
         } catch {
-          setWeatherTestState({ testing: false });
+          setWeatherTestState({
+            status: 'error',
+            requestId: opId,
+            result: { ok: false, message: 'Antwort des Wettertests war ungültig.' },
+          });
         }
       });
 
@@ -172,6 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setWeatherReport(parsed);
         } catch {}
       });
+      b.requestWeatherReport();
 
       b.exportStarted.connect((opId) => {
         setExportStatus({ id: opId, status: 'running' });
@@ -203,6 +280,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       });
     });
+  }, []);
+
+  useEffect(() => () => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (weatherTestTimeoutRef.current) clearTimeout(weatherTestTimeoutRef.current);
   }, []);
 
   // ── Apply theme & global styling attributes to DOM ───────────────────────
@@ -242,41 +324,102 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Weather actions ──────────────────────────────────────────────
   const searchWeatherLocations = (query: string) => {
     if (!query.trim()) {
-      setWeatherCandidates([]);
+      searchOpIdRef.current = null;
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+      setWeatherSearchState({ status: 'idle', requestId: null, candidates: [] });
       return;
     }
-    setIsSearchingCandidates(true);
-    const opId = `loc-search-${Date.now()}`;
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    searchSequenceRef.current += 1;
+    const opId = `weather-search-${Date.now()}-${searchSequenceRef.current}`;
+    searchOpIdRef.current = opId;
+    setWeatherSearchState({ status: 'loading', requestId: opId, candidates: [] });
     if (bridge) {
       bridge.searchWeatherLocations(opId, query);
+      searchTimeoutRef.current = setTimeout(() => {
+        setWeatherSearchState(prev => (
+          prev.status === 'loading' && prev.requestId === opId
+            ? {
+                status: 'timeout',
+                requestId: opId,
+                candidates: [],
+                message: 'Standortsuche hat das Zeitlimit überschritten.',
+              }
+            : prev
+        ));
+        searchTimeoutRef.current = null;
+      }, 10000);
     } else {
-      setWeatherCandidates([]);
-      setIsSearchingCandidates(false);
+      searchOpIdRef.current = null;
+      setWeatherSearchState({
+        status: 'error',
+        requestId: opId,
+        candidates: [],
+        message: 'Desktop-Verbindung ist nicht verfügbar.',
+      });
     }
   };
 
   const confirmWeatherLocation = (candidate: LocationCandidateData) => {
+    searchOpIdRef.current = null;
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    setWeatherSearchState({ status: 'idle', requestId: null, candidates: [] });
     if (bridge) {
       bridge.confirmWeatherLocation(JSON.stringify(candidate));
     }
-    setWeatherCandidates([]);
   };
 
   const removeResolvedLocation = () => {
+    searchOpIdRef.current = null;
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    setWeatherSearchState({ status: 'idle', requestId: null, candidates: [] });
     if (bridge) {
       bridge.removeResolvedLocation();
     }
   };
 
   const testWeatherConnection = () => {
-    setWeatherTestState({ testing: true });
-    const opId = `wtest-${Date.now()}`;
+    if (weatherTestTimeoutRef.current) {
+      clearTimeout(weatherTestTimeoutRef.current);
+      weatherTestTimeoutRef.current = null;
+    }
+    weatherTestSequenceRef.current += 1;
+    const opId = `weather-test-${Date.now()}-${weatherTestSequenceRef.current}`;
+    weatherTestOpIdRef.current = opId;
+    setWeatherTestState({ status: 'loading', requestId: opId });
     if (bridge) {
       bridge.testWeatherConnection(opId);
+      weatherTestTimeoutRef.current = setTimeout(() => {
+        if (weatherTestOpIdRef.current !== opId) return;
+        weatherTestOpIdRef.current = null;
+        setWeatherTestState({
+          status: 'timeout',
+          requestId: opId,
+          result: {
+            ok: false,
+            message: 'Zeitüberschreitung — Wetterdienst antwortet nicht.',
+          },
+        });
+        weatherTestTimeoutRef.current = null;
+      }, 15000);
     } else {
+      weatherTestOpIdRef.current = null;
       setWeatherTestState({
-        testing: false,
-        result: { ok: false, message: 'Desktop-Verbindung ist nicht verfügbar.' },
+        status: 'error',
+        requestId: opId,
+        result: { ok: false, message: 'Desktop-Verbindung ist nicht verfügbar.', latency_ms: 0 },
       });
     }
   };
@@ -364,8 +507,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       devices,
       testConnectionStatus,
       settingsPayload,
-      weatherCandidates,
-      isSearchingCandidates,
+      weatherSearchState,
+      savedLocationState: (
+        settingsPayload?.settings?.resolved_location
+        || (
+          typeof settingsPayload?.settings?.latitude === 'number'
+          && typeof settingsPayload?.settings?.longitude === 'number'
+        )
+      ) ? 'saved' : 'absent',
       weatherReport,
       weatherTestState,
       searchWeatherLocations,

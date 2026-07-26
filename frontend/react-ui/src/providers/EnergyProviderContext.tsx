@@ -1,25 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { EnergySnapshot, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, ProviderType, DemoPresetId } from '../types';
+import { EnergySnapshot, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, DataOrigin } from '../types';
 import { EnergyDataProvider } from './types';
 import { DemoEnergyProviderImpl } from './DemoEnergyProvider';
 import { DesktopBridgeEnergyProviderImpl } from './DesktopBridgeEnergyProvider';
+import { initBridge } from '../lib/bridge';
+import { todayData$ } from '../lib/energyService';
+
+export type SourceType = 'bridge' | 'offline' | 'demo';
 
 interface EnergyProviderContextType {
-  provider: EnergyDataProvider | null;
-  providerType: ProviderType;
   snapshot: EnergySnapshot;
   timeline: TimelineEntry[];
   devices: DemoDeviceSummary[];
-  setProviderType: (type: ProviderType) => void;
-  selectDemoPreset: (presetId: DemoPresetId) => void;
-  toggleDemoJitter: (enabled: boolean) => void;
-  getAvailableDemoPresets: () => Array<{ id: DemoPresetId; name: string; description: string }>;
+  sourceType: SourceType;
   testConnection: (deviceId: string) => Promise<ConnectionTestResult>;
   updateSettings: (patch: Partial<RawSettings>) => void;
   getSettings: () => RawSettings | null;
+  isBridgeConnected: boolean;
 }
 
-const defaultSnapshot: EnergySnapshot = {
+const offlineSnapshot: EnergySnapshot = {
   timestamp: null,
   quality: 'unavailable',
   solar: { valueKw: null, origin: 'unavailable' },
@@ -27,115 +27,128 @@ const defaultSnapshot: EnergySnapshot = {
   grid: { valueKw: null, origin: 'unavailable' },
   battery: null,
   assessment: null,
-  warnings: ['Kein Datenanbieter aktiv']
+  warnings: ['Desktop-Bridge nicht verbunden – keine Live-Daten verfügbar.']
 };
 
 const EnergyProviderContext = createContext<EnergyProviderContextType | undefined>(undefined);
 
-export function EnergyProviderRoot({ children }: { children: ReactNode }) {
-  const [providerType, setProviderTypeState] = useState<ProviderType>('demo');
-  const [snapshot, setSnapshot] = useState<EnergySnapshot>(defaultSnapshot);
+interface EnergyProviderRootProps {
+  children: ReactNode;
+  demoMode?: boolean;
+}
+
+export function EnergyProviderRoot({ children, demoMode = false }: EnergyProviderRootProps) {
+  const [sourceType, setSourceType] = useState<SourceType>('offline');
+  const [snapshot, setSnapshot] = useState<EnergySnapshot>(offlineSnapshot);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [devices, setDevices] = useState<DemoDeviceSummary[]>([]);
-  const demoRef = useRef<DemoEnergyProviderImpl | null>(null);
   const bridgeRef = useRef<DesktopBridgeEnergyProviderImpl | null>(null);
+  const demoRef = useRef<DemoEnergyProviderImpl | null>(null);
+  const initialisedRef = useRef(false);
 
-  const destroyCurrent = useCallback(() => {
-    if (demoRef.current) {
-      demoRef.current.destroy();
-      demoRef.current = null;
-    }
+  const destroyProviders = useCallback(() => {
     if (bridgeRef.current) {
       bridgeRef.current.destroy();
       bridgeRef.current = null;
     }
+    if (demoRef.current) {
+      demoRef.current.destroy();
+      demoRef.current = null;
+    }
   }, []);
 
-  const createDemo = useCallback(() => {
-    destroyCurrent();
+  const goOffline = useCallback(() => {
+    destroyProviders();
+    setSourceType('offline');
+    setSnapshot(offlineSnapshot);
+    setTimeline([]);
+    setDevices([]);
+  }, [destroyProviders]);
+
+  const setupDemo = useCallback(() => {
+    destroyProviders();
     const provider = new DemoEnergyProviderImpl();
     demoRef.current = provider;
+    setSourceType('demo');
     setSnapshot(provider.getCurrentSnapshot());
     setTimeline(provider.getTimeline());
     setDevices(provider.getDevices());
     provider.subscribe(setSnapshot);
-    return provider;
-  }, [destroyCurrent]);
+  }, [destroyProviders]);
 
-  const createBridge = useCallback(async () => {
-    destroyCurrent();
+  const setupBridge = useCallback(async () => {
+    destroyProviders();
     const provider = new DesktopBridgeEnergyProviderImpl();
     bridgeRef.current = provider;
+    setSourceType('bridge');
     setSnapshot(provider.getCurrentSnapshot());
     setDevices(provider.getDevices());
+    setTimeline(provider.getTimeline());
     provider.subscribe(setSnapshot);
     await provider.init();
     setDevices(provider.getDevices());
-    return provider;
-  }, [destroyCurrent]);
+    setTimeline(provider.getTimeline());
+  }, [destroyProviders]);
 
-  const setProviderType = useCallback((type: ProviderType) => {
-    setProviderTypeState(type);
-    if (type === 'demo') {
-      createDemo();
-    } else if (type === 'bridge') {
-      createBridge();
+  useEffect(() => {
+    if (initialisedRef.current) return;
+    initialisedRef.current = true;
+
+    if (demoMode) {
+      setupDemo();
+      return;
     }
-  }, [createDemo, createBridge]);
 
-  const selectDemoPreset = useCallback((presetId: DemoPresetId) => {
-    const p = demoRef.current;
-    if (p) {
-      p.selectPreset(presetId);
-      setSnapshot(p.getCurrentSnapshot());
-    }
-  }, []);
+    initBridge().then((bridge) => {
+      if (bridge) {
+        setupBridge();
+      } else {
+        goOffline();
+      }
+    });
+  }, [demoMode, setupDemo, setupBridge, goOffline]);
 
-  const toggleDemoJitter = useCallback((enabled: boolean) => {
-    const p = demoRef.current;
-    if (p) p.toggleJitter(enabled);
-  }, []);
-
-  const getAvailableDemoPresets = useCallback(() => {
-    const p = demoRef.current;
-    return p ? p.getAvailablePresets() : [];
-  }, []);
+  // Subscribe to timeline updates in bridge mode
+  useEffect(() => {
+    if (sourceType !== 'bridge' || !bridgeRef.current) return;
+    const unsub = todayData$.subscribe(() => {
+      if (bridgeRef.current) {
+        setTimeline(bridgeRef.current.getTimeline());
+      }
+    });
+    return unsub;
+  }, [sourceType]);
 
   const testConnection = useCallback(async (deviceId: string): Promise<ConnectionTestResult> => {
-    const p = providerType === 'bridge' ? bridgeRef.current : demoRef.current;
-    if (!p) return { ok: false, message: 'Kein Datenanbieter aktiv.', latencyMs: null };
-    return p.testConnection(deviceId);
-  }, [providerType]);
+    if (bridgeRef.current) {
+      return bridgeRef.current.testConnection(deviceId);
+    }
+    if (demoRef.current) {
+      return demoRef.current.testConnection(deviceId);
+    }
+    return { ok: false, message: 'Desktop-Bridge nicht verbunden.', latencyMs: null };
+  }, []);
 
   const updateSettings = useCallback((patch: Partial<RawSettings>) => {
-    const p = providerType === 'bridge' ? bridgeRef.current : demoRef.current;
-    if (p) p.updateSettings(patch);
-  }, [providerType]);
+    if (bridgeRef.current) {
+      bridgeRef.current.updateSettings(patch);
+    }
+  }, []);
 
   const getSettings = useCallback((): RawSettings | null => {
-    const p = providerType === 'bridge' ? bridgeRef.current : demoRef.current;
-    return p ? p.getSettings() : null;
-  }, [providerType]);
-
-  const currentProvider: EnergyDataProvider | null =
-    providerType === 'demo' ? demoRef.current :
-    providerType === 'bridge' ? bridgeRef.current :
-    null;
+    return bridgeRef.current ? bridgeRef.current.getSettings() : null;
+  }, []);
 
   return (
     <EnergyProviderContext.Provider value={{
-      provider: currentProvider,
-      providerType,
       snapshot,
       timeline,
       devices,
-      setProviderType,
-      selectDemoPreset,
-      toggleDemoJitter,
-      getAvailableDemoPresets,
+      sourceType,
       testConnection,
       updateSettings,
-      getSettings
+      getSettings,
+      isBridgeConnected: sourceType === 'bridge'
     }}>
       {children}
     </EnergyProviderContext.Provider>
