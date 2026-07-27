@@ -592,6 +592,13 @@ export function SettingsView() {
             )}
           </div>
         </section>
+
+        {/* Product attribution. Kept to the end of Settings — deliberately not
+            in the sidebar, navigation, Now/Today or any persistent banner. */}
+        <footer className="pt-2 pb-1 text-xs text-slate-500 dark:text-slate-500">
+          <p>EnergyRadar {system?.app_version ? `v${system.app_version}` : ''}</p>
+          <p className="mt-0.5">© 2026 Florian Hoffarth. Alle Rechte vorbehalten.</p>
+        </footer>
       </div>
     </div>
   );

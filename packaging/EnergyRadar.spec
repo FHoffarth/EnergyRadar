@@ -17,13 +17,17 @@ UI_ASSETS = PROJECT_ROOT / "energyradar" / "ui" / "assets"
 if sys.platform == "win32":
     executable_icon = str(UI_ASSETS / "logo.ico")
     bundle_icon = None
+    # Publisher/copyright shown in the executable's Properties -> Details tab.
+    version_resource = str(Path(SPECPATH) / "version_info.txt")
 elif sys.platform == "darwin":
     executable_icon = None
+    version_resource = None
     # PyInstaller converts the source PNG to ICNS through Pillow.
     bundle_icon = str(UI_ASSETS / "icon-512.png")
 else:
     executable_icon = None
     bundle_icon = None
+    version_resource = None
 
 a = Analysis(
     [str(ENTRY_POINT)],
@@ -76,6 +80,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=executable_icon,
+    version=version_resource,
 )
 
 coll = COLLECT(
@@ -101,5 +106,6 @@ if sys.platform == "darwin":
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,
             "LSApplicationCategoryType": "public.app-category.utilities",
+            "NSHumanReadableCopyright": "© 2026 Florian Hoffarth. All rights reserved.",
         },
     )
