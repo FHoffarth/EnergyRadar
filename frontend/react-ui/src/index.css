@@ -16,19 +16,65 @@
   --color-radar-grid: #E11D48;
   --color-radar-battery: #059669;
   --color-radar-home: #4F46E5;
-  --font-sans: 'Manrope', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif';
-  --font-metric: 'Manrope', 'system-ui', 'sans-serif';
+  --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-metric: 'Geist', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+/* Geist 1.7.2, self-hosted. Source, license and rationale for the bundled
+   weights: src/assets/fonts/README.md. Relative url() keeps these resolvable
+   in dev, in the production build, and over file:// in the packaged app.
+   Every weight in use has its own file, so nothing is synthesised. */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/Geist-Regular.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Manrope';
+  font-family: 'Geist';
   font-style: normal;
-  font-weight: 400 700;
+  font-weight: 500;
   font-display: swap;
-  src: local('Manrope'), local('Manrope-Regular'), system-ui, -apple-system, sans-serif;
+  src: url('./assets/fonts/Geist-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/Geist-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/Geist-Bold.woff2') format('woff2');
+}
+
+/* Technical identifier fields only — see the font-mono usages in SettingsView
+   and SetupWizardModal. Regular is the only weight those fields use. */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/GeistMono-Regular.woff2') format('woff2');
 }
 
 .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart axis ticks are numeric columns — lining them up stops the labels
+   jittering as values change. Presentation only; no number-format logic. */
+.recharts-cartesian-axis-tick-value,
+.recharts-tooltip-item-value {
   font-variant-numeric: tabular-nums;
 }
 
