@@ -3,22 +3,38 @@ import { useApp } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
 import { Activity, BarChart2, Cpu, Settings, Zap, Database, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import markDark from '../../assets/icons/energyradar-mark.svg';
+import markLight from '../../assets/icons/energyradar-mark-light.svg';
 
 interface SidebarProps {
   onOpenSetupWizard?: () => void;
 }
 
 export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
-  const { view, setView, status } = useApp();
-  const { snapshot, providerType } = useEnergyProvider();
+  const { view, setView, status, settingsPayload } = useApp();
+  const { snapshot, sourceType } = useEnergyProvider();
 
-  const qualityPresentation = {
-    live: { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' },
-    stale: { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' },
-    partial: { label: 'Teilweise verfügbar', detail: 'Zähler-PIN erforderlich', dot: 'bg-amber-500' },
-    error: { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' },
-    unavailable: { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' },
-  }[snapshot.quality] || { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
+  // The setup CTA is only offered while no data source is actually working.
+  const hasConfiguredSource =
+    Boolean(settingsPayload?.effective_settings?.fronius_address)
+    || Boolean(settingsPayload?.effective_settings?.mt175_address)
+    || snapshot.solar.origin === 'observed';
+
+  const hasObservedSolar = snapshot.solar.origin === 'observed';
+  const hasObservedHome = snapshot.homeLoad.origin === 'observed';
+  const hasObservedGrid = snapshot.grid.origin === 'observed';
+  const solarOnly = hasObservedSolar && !hasObservedHome && !hasObservedGrid;
+  const anyObserved = hasObservedSolar || hasObservedHome || hasObservedGrid;
+
+  const qualityPresentation = solarOnly
+    ? { label: 'Solar aktiv', detail: 'PV-Daten live · Zähler nicht verfügbar', dot: 'bg-emerald-500' }
+    : anyObserved
+    ? { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' }
+    : snapshot.quality === 'stale'
+    ? { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' }
+    : snapshot.quality === 'error'
+    ? { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' }
+    : { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
 
   const navItems = [
     { id: 'now', label: 'Jetzt', icon: Activity },
@@ -32,14 +48,26 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
     <aside className="w-64 flex-shrink-0 z-20 bg-[#F1F1EF] dark:bg-[#1C1C1E] border-r border-[#E5E5E3] dark:border-slate-800 flex flex-col h-full">
       <div className="p-8 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-emerald-500 p-[1px] shadow-sm">
-            <div className="w-full h-full bg-[#F1F1EF] dark:bg-[#1C1C1E] rounded-[11px] flex items-center justify-center">
-              <Activity className="w-5 h-5 text-sky-500" />
-            </div>
-          </div>
+          {/* Supplied mark, one variant per theme. The `dark` class lives on
+              <html>, so CSS picks the variant without duplicating theme logic. */}
+          <img
+            src={markLight}
+            width={40}
+            height={40}
+            alt="EnergyRadar"
+            className="w-10 h-10 flex-shrink-0 dark:hidden"
+          />
+          <img
+            src={markDark}
+            width={40}
+            height={40}
+            alt=""
+            aria-hidden="true"
+            className="w-10 h-10 flex-shrink-0 hidden dark:block"
+          />
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
-            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{providerType === 'demo' ? 'Demo-Modus' : 'Desktop-Bridge'}</span>
+            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
           </div>
         </div>
       </div>
@@ -76,7 +104,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           <p className="text-[11px] text-[#8E8E8E] dark:text-slate-500 mt-1">{qualityPresentation.detail}</p>
         </div>
 
-        {onOpenSetupWizard && (
+        {onOpenSetupWizard && !hasConfiguredSource && (
           <button
             onClick={onOpenSetupWizard}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"

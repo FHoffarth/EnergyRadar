@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EnergyRadar favicon">
+  
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="#0E1826"></rect>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="256" cy="256" r="158" stroke="#2E7080" stroke-width="26"></circle>
+    <path d="M 120 256 L 196 256 L 242 168 L 290 344 L 336 256 L 392 256" stroke="#3DDCEB" stroke-width="34"></path>
+  </g>
+  <circle cx="392" cy="256" r="27" fill="#4FE3F2"></circle>
+</svg>

@@ -8,12 +8,12 @@ const iconMap: Record<string, React.ElementType> = {
 };
 
 export function DevicesView() {
-  const { devices, providerType, testConnection } = useEnergyProvider();
+  const { devices, sourceType, testConnection } = useEnergyProvider();
   const { setView } = useApp();
   const [testingId, setTestingId] = useState<string | null>(null);
 
-  const isDemo = providerType === 'demo';
-  const hasBridgeDevices = providerType === 'bridge' && devices.length > 0;
+  const isDemo = sourceType === 'demo';
+  const hasBridgeDevices = sourceType === 'bridge' && devices.length > 0;
 
   const getIcon = (iconName: string) => {
     const Icon = iconMap[iconName] || Server;

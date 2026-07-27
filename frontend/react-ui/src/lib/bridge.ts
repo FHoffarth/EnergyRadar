@@ -26,6 +26,7 @@ export interface QtBridge {
   searchWeatherLocations: (operationId: string, query: string) => void;
   confirmWeatherLocation: (candidateJson: string) => void;
   removeResolvedLocation: () => void;
+  requestWeatherReport: () => void;
   testWeatherConnection: (operationId: string) => void;
   openDiagnosticLog: () => void;
   openLogDirectory: () => void;
@@ -66,11 +67,12 @@ export function initBridge(): Promise<QtBridge | null> {
     const maxAttempts = 100; // Poll for up to 5 seconds (50ms interval)
 
     const tryConnect = () => {
-      if (typeof window.qt !== 'undefined' && window.qt.webChannelTransport && window.QWebChannel) {
+      const hasQt = typeof window.qt !== 'undefined' && !!window.qt?.webChannelTransport;
+      const hasQwc = typeof window.QWebChannel !== 'undefined';
+      if (hasQt && hasQwc) {
         try {
           new window.QWebChannel(window.qt.webChannelTransport, (channel) => {
             _bridge = channel.objects.bridge;
-            console.info('[bridge] QWebChannel connected successfully!');
             resolve(_bridge);
           });
           return;
@@ -83,7 +85,6 @@ export function initBridge(): Promise<QtBridge | null> {
       if (attempts < maxAttempts) {
         setTimeout(tryConnect, 50);
       } else {
-        console.info('[bridge] No Qt detected after polling — live data remains unavailable');
         resolve(null);
       }
     };

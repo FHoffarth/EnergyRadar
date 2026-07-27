@@ -1,0 +1,41 @@
+# Windows version resource for the EnergyRadar executable.
+#
+# Consumed by PyInstaller via the `version=` argument in EnergyRadar.spec and
+# surfaced by Explorer's file Properties -> Details tab. Metadata only: it does
+# not affect what the application does.
+#
+# Keep filevers/prodvers in sync with energyradar.config.APP_VERSION
+# (currently 0.5.0-rc1 -> 0, 5, 0, 0). The tuples take four integers only, so
+# the pre-release suffix lives in the FileVersion/ProductVersion strings.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 5, 0, 0),
+    prodvers=(0, 5, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040704b0',
+          [
+            StringStruct('CompanyName', 'Florian Hoffarth'),
+            StringStruct('FileDescription', 'EnergyRadar'),
+            StringStruct('FileVersion', '0.5.0-rc1'),
+            StringStruct('InternalName', 'EnergyRadar'),
+            StringStruct('LegalCopyright', '© 2026 Florian Hoffarth. All rights reserved.'),
+            StringStruct('OriginalFilename', 'EnergyRadar.exe'),
+            StringStruct('ProductName', 'EnergyRadar'),
+            StringStruct('ProductVersion', '0.5.0-rc1'),
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [1031, 1200])])
+  ]
+)

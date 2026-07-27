@@ -1,17 +1,59 @@
 import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Line } from 'recharts';
-import { Sun, Info } from 'lucide-react';
+import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line } from 'recharts';
+import { Info } from 'lucide-react';
+import { TimelineEntry } from '../types';
+import { useApp, useNumberLocale } from '../context/AppContext';
+import { formatNumber } from '../lib/format';
+import { dedupeTickFormatter } from '../lib/chartAxis';
+
+/** A series needs this many measured points before it is charted or listed. */
+const MIN_SERIES_POINTS = 3;
+
+type SeriesKey = 'solarKw' | 'homeLoadKw' | 'batteryPct';
+
+/** Count of points that carry a real measurement. Nulls are not evidence. */
+function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
+  return timeline.reduce(
+    (total, point) => {
+      const value = point[key];
+      return value !== null && value !== undefined && !Number.isNaN(value) ? total + 1 : total;
+    },
+    0,
+  );
+}
 
 export function TodayView() {
-  const { timeline, providerType } = useEnergyProvider();
+  const { timeline, sourceType } = useEnergyProvider();
+  const { settingsPayload } = useApp();
+  const locale = useNumberLocale();
+  const animate = (settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
 
   const noData = timeline.length === 0;
-  const isDemo = providerType === 'demo';
+  const isDemo = sourceType === 'demo';
+
+  // Per-series evidence thresholds: a series that the devices never
+  // delivered must not appear as a flat line or an empty legend entry.
+  const series = [
+    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', dot: 'bg-amber-500/80', axis: 'left' as const },
+    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', dot: 'bg-indigo-500', axis: 'left' as const },
+    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', dot: 'bg-emerald-500', axis: 'right' as const },
+  ].filter(entry => evidenceCount(timeline, entry.key) >= MIN_SERIES_POINTS);
+
+  // Axis and tooltip use up to two decimals so low-power days do not
+  // collapse into a column of identical "0,1 kW" ticks.
+  const formatAxisKw = (value: number) =>
+    formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+  const formatTimeTick = dedupeTickFormatter(timeline, 'time');
+
+  const hasLeftAxis = series.some(entry => entry.axis === 'left');
+  const hasRightAxis = series.some(entry => entry.axis === 'right');
+  const hasChartableSeries = series.length > 0;
 
   return (
-    <div className="px-10 py-12 h-full flex flex-col overflow-y-auto">
-      <h1 className="text-4xl sm:text-5xl font-medium tracking-tight text-slate-900 dark:text-white max-w-2xl leading-tight mb-6">
+    <div className="px-8 pt-10 pb-6 h-full flex flex-col overflow-y-auto">
+      <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl mb-6">
         {isDemo
           ? 'Heutiger Energieverlauf (Demo)'
           : noData
@@ -43,64 +85,85 @@ export function TodayView() {
       )}
 
       {!noData && (
-        <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+        <section className="border-t border-slate-200/70 dark:border-slate-800 pt-5 space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">
               {isDemo ? '24-Stunden-Chronik (Demo)' : '24-Stunden-Chronik'}
             </h2>
             <div className="flex items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-amber-500/80 inline-block" />
-                <span className="text-slate-600 dark:text-slate-400">Solar</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-indigo-500 inline-block" />
-                <span className="text-slate-600 dark:text-slate-400">Verbrauch</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />
-                <span className="text-slate-600 dark:text-slate-400">Speicher</span>
-              </div>
+              {series.map(entry => (
+                <div className="flex items-center gap-1.5" key={entry.key}>
+                  <span className={`w-2 h-2 rounded-full ${entry.dot} inline-block`} />
+                  <span className="text-slate-500 dark:text-slate-400">{entry.name}</span>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D97706" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="homeGradT" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" vertical={false} className="dark:stroke-slate-700" />
-                <XAxis dataKey="time" stroke="#64748B" fontSize={11} tickLine={false} />
-                <YAxis yAxisId="left" stroke="#64748B" fontSize={11} tickLine={false} unit="kW" />
-                <YAxis yAxisId="right" orientation="right" stroke="#64748B" fontSize={11} tickLine={false} domain={[0, 100]} unit="%" />
-                <Tooltip contentStyle={{
-                  backgroundColor: '#FFFFFF',
-                  borderColor: '#E2E8F0',
-                  borderRadius: '0.75rem',
-                  fontSize: '12px',
-                  color: '#0F172A'
-                }} />
-                <Area yAxisId="left" type="monotone" dataKey="solarKw" name="Solar" stroke="#D97706" strokeWidth={2} fillOpacity={1} fill="url(#solarGradT)" />
-                <Area yAxisId="left" type="monotone" dataKey="homeLoadKw" name="Verbrauch" stroke="#4F46E5" strokeWidth={2} fillOpacity={1} fill="url(#homeGradT)" />
-                <Line yAxisId="right" type="monotone" dataKey="batteryPct" name="Speicher %" stroke="#059669" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+          {hasChartableSeries ? (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={timeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="homeGradT" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.3} vertical={false} />
+                  <XAxis dataKey="time" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
+                    minTickGap={48} tickFormatter={formatTimeTick} />
+                  {hasLeftAxis && (
+                    <YAxis yAxisId="left" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} unit="kW"
+                      tickFormatter={formatAxisKw} />
+                  )}
+                  {hasRightAxis && (
+                    <YAxis yAxisId="right" orientation="right" stroke="#94A3B8" fontSize={10} tickLine={false}
+                      axisLine={false} domain={[0, 100]} unit="%"
+                      tickFormatter={(value: number) => formatNumber(value, locale)} />
+                  )}
+                  <Tooltip
+                    isAnimationActive={animate}
+                    formatter={(value: number, name: string) => [
+                      name === 'Speicher %' ? formatNumber(value, locale) : formatAxisKw(value),
+                      name,
+                    ]}
+                    cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
+                    contentStyle={{
+                      borderRadius: '0.625rem',
+                      border: '1px solid rgba(148,163,184,0.35)',
+                      fontSize: '12px',
+                      padding: '4px 8px',
+                    }} />
+                  {series.map(entry => (
+                    entry.key === 'batteryPct' ? (
+                      <Line key={entry.key} yAxisId="right" type="monotone" dataKey={entry.key} name={entry.name}
+                        stroke={entry.color} strokeWidth={2} dot={false} connectNulls={false}
+                        isAnimationActive={animate} />
+                    ) : (
+                      <Area key={entry.key} yAxisId="left" type="monotone" dataKey={entry.key} name={entry.name}
+                        stroke={entry.color} strokeWidth={2} fillOpacity={1} connectNulls={false}
+                        fill={entry.key === 'solarKw' ? 'url(#solarGradT)' : 'url(#homeGradT)'}
+                        isAnimationActive={animate} />
+                    )
+                  ))}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Für heute liegen noch nicht genug Messwerte für eine Verlaufskurve vor.
+            </p>
+          )}
 
           {isDemo && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
-              </p>
-            </div>
+            <p className="border-t border-slate-200/70 dark:border-slate-800 pt-4 text-xs text-slate-500 dark:text-slate-400">
+              Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
+            </p>
           )}
         </section>
       )}

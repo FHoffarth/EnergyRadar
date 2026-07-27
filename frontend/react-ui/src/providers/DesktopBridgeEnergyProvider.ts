@@ -8,74 +8,78 @@ type Subscriber = (snapshot: EnergySnapshot) => void;
 function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
   const { power, status } = data;
 
-  const dataStateToOrigin = (state: PowerData['solar'], quality: SystemStatus): DataOrigin => {
-    if (state.state === 'loading' || state.state === 'unknown') return 'unavailable';
-    if (state.state === 'error') return 'unavailable';
-    if (state.state === 'available') {
-      if (quality === 'live') return 'estimated';
-      if (quality === 'stale') return 'estimated';
-      return 'estimated';
-    }
-    return 'unavailable';
-  };
-
   const dataStateToValue = (state: PowerData['solar']): number | null => {
     if (state.state === 'available') return state.value;
     return null;
-  };
-
-  const qualityMap: Record<SystemStatus, DataQuality> = {
-    live: 'live',
-    stale: 'stale',
-    error: 'unavailable',
-    no_data: 'unavailable',
-    meter_locked: 'partial'
   };
 
   const solarValue = dataStateToValue(power.solar);
   const homeValue = dataStateToValue(power.home);
   const gridValue = dataStateToValue(power.grid);
 
-  const solarOrigin = dataStateToOrigin(power.solar, status);
-  const homeOrigin = dataStateToOrigin(power.home, status);
-  const gridOrigin = dataStateToOrigin(power.grid, status);
+  const stateToOrigin = (state: PowerData['solar']): DataOrigin => {
+    if (state.state === 'available') return 'observed';
+    return 'unavailable';
+  };
+
+  const solarOrigin = stateToOrigin(power.solar);
+  const homeOrigin = stateToOrigin(power.home);
+  const gridOrigin = stateToOrigin(power.grid);
 
   const solar: EnergyValue = {
     valueKw: solarValue !== null ? solarValue / 1000 : null,
     origin: solarOrigin,
-    sourceLabel: solarOrigin === 'unavailable' ? undefined : 'Bridge'
+    sourceLabel: solarOrigin === 'unavailable' ? undefined : 'Fronius Wechselrichter'
   };
 
   const homeLoad: EnergyValue = {
     valueKw: homeValue !== null ? homeValue / 1000 : null,
     origin: homeOrigin,
-    sourceLabel: homeOrigin === 'unavailable' ? undefined : 'Bridge'
+    sourceLabel: homeOrigin === 'unavailable' ? undefined : 'Smart Meter'
   };
 
   const grid: EnergyValue = {
     valueKw: gridValue !== null ? gridValue / 1000 : null,
     origin: gridOrigin,
-    sourceLabel: gridOrigin === 'unavailable' ? undefined : 'Bridge'
+    sourceLabel: gridOrigin === 'unavailable' ? undefined : 'Smart Meter'
   };
 
+  const hasLiveData = solarOrigin === 'observed' || homeOrigin === 'observed' || gridOrigin === 'observed';
+
+  let quality: DataQuality;
+  if (hasLiveData) {
+    quality = 'live';
+  } else if (status === 'stale') {
+    quality = 'stale';
+  } else if (status === 'error') {
+    quality = 'error';
+  } else {
+    quality = 'unavailable';
+  }
+
   let assessment: EnergyAssessment | null = null;
-  if (power.verdict && (status === 'live' || status === 'stale' || status === 'meter_locked')) {
+  if (power.verdict && hasLiveData) {
     assessment = {
       verdict: power.verdict,
       kind: power.verdict_kind || null,
-      confidence: status === 'live' ? 'Live-Daten (Bridge)' : status === 'stale' ? 'Veraltete Daten (Bridge)' : undefined
+      confidence: status === 'stale' ? 'Veraltete Daten (Bridge)' : 'Live-Daten (Bridge)'
     };
+  }
+
+  const warnings: string[] = [];
+  if (status === 'meter_locked') {
+    warnings.push('Zählerdaten nicht verfügbar. Einrichtung optional fortsetzen.');
   }
 
   return {
     timestamp: power.lastUpdated || null,
-    quality: qualityMap[status] || 'unavailable',
+    quality,
     solar,
     homeLoad,
     grid,
     battery: null,
     assessment,
-    warnings: [],
+    warnings,
     solarForecast: power.solar_forecast || null
   };
 }

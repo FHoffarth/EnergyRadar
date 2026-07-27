@@ -27,12 +27,14 @@ export function AppLayout() {
     }
   };
 
+  // Light mode uses a subtly tinted canvas so surfaces read as surfaces
+  // rather than dissolving into a white page.
   return (
-    <div className="flex h-screen w-full bg-[#F8F8F7] dark:bg-[#121212] text-[#1C1C1E] dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300 relative">
+    <div className="flex h-screen w-full bg-[#EFF1F4] dark:bg-[#121212] text-[#1C1C1E] dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300 relative">
       <LivingSkyBackground />
       <Sidebar onOpenSetupWizard={() => setIsSetupWizardOpen(true)} />
       <main className="flex-1 overflow-y-auto overflow-x-hidden relative flex flex-col z-10">
-        <div className="max-w-[1200px] mx-auto w-full h-full flex flex-col">
+        <div className="flex-1 flex flex-col max-w-[960px] w-full mx-auto">
           {renderView()}
         </div>
       </main>

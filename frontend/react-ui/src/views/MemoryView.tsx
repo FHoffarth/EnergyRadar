@@ -5,7 +5,7 @@ import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive,
 
 export function MemoryView() {
   const { requestExport, requestMailShare, exportStatus } = useApp();
-  const { providerType, timeline } = useEnergyProvider();
+  const { timeline } = useEnergyProvider();
 
   const [exportType, setExportType] = useState<'pdf' | 'csv' | 'json' | 'zip'>('pdf');
   const [range, setRange] = useState<'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year'>('7days');

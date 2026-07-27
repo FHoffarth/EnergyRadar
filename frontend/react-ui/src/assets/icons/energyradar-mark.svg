@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EnergyRadar mark">
+  
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    
+    <circle cx="256" cy="256" r="170" stroke="#2C6C7A" stroke-width="22"></circle>
+    
+    <path d="M 116 256 L 196 256 L 244 166 L 292 348 L 340 256 L 396 256" stroke="#3DDCEB" stroke-width="30"></path>
+  </g>
+  
+  <circle cx="396" cy="256" r="26" fill="#3DDCEB"></circle>
+  <circle cx="396" cy="256" r="26" fill="none" stroke="#3DDCEB" stroke-opacity="0.28" stroke-width="18"></circle>
+</svg>

@@ -70,9 +70,12 @@ export function LivingSkyBackground() {
         />
       )}
 
-      {/* Stable Readability Scrim (Directive 9) */}
+      {/* Stable Readability Scrim (Directive 9).
+          Light mode lightens the sky into a subtly tinted canvas; dark mode
+          deepens it. A dark scrim under a light theme made body text and
+          secondary labels unreadable. */}
       <div
-        className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-slate-950/10 to-slate-950/30 dark:via-slate-950/30 dark:to-slate-950/60"
+        className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/75 via-white/80 to-white/90 dark:from-transparent dark:via-slate-950/30 dark:to-slate-950/60"
       />
     </div>
   );

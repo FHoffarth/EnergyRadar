@@ -1,7 +1,8 @@
 [Setup]
 AppName=EnergyRadar
 AppVersion=0.9 Beta
-AppPublisher=EnergyRadar
+AppPublisher=Florian Hoffarth
+AppCopyright=© 2026 Florian Hoffarth. All rights reserved.
 DefaultDirName={autopf}\EnergyRadar
 DefaultGroupName=EnergyRadar
 OutputDir=..\release

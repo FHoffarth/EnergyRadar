@@ -220,3 +220,18 @@ energyradar/                      ← Domain-, Daten- und Bridge-Module
 .github/workflows/build.yml       ← einziger Desktop-Buildworkflow
 .github/workflows/release.yml     ← getrennte, manuelle Veröffentlichung
 ```
+
+---
+
+## Urheberrecht und Lizenzen
+
+© 2026 Florian Hoffarth. Alle Rechte vorbehalten.
+
+Die Oberfläche verwendet **Geist** (Geist Sans und Geist Mono, Version 1.7.2),
+lizenziert unter der SIL Open Font License 1.1. Die Schriftdateien liegen lokal
+im Repository; der unveränderte Lizenztext steht in
+`frontend/react-ui/src/assets/fonts/GEIST-LICENSE.txt`, Herkunft und Version
+sind in `frontend/react-ui/src/assets/fonts/README.md` dokumentiert.
+
+Lizenzen weiterer Abhängigkeiten bleiben unberührt und gelten unverändert
+gemäß den jeweiligen Projekten.

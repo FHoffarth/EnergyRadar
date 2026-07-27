@@ -75,6 +75,10 @@ class EnergyBridge(QObject):
     _nowReady = Signal(str)
     _todayReady = Signal(str)
     _devicesReady = Signal(str)
+    _connectionTestReady = Signal(str, str, str)
+    _weatherCandidatesReady = Signal(str, str)
+    _weatherReportReady = Signal(str)
+    _weatherConnectionTestReady = Signal(str, str)
 
     # ---------------------------------------------------------------- #
     # Initialisierung
@@ -100,6 +104,10 @@ class EnergyBridge(QObject):
         self._nowReady.connect(self._apply_now, Qt.ConnectionType.QueuedConnection)
         self._todayReady.connect(self._apply_today, Qt.ConnectionType.QueuedConnection)
         self._devicesReady.connect(self._apply_devices, Qt.ConnectionType.QueuedConnection)
+        self._connectionTestReady.connect(self._relay_connection_test, Qt.ConnectionType.QueuedConnection)
+        self._weatherCandidatesReady.connect(self._relay_weather_candidates, Qt.ConnectionType.QueuedConnection)
+        self._weatherReportReady.connect(self._relay_weather_report, Qt.ConnectionType.QueuedConnection)
+        self._weatherConnectionTestReady.connect(self._relay_weather_connection_test, Qt.ConnectionType.QueuedConnection)
 
         # Initialen Settings-Snapshot sofort bereitstellen
         self._update_settings_snapshot()
@@ -295,6 +303,22 @@ class EnergyBridge(QObject):
         self._devices_json = data_json
         self.devicesDataChanged.emit()
 
+    @Slot(str, str, str)
+    def _relay_connection_test(self, device_id: str, operation_id: str, result_json: str) -> None:
+        self.connectionTestResult.emit(device_id, operation_id, result_json)
+
+    @Slot(str, str)
+    def _relay_weather_candidates(self, operation_id: str, result_json: str) -> None:
+        self.weatherCandidatesResult.emit(operation_id, result_json)
+
+    @Slot(str)
+    def _relay_weather_report(self, report_json: str) -> None:
+        self.weatherReportChanged.emit(report_json)
+
+    @Slot(str, str)
+    def _relay_weather_connection_test(self, operation_id: str, result_json: str) -> None:
+        self.weatherConnectionTestResult.emit(operation_id, result_json)
+
     # ---------------------------------------------------------------- #
     # Öffentliche Slots (aus QML aufgerufen)
     # ---------------------------------------------------------------- #
@@ -317,6 +341,7 @@ class EnergyBridge(QObject):
         def _do_test() -> None:
             import time
             from datetime import datetime, timezone
+            from energyradar.collectors import mt175 as mt175_coll
             from energyradar.services import data_source as ds
 
             start_time = time.time()
@@ -345,6 +370,8 @@ class EnergyBridge(QObject):
                             res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet vollständig", "capabilities": ["grid_import_total", "grid_export_total", "current_power"]}
                 else:
                     res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Unbekanntes Gerät: {target_id}", "capabilities": []}
+            except mt175_coll.MT175AddressError as exc:
+                res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Adresse ungültig: {str(exc)[:80]}", "capabilities": []}
             except Exception as exc:
                 latency = int((time.time() - start_time) * 1000)
                 res = {"ok": False, "status": "error", "latency_ms": latency, "message": f"Verbindung fehlgeschlagen: {str(exc)[:80]}", "capabilities": []}
@@ -357,7 +384,7 @@ class EnergyBridge(QObject):
                 self._test_results[target_id] = res
 
             res_json = json.dumps(res, ensure_ascii=False)
-            QTimer.singleShot(0, lambda t_id=target_id, o_id=operation_id, r_json=res_json: self.connectionTestResult.emit(t_id, o_id, r_json))
+            self._connectionTestReady.emit(target_id, operation_id, res_json)
 
         threading.Thread(target=_do_test, name=f"test-{target_id}", daemon=True).start()
 
@@ -463,12 +490,27 @@ class EnergyBridge(QObject):
                 ws = WeatherService()
                 candidates = ws.search_locations(query)
                 res = [dataclasses.asdict(c) for c in candidates]
-                res_json = json.dumps({"ok": True, "candidates": res}, ensure_ascii=False)
-                QTimer.singleShot(0, lambda o_id=operation_id, r_json=res_json: self.weatherCandidatesResult.emit(o_id, r_json))
+                res_json = json.dumps(
+                    {
+                        "ok": True,
+                        "operation_id": operation_id,
+                        "candidates": res,
+                    },
+                    ensure_ascii=False,
+                )
+                self._weatherCandidatesReady.emit(operation_id, res_json)
             except Exception as exc:
                 log.warning("Standortsuche fehlgeschlagen: %s", exc)
-                res_json = json.dumps({"ok": False, "error": str(exc), "candidates": []}, ensure_ascii=False)
-                QTimer.singleShot(0, lambda o_id=operation_id, r_json=res_json: self.weatherCandidatesResult.emit(o_id, r_json))
+                res_json = json.dumps(
+                    {
+                        "ok": False,
+                        "operation_id": operation_id,
+                        "error": str(exc),
+                        "candidates": [],
+                    },
+                    ensure_ascii=False,
+                )
+                self._weatherCandidatesReady.emit(operation_id, res_json)
 
         threading.Thread(target=_do_search, name=f"search-loc-{operation_id}", daemon=True).start()
 
@@ -516,7 +558,7 @@ class EnergyBridge(QObject):
                     ws = WeatherService()
                     report = ws.get_weather_report(force_fresh=False)
                     rep_json = json.dumps(report.to_dict(), ensure_ascii=False)
-                    QTimer.singleShot(0, lambda r_json=rep_json: self.weatherReportChanged.emit(r_json))
+                    self._weatherReportReady.emit(rep_json)
                 except Exception as e:
                     log.warning("Hintergrund-Wetterabruf fehlgeschlagen: %s", e)
 
@@ -540,10 +582,47 @@ class EnergyBridge(QObject):
         self._update_settings_snapshot()
         self.weatherReportChanged.emit(json.dumps({"status": "disabled"}, ensure_ascii=False))
 
+    @Slot()
+    def requestWeatherReport(self) -> None:
+        """Lädt den aktuellen Wetterbericht nach erfolgreicher Bridge-Verbindung."""
+        from energyradar.services.weather.service import WeatherService
+
+        def _do_request() -> None:
+            try:
+                report = WeatherService().get_weather_report(force_fresh=False)
+                payload = report.to_dict()
+            except Exception:
+                log.exception("Wetterbericht konnte nicht geladen werden")
+                payload = {
+                    "status": "error",
+                    "provider_status": "unreachable",
+                    "served_from_cache": False,
+                    "observed_at": None,
+                    "fetched_at": None,
+                    "location": None,
+                    "sun": None,
+                    "current": None,
+                    "quality": None,
+                    "warnings": [
+                        {
+                            "code": "weather_request_failed",
+                            "message": "Wetterdaten konnten nicht geladen werden.",
+                        }
+                    ],
+                }
+            self._weatherReportReady.emit(json.dumps(payload, ensure_ascii=False))
+
+        threading.Thread(
+            target=_do_request,
+            name="weather-report-request",
+            daemon=True,
+        ).start()
+
     @Slot(str)
     def testWeatherConnection(self, operation_id: str) -> None:
         """Führt einen erzwungenen Live-Verbindungstest durch (ohne Cache). Mutiert KEINE Settings!"""
         import time
+        from datetime import datetime, timezone
         from energyradar.services.weather.service import WeatherService
         self.weatherConnectionTestStarted.emit(operation_id)
 
@@ -578,8 +657,9 @@ class EnergyBridge(QObject):
                     "message": f"Verbindungstest fehlgeschlagen: {str(exc)[:100]}"
                 }
 
+            res["operation_id"] = operation_id
             res_json = json.dumps(res, ensure_ascii=False)
-            QTimer.singleShot(0, lambda o_id=operation_id, r_json=res_json: self.weatherConnectionTestResult.emit(o_id, r_json))
+            self._weatherConnectionTestReady.emit(operation_id, res_json)
 
         threading.Thread(target=_do_test, name=f"test-wconn-{operation_id}", daemon=True).start()
 
@@ -792,8 +872,9 @@ def _run_connection_test(device_id: str, address: str) -> tuple[bool, str]:
             return True, S.settings_test_ok
 
     except Exception as exc:
+        from energyradar.collectors import mt175 as mc
         from energyradar.services import data_source as ds
-        if isinstance(exc, ds.UnsafeTargetError):
+        if isinstance(exc, (ds.UnsafeTargetError, mc.MT175AddressError)):
             return False, S.settings_invalid_address
         return False, S.settings_test_failed
 
