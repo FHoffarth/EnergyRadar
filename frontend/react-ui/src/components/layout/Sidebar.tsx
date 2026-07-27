@@ -9,8 +9,14 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
-  const { view, setView, status } = useApp();
+  const { view, setView, status, settingsPayload } = useApp();
   const { snapshot, sourceType } = useEnergyProvider();
+
+  // The setup CTA is only offered while no data source is actually working.
+  const hasConfiguredSource =
+    Boolean(settingsPayload?.effective_settings?.fronius_address)
+    || Boolean(settingsPayload?.effective_settings?.mt175_address)
+    || snapshot.solar.origin === 'observed';
 
   const hasObservedSolar = snapshot.solar.origin === 'observed';
   const hasObservedHome = snapshot.homeLoad.origin === 'observed';
@@ -84,7 +90,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           <p className="text-[11px] text-[#8E8E8E] dark:text-slate-500 mt-1">{qualityPresentation.detail}</p>
         </div>
 
-        {onOpenSetupWizard && (
+        {onOpenSetupWizard && !hasConfiguredSource && (
           <button
             onClick={onOpenSetupWizard}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"

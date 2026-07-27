@@ -1,286 +1,223 @@
 import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Sun, Home, Zap, ArrowRight, ArrowLeft, Info, ShieldCheck } from 'lucide-react';
-import { EnergyFlow } from '../components/EnergyFlow';
-import { useApp } from '../context/AppContext';
+import { Sun, Home, Zap } from 'lucide-react';
+import { useApp, useNumberLocale } from '../context/AppContext';
+import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
+import { UNKNOWN_VALUE, formatKw, formatNumber, formatTemperature } from '../lib/format';
+
+/**
+ * Colour for a channel the devices have not delivered. Legible enough to read
+ * as a deliberate placeholder, still clearly muted against the measured
+ * values so an unknown never reads as a measurement.
+ */
+const UNKNOWN_ACCENT = 'text-slate-500 dark:text-slate-500';
+
+const CONDITION_LABELS: Record<string, string> = {
+  clear: 'Klar',
+  partly_cloudy: 'Teilweise bewölkt',
+  cloudy: 'Bewölkt',
+  rain: 'Regen',
+  heavy_rain: 'Starker Regen',
+  snow: 'Schnee',
+  fog: 'Nebel',
+  thunderstorm: 'Gewitter',
+};
 
 export function NowView() {
   const { snapshot, timeline, devices, sourceType } = useEnergyProvider();
   const { settingsPayload, weatherReport } = useApp();
+  const locale = useNumberLocale();
 
-  const isGenerating = snapshot.solar.valueKw !== null && snapshot.solar.valueKw > 0;
-  const isFeeding = snapshot.grid.valueKw !== null && snapshot.grid.valueKw < 0;
-  const isDrawing = snapshot.grid.valueKw !== null && snapshot.grid.valueKw > 0;
+  const motionMode = settingsPayload?.effective_settings?.motion_mode ?? 'full';
+  const animateCharts = motionMode === 'full';
 
-  const history = timeline.filter(t => t.solarKw !== null);
-  const maximumSolar = Math.max(0, ...history.map(t => t.solarKw ?? 0));
-  const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
-  const weatherSummary = (() => {
-    if (!weatherEnabled) return null;
-    if (!weatherReport) return 'Wetterdaten werden geladen…';
-    if (weatherReport.status === 'available') {
-      const place = weatherReport.location?.display_name;
-      const temperature = weatherReport.current?.temperature_c;
-      const conditionLabels: Record<string, string> = {
-        clear: 'Klar',
-        partly_cloudy: 'Teilweise bewölkt',
-        cloudy: 'Bewölkt',
-        rain: 'Regen',
-        heavy_rain: 'Starker Regen',
-        snow: 'Schnee',
-        fog: 'Nebel',
-        thunderstorm: 'Gewitter',
-      };
-      const condition = weatherReport.current?.condition
-        ? conditionLabels[weatherReport.current.condition] || 'Wetter verfügbar'
-        : 'Wetter verfügbar';
-      return [
-        place,
-        typeof temperature === 'number' ? `${temperature.toLocaleString('de-DE')} °C` : null,
-        condition,
-      ].filter(Boolean).join(' · ');
-    }
-    return weatherReport.warnings?.[0]?.message || 'Wetterdaten momentan nicht erreichbar.';
-  })();
-
+  // A value counts as present only when the device actually measured it.
   const hasSolar = snapshot.solar.valueKw !== null && snapshot.solar.origin === 'observed';
   const hasHome = snapshot.homeLoad.valueKw !== null && snapshot.homeLoad.origin === 'observed';
   const hasGrid = snapshot.grid.valueKw !== null && snapshot.grid.origin === 'observed';
-  const solarOnly = hasSolar && !hasHome && !hasGrid;
 
-  const qualityLabel = () => {
-    if (solarOnly) return snapshot.timestamp ? `Solar live · ${snapshot.timestamp}` : 'Solar live';
-    switch (snapshot.quality) {
-      case 'live': return snapshot.timestamp ? `Live · ${snapshot.timestamp}` : 'Live';
-      case 'stale': return `Veraltet · ${snapshot.timestamp || ''}`;
-      case 'error': return 'Nicht erreichbar';
-      case 'unavailable': default: return 'Keine Daten';
+  // ── 1. Current assessment ────────────────────────────────────────────
+  // Stated strictly from what is measured. Nothing is inferred for a
+  // channel the meter has not delivered.
+  const headline = (() => {
+    if (snapshot.quality === 'error') return 'Gerät momentan nicht erreichbar.';
+    if (!hasSolar && !hasHome && !hasGrid) {
+      if (snapshot.quality === 'stale') return 'Nur veraltete Messwerte vorhanden.';
+      return 'Keine Datenquelle eingerichtet.';
     }
-  };
 
-  const qualityDotClass = () => {
-    if (solarOnly) return 'bg-emerald-500';
-    switch (snapshot.quality) {
-      case 'live': return 'bg-emerald-500';
-      case 'stale': return 'bg-amber-500';
-      case 'error': return 'bg-rose-500';
-      default: return 'bg-slate-400';
+    const sentences: string[] = [];
+    if (hasSolar) {
+      sentences.push(`PV liefert aktuell ${formatKw(snapshot.solar.valueKw, locale)} kW.`);
     }
-  };
 
-  let mainStatement: string;
-  if (solarOnly) {
-    mainStatement = 'Solardaten sind live.';
-  } else if (snapshot.assessment?.verdict && snapshot.quality === 'live') {
-    mainStatement = snapshot.assessment.verdict;
-  } else if (snapshot.quality === 'unavailable') {
-    mainStatement = 'Keine Datenquelle eingerichtet.';
-  } else if (snapshot.quality === 'error') {
-    mainStatement = 'Gerät momentan nicht erreichbar.';
-  } else if (snapshot.quality === 'stale') {
-    mainStatement = 'Veraltete Messwerte – erneute Verbindung wird versucht.';
-  } else {
-    mainStatement = 'Live-Daten sind verfügbar.';
+    const missing = [!hasHome ? 'Verbrauch' : null, !hasGrid ? 'Netz' : null].filter(Boolean);
+    if (missing.length === 2) {
+      sentences.push('Verbrauch und Netz sind noch nicht verfügbar.');
+    } else if (missing.length === 1) {
+      sentences.push(`${missing[0]} ist noch nicht verfügbar.`);
+    } else if (snapshot.assessment?.verdict && snapshot.quality === 'live') {
+      sentences.push(snapshot.assessment.verdict);
+    }
+
+    return sentences.join(' ');
+  })();
+
+  const subline = (() => {
+    if (sourceType === 'demo') return `Demo-Daten${snapshot.timestamp ? ` · ${snapshot.timestamp}` : ''}`;
+    if (snapshot.quality === 'stale') return `Veraltet${snapshot.timestamp ? ` · ${snapshot.timestamp}` : ''}`;
+    // freshness_label already reads like "Aktuell · 19:17" — do not prefix it again.
+    return snapshot.timestamp;
+  })();
+
+  // ── 2. PV / home / grid ──────────────────────────────────────────────
+  const gridKw = snapshot.grid.valueKw;
+  const gridDetail = !hasGrid
+    ? null
+    : gridKw !== null && gridKw > 0
+    ? 'Bezug'
+    : gridKw !== null && gridKw < 0
+    ? 'Einspeisung'
+    : 'Kein Austausch';
+
+  const flowItems = [
+    {
+      key: 'pv',
+      icon: Sun,
+      label: 'PV',
+      value: hasSolar ? formatKw(snapshot.solar.valueKw, locale) : UNKNOWN_VALUE,
+      accent: hasSolar ? 'text-amber-600 dark:text-amber-400' : UNKNOWN_ACCENT,
+      detail: hasSolar ? 'Gemessen' : 'Nicht verfügbar',
+    },
+    {
+      key: 'home',
+      icon: Home,
+      label: 'Haus',
+      value: hasHome ? formatKw(snapshot.homeLoad.valueKw, locale) : UNKNOWN_VALUE,
+      accent: hasHome ? 'text-sky-600 dark:text-sky-400' : UNKNOWN_ACCENT,
+      detail: hasHome ? 'Gemessen' : 'Nicht verfügbar',
+    },
+    {
+      key: 'grid',
+      icon: Zap,
+      label: 'Netz',
+      value: hasGrid && gridKw !== null ? formatKw(Math.abs(gridKw), locale) : UNKNOWN_VALUE,
+      accent: hasGrid ? 'text-slate-700 dark:text-slate-200' : UNKNOWN_ACCENT,
+      detail: gridDetail ?? 'Nicht verfügbar',
+    },
+  ];
+
+  // ── 3. Day trend ─────────────────────────────────────────────────────
+  const trendPoints = measuredPoints(timeline);
+  const showTrend = hasEnoughEvidence(timeline);
+
+  // ── 4. Device and data-source status ─────────────────────────────────
+  const statusChips: string[] = [];
+  devices.forEach(device => {
+    const state =
+      device.status === 'active' ? 'online'
+      : device.status === 'last_known' ? 'veraltet'
+      : device.status === 'unknown' ? 'Fehler'
+      : 'nicht verbunden';
+    statusChips.push(`${device.name} ${state}`);
+  });
+  if (devices.length === 0) {
+    statusChips.push(sourceType === 'demo' ? 'Demo-Quelle aktiv' : 'Keine Geräte verbunden');
   }
 
-  const originLabel = () => {
-    if (sourceType === 'demo') return 'Demo-Daten · Simuliert';
-    if (sourceType === 'bridge') {
-      if (hasSolar && !hasHome && !hasGrid) return 'Solar live · Fronius';
-      if (hasSolar) return 'Live · Bridge';
-      return 'Bridge verbunden';
+  const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
+  if (weatherEnabled) {
+    if (!weatherReport) {
+      statusChips.push('Wetter wird geladen');
+    } else if (weatherReport.status === 'available') {
+      const condition = weatherReport.current?.condition
+        ? CONDITION_LABELS[weatherReport.current.condition] || 'Wetter aktuell'
+        : 'Wetter aktuell';
+      const temperature = formatTemperature(weatherReport.current?.temperature_c, locale);
+      statusChips.push([condition, temperature].filter(Boolean).join(' '));
+    } else {
+      statusChips.push('Wetter nicht verfügbar');
     }
-    return 'Keine Daten';
-  };
+  }
+
+  const forecast = snapshot.solarForecast;
 
   return (
-    <div className="flex flex-col h-full pt-8 pb-4">
-      <header className="px-8 pb-4">
-        <div className="flex items-center gap-2 mb-1.5">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800/40">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Was jetzt zählt</span>
-          </div>
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${sourceType === 'demo' ? 'bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800/40' : sourceType === 'offline' ? 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/40'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${sourceType === 'demo' ? 'bg-sky-500' : sourceType === 'offline' ? 'bg-slate-400' : 'bg-emerald-500'}`} />
-            {originLabel()}
-          </div>
-        </div>
-        <h1 className="text-2xl font-semibold text-[#1C1C1E] dark:text-white leading-snug max-w-2xl">
-          {mainStatement}
+    <div className="flex flex-col gap-6 px-8 pt-10 pb-6">
+      {/* 1 — current assessment */}
+      <header>
+        <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl">
+          {headline}
         </h1>
-        <div className="flex items-center gap-1.5 text-sm text-[#8E8E8E] dark:text-slate-500 mt-1.5 font-medium">
-          <div className={`w-2 h-2 rounded-full ${qualityDotClass()}`} />
-          <span>{qualityLabel()}</span>
-        </div>
-        {solarOnly && (
-          <p className="text-sm text-[#8E8E8E] dark:text-slate-500 mt-1">
-            Verbrauch und Netzfluss sind derzeit nicht verfügbar.
-          </p>
-        )}
-        {weatherSummary && (
-          <p data-testid="weather-status" className="text-xs text-[#6E6E6E] dark:text-slate-400 mt-1.5">
-            {weatherSummary}
-          </p>
+        {subline && (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{subline}</p>
         )}
       </header>
 
-      <section className="px-8 flex items-stretch gap-3 mb-6">
-        {(() => {
-          const val = (v: number | null) => v !== null ? Math.abs(v) : null;
-          const isUk = (v: number | null) => v === null;
-          return (
-            <>
-              <div className={`flex-1 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 shadow-sm transition-all duration-300 ${isGenerating ? 'ring-2 ring-amber-500/10' : ''}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="p-1.5 rounded-lg bg-amber-50 dark:bg-slate-700">
-                    <Sun className="w-5 h-5 text-amber-500" />
+      {/* 2 — PV / home / grid */}
+      <section aria-label="Momentane Leistungswerte">
+        <div className="flex flex-wrap items-start gap-x-10 gap-y-6">
+          {flowItems.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <React.Fragment key={item.key}>
+                {index > 0 && (
+                  <span aria-hidden="true" className="self-center text-slate-400 dark:text-slate-600 text-lg">
+                    →
+                  </span>
+                )}
+                <div className="min-w-[7rem]">
+                  <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <Icon className="w-3.5 h-3.5" />
+                    {item.label}
                   </div>
-                  <span className="text-sm text-[#6E6E6E] dark:text-slate-400 font-medium">Solaranlage</span>
+                  <div className={`mt-1 text-3xl font-semibold tabular-nums tracking-tight ${item.accent}`}>
+                    {item.value}
+                    {item.value !== UNKNOWN_VALUE && (
+                      <span className="ml-1.5 text-base font-medium text-slate-400 dark:text-slate-500">kW</span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{item.detail}</p>
                 </div>
-                <div className="text-2xl font-bold mb-1 text-[#1C1C1E] dark:text-white">
-                  {isUk(snapshot.solar.valueKw) ? '–' : (val(snapshot.solar.valueKw)!).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                  <span className="text-lg font-medium text-[#8E8E8E] dark:text-slate-500 ml-1">kW</span>
-                </div>
-                <p className={`text-xs font-medium ${isUk(snapshot.solar.valueKw) ? 'text-slate-400' : 'text-amber-600'}`}>
-                  {isUk(snapshot.solar.valueKw) ? 'Nicht verfügbar' : isGenerating ? 'Wird gerade erzeugt' : 'Keine Erzeugung'}
-                </p>
-              </div>
-              <div className="flex items-center justify-center flex-shrink-0 w-4 text-[#E5E5E3] dark:text-slate-700">
-                <ArrowRight className={`w-5 h-5 transition-colors duration-300 ${isGenerating ? 'text-amber-500/40' : ''}`} />
-              </div>
-              <div className={`flex-1 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 shadow-sm transition-all duration-300 ${snapshot.homeLoad.valueKw !== null && snapshot.homeLoad.valueKw > 0 ? 'ring-2 ring-sky-500/10' : ''}`}>
-                <div className="flex items-center gap-2 mb-3">
-                      <div className="p-1.5 rounded-lg bg-sky-50 dark:bg-slate-700">
-                        <Home className="w-5 h-5 text-sky-500" />
-                      </div>
-                      <span className="text-sm text-[#6E6E6E] dark:text-slate-400 font-medium">Hausverbrauch</span>
-                    </div>
-                    <div className="text-2xl font-bold mb-1 text-[#1C1C1E] dark:text-white">
-                      {isUk(snapshot.homeLoad.valueKw) ? '–' : (val(snapshot.homeLoad.valueKw)!).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                      <span className="text-lg font-medium text-[#8E8E8E] dark:text-slate-500 ml-1">kW</span>
-                    </div>
-                    <p className={`text-xs font-medium ${isUk(snapshot.homeLoad.valueKw) ? 'text-slate-400' : 'text-sky-600'}`}>
-                      {isUk(snapshot.homeLoad.valueKw) ? 'Nicht verfügbar' : 'Wird im Haus genutzt'}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-center flex-shrink-0 w-4 text-[#E5E5E3] dark:text-slate-700">
-                    {isFeeding ? <ArrowRight className="w-5 h-5 text-emerald-500/50" /> :
-                     isDrawing ? <ArrowLeft className="w-5 h-5 text-rose-500/50" /> :
-                     <ArrowRight className="w-5 h-5" />}
-                  </div>
-                  <div className={`flex-1 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 shadow-sm transition-all duration-300 ${isFeeding || isDrawing ? 'ring-2 ring-rose-500/10' : ''}`}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className={`p-1.5 rounded-lg ${isFeeding ? 'bg-emerald-50' : 'bg-rose-50'} dark:bg-slate-700`}>
-                        <Zap className={`w-5 h-5 ${isFeeding ? 'text-emerald-500' : 'text-rose-500'}`} />
-                      </div>
-                      <span className="text-sm text-[#6E6E6E] dark:text-slate-400 font-medium">Stromnetz</span>
-                    </div>
-                    <div className="text-2xl font-bold mb-1 text-[#1C1C1E] dark:text-white">
-                      {isUk(snapshot.grid.valueKw) ? '–' : (val(snapshot.grid.valueKw)!).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                      <span className="text-lg font-medium text-[#8E8E8E] dark:text-slate-500 ml-1">kW</span>
-                    </div>
-                    <p className={`text-xs font-medium ${isUk(snapshot.grid.valueKw) ? 'text-slate-400' : isFeeding ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {isUk(snapshot.grid.valueKw) ? 'Nicht verfügbar' : isFeeding ? 'Einspeisung ins Netz' : isDrawing ? 'Bezug aus dem Netz' : 'Kein Austausch'}
-                    </p>
-              </div>
-            </>
-          );
-        })()}
-      </section>
-
-      <section className="px-8 flex-1 flex min-h-0 gap-4 pb-3">
-        <div className="flex-[3] bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 p-5 flex flex-col shadow-sm">
-          <div>
-            <h3 className="text-sm font-semibold text-[#1C1C1E] dark:text-white mb-3">Systemstatus</h3>
-            <div className="space-y-2.5">
-              {devices.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {sourceType === 'demo' ? 'Demo-Modus: Simulierte Geräte sind aktiv.' : 'Keine Geräte verbunden.'}
-                </p>
-              ) : devices.map(device => (
-                <div className="flex items-center gap-3" key={device.id}>
-                  <div className={`w-2 h-2 rounded-full ${device.status === 'active' ? 'bg-emerald-500' : device.status === 'last_known' ? 'bg-amber-500' : 'bg-slate-400'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#1C1C1E] dark:text-white truncate">{device.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{device.notes}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          {snapshot.assessment?.confidence && (
-            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Bewertung: <span className="font-semibold text-slate-800 dark:text-slate-200">{snapshot.assessment.confidence}</span>
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex-[2] bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 p-5 flex flex-col shadow-sm min-h-0">
-          <h3 className="text-sm font-semibold text-[#1C1C1E] dark:text-white mb-3">Tagesverlauf</h3>
-          {history.length > 0 && maximumSolar > 0 ? (
-            <>
-              <div className="flex-1 flex items-end gap-0.5" aria-label="Gemessener Tagesverlauf">
-                {history.map((point, index) => (
-                  <div key={`${point.time}-${index}`}
-                    className="flex-1 min-w-0 bg-amber-500 dark:bg-amber-500/80 rounded-t-sm"
-                    style={{ height: `${Math.max(2, ((point.solarKw ?? 0) / maximumSolar) * 100)}%` }}
-                    title={`${point.time}: ${point.solarKw?.toLocaleString('de-DE')} kW`} />
-                ))}
-              </div>
-              <div className="flex justify-between mt-3 text-xs text-[#8E8E8E] dark:text-slate-500 font-mono font-medium">
-                <span>{history[0]?.time}</span>
-                <span>{history[Math.floor(history.length / 2)]?.time}</span>
-                <span>{history[history.length - 1]?.time}</span>
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-              {sourceType === 'demo' ? 'Demo-Daten laden...' : 'Noch keine Tageswerte verfügbar.'}
-            </div>
-          )}
+              </React.Fragment>
+            );
+          })}
         </div>
       </section>
 
-      {snapshot.solarForecast && (
-        <div className="px-8 pt-3">
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
-            <div className="space-y-1 min-w-0">
-              <div className="flex items-center gap-2.5">
-                <Sun className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Solar-Prognose</h3>
-                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                  snapshot.solarForecast.confidence.level === 'high'
-                    ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                    : snapshot.solarForecast.confidence.level === 'medium'
-                    ? 'bg-sky-100 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800'
-                    : snapshot.solarForecast.confidence.level === 'low'
-                    ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-600'
-                }`}>
-                  {snapshot.solarForecast.confidence.level === 'high' && 'Hohe Sicherheit'}
-                  {snapshot.solarForecast.confidence.level === 'medium' && 'Mittlere Sicherheit'}
-                  {snapshot.solarForecast.confidence.level === 'low' && 'Geringe Sicherheit'}
-                  {snapshot.solarForecast.confidence.level === 'uncertain' && 'Prognose derzeit unsicher'}
-                </span>
-              </div>
-              <p className="text-slate-600 dark:text-slate-300 text-sm">{snapshot.solarForecast.headline}</p>
-            </div>
-            {snapshot.solarForecast.installed_kwp && (
-              <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-5 flex-shrink-0">
-                <span className="text-[11px] text-slate-400 block font-medium">Anlagenleistung</span>
-                <span className="text-base font-bold text-slate-900 dark:text-white">{snapshot.solarForecast.installed_kwp} kWp</span>
-              </div>
-            )}
-          </div>
+      {/* 3 — day trend */}
+      <section aria-label="Tagesverlauf" className="border-t border-slate-200/70 dark:border-slate-800 pt-5">
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">Tagesverlauf PV</h2>
+          {showTrend && (
+            <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+              {formatNumber(trendPoints.length, locale)} Messpunkte
+            </span>
+          )}
         </div>
-      )}
+        {showTrend ? (
+          <div className="mt-2">
+            <DayTrendChart timeline={timeline} locale={locale} animate={animateCharts} />
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Noch nicht genug Messpunkte für einen Tagesverlauf.
+          </p>
+        )}
+        {forecast?.headline && (
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            Prognose: {forecast.headline}
+          </p>
+        )}
+      </section>
 
-      <div className="px-8 pt-4">
-        <EnergyFlow snapshot={snapshot} />
-      </div>
+      {/* 4 — device and data-source status */}
+      <section
+        aria-label="Systemstatus"
+        className="border-t border-slate-200/70 dark:border-slate-800 pt-4 text-xs text-slate-500 dark:text-slate-400"
+      >
+        <p data-testid="system-status-row">{statusChips.join(' · ')}</p>
+      </section>
     </div>
   );
 }

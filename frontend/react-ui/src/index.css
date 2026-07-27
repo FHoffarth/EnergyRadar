@@ -43,9 +43,11 @@
   scroll-behavior: auto !important;
 }
 
-[data-motion="reduced"] * {
+[data-motion="reduced"] *, [data-motion="reduced"] ::before, [data-motion="reduced"] ::after {
   animation-duration: 0.3s !important;
+  animation-iteration-count: 1 !important;
   transition-duration: 0.3s !important;
+  scroll-behavior: auto !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
