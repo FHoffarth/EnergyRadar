@@ -27,10 +27,13 @@ const mockAppContext: any = {
   testConnection: vi.fn(),
   testConnectionStatus: {},
   updateSettings: vi.fn(),
+  settingsSaveState: { status: 'idle' as const },
 };
 
 vi.mock('../context/AppContext', () => ({
   useApp: () => mockAppContext,
+  useNumberLocale: () =>
+    mockAppContext.settingsPayload?.effective_settings?.number_format ?? 'de-DE',
 }));
 
 // SetupWizardModal has a reference to useApp, etc.
@@ -49,6 +52,7 @@ describe('SettingsView - no provider selection', () => {
     };
     mockAppContext.savedLocationState = 'absent';
     mockAppContext.weatherTestState = { status: 'idle', requestId: null };
+    mockAppContext.settingsSaveState = { status: 'idle' };
   });
 
   it('does not render "Datenanbieter" section', () => {
@@ -146,6 +150,76 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.getByText('Wetterverbindung testen')).toBeInTheDocument();
     expect(screen.queryByText('Teste...')).toBeNull();
     expect(screen.getByText(/Zeitüberschreitung/)).toBeInTheDocument();
+  });
+});
+
+describe('SettingsView - save confirmation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAppContext.settingsPayload = null;
+    mockAppContext.weatherSearchState = { status: 'idle', requestId: null, candidates: [] };
+    mockAppContext.savedLocationState = 'absent';
+    mockAppContext.weatherTestState = { status: 'idle', requestId: null };
+    mockAppContext.settingsSaveState = { status: 'idle' };
+  });
+
+  it('shows no success badge while the backend has not answered', () => {
+    mockAppContext.settingsSaveState = { status: 'saving' };
+    render(<SettingsView />);
+    expect(screen.queryByText('Gespeichert')).toBeNull();
+    expect(screen.getByText('Wird gespeichert…')).toBeInTheDocument();
+  });
+
+  it('shows the success badge only after the backend confirms', () => {
+    mockAppContext.settingsSaveState = { status: 'saved' };
+    render(<SettingsView />);
+    expect(screen.getByText('Gespeichert')).toBeInTheDocument();
+  });
+
+  it('reports a failed save instead of claiming success', () => {
+    mockAppContext.settingsSaveState = { status: 'error', message: 'Schreibfehler.' };
+    render(<SettingsView />);
+    expect(screen.queryByText('Gespeichert')).toBeNull();
+    expect(screen.getByText('Schreibfehler.')).toBeInTheDocument();
+  });
+});
+
+describe('SettingsView - number format', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAppContext.weatherSearchState = { status: 'idle', requestId: null, candidates: [] };
+    mockAppContext.savedLocationState = 'saved';
+    mockAppContext.weatherTestState = { status: 'idle', requestId: null };
+    mockAppContext.settingsSaveState = { status: 'idle' };
+  });
+
+  const payloadWithLocale = (numberFormat: 'de-DE' | 'en-US') => ({
+    settings: {
+      resolved_location: {
+        provider_id: '2937591',
+        display_name: 'Dieburg',
+        latitude: 49.89738,
+        longitude: 8.84613,
+        timezone: 'Europe/Berlin',
+        provider: 'open_meteo',
+        original_query: 'Dieburg',
+        resolved_at: '2026-07-26T10:00:00Z',
+      },
+    },
+    effective_settings: { number_format: numberFormat, weather_enabled: true },
+    system: {},
+  });
+
+  it('formats coordinates with the German locale', () => {
+    mockAppContext.settingsPayload = payloadWithLocale('de-DE');
+    render(<SettingsView />);
+    expect(screen.getByText(/49,8974/)).toBeInTheDocument();
+  });
+
+  it('formats coordinates with the English locale when configured', () => {
+    mockAppContext.settingsPayload = payloadWithLocale('en-US');
+    render(<SettingsView />);
+    expect(screen.getByText(/49\.8974/)).toBeInTheDocument();
   });
 });
 

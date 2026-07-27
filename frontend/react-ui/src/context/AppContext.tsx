@@ -2,10 +2,17 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { ViewState, SystemStatus, ThemeMode, PowerData, TodayData, DeviceCardData, SettingsPayload, RawSettings, LocationCandidateData, WeatherReportData } from '../types';
 import { initBridge, QtBridge } from '../lib/bridge';
 import { nowData$, todayData$, startEnergyService } from '../lib/energyService';
+import { NumberLocale, DEFAULT_NUMBER_LOCALE } from '../lib/format';
 
 export type SearchState = 'idle' | 'loading' | 'results' | 'empty' | 'error' | 'timeout';
 export type SavedLocationState = 'absent' | 'saved';
 export type WeatherTestStatus = 'idle' | 'loading' | 'success' | 'error' | 'timeout';
+export type SettingsSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+export interface SettingsSaveState {
+  status: SettingsSaveStatus;
+  message?: string;
+}
 
 export interface WeatherSearchState {
   status: SearchState;
@@ -43,6 +50,7 @@ interface AppContextType {
   savedLocationState: SavedLocationState;
   weatherReport: WeatherReportData | null;
   weatherTestState: WeatherTestState;
+  settingsSaveState: SettingsSaveState;
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -103,6 +111,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const weatherTestOpIdRef = useRef<string | null>(null);
   const weatherTestSequenceRef = useRef(0);
   const weatherTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [settingsSaveState, setSettingsSaveState] = useState<SettingsSaveState>({ status: 'idle' });
+  const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Subscribe to energyService ────────────────────────────────────
   useEffect(() => {
@@ -179,6 +189,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
         parseSettings();
       });
       parseSettings();
+
+      // "Gespeichert" is only shown once the backend confirms the write.
+      b.settingsSaveSucceeded.connect(() => {
+        if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
+        setSettingsSaveState({ status: 'saved' });
+        settingsSaveTimeoutRef.current = setTimeout(() => {
+          setSettingsSaveState(prev => (prev.status === 'saved' ? { status: 'idle' } : prev));
+          settingsSaveTimeoutRef.current = null;
+        }, 3000);
+      });
+
+      b.settingsSaveFailed.connect((errorJson) => {
+        if (settingsSaveTimeoutRef.current) {
+          clearTimeout(settingsSaveTimeoutRef.current);
+          settingsSaveTimeoutRef.current = null;
+        }
+        let message = 'Einstellungen konnten nicht gespeichert werden.';
+        try {
+          const parsed = JSON.parse(errorJson);
+          if (typeof parsed?.error === 'string' && parsed.error) message = parsed.error;
+        } catch {}
+        setSettingsSaveState({ status: 'error', message });
+      });
 
       b.weatherCandidatesResult.connect((opId, resJson) => {
         if (opId !== searchOpIdRef.current) return;
@@ -285,6 +318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (weatherTestTimeoutRef.current) clearTimeout(weatherTestTimeoutRef.current);
+    if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
   }, []);
 
   // ── Apply theme & global styling attributes to DOM ───────────────────────
@@ -424,9 +458,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
   const updateSettings = (patch: RawSettings) => {
-    if (bridge) {
-      bridge.updateSettings(JSON.stringify(patch));
+    if (settingsSaveTimeoutRef.current) {
+      clearTimeout(settingsSaveTimeoutRef.current);
+      settingsSaveTimeoutRef.current = null;
     }
+    if (!bridge) {
+      setSettingsSaveState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+      return;
+    }
+    setSettingsSaveState({ status: 'saving' });
+    bridge.updateSettings(JSON.stringify(patch));
   };
 
   const saveSettings = (settings: { theme?: string; refresh_seconds?: number; mt175_address?: string }) => {
@@ -517,6 +558,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) ? 'saved' : 'absent',
       weatherReport,
       weatherTestState,
+      settingsSaveState,
       searchWeatherLocations,
       confirmWeatherLocation,
       removeResolvedLocation,
@@ -545,4 +587,14 @@ export function useApp() {
     throw new Error('useApp must be used within an AppProvider');
   }
   return context;
+}
+
+/**
+ * The locale every visible number is formatted with, from the
+ * `number_format` setting. Read through a hook so a settings change
+ * re-renders the consuming view with the new format.
+ */
+export function useNumberLocale(): NumberLocale {
+  const { settingsPayload } = useApp();
+  return settingsPayload?.effective_settings?.number_format ?? DEFAULT_NUMBER_LOCALE;
 }

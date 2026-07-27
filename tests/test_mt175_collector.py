@@ -373,6 +373,256 @@ def _mock_response(json_data: dict | None = None, http_error=None) -> MagicMock:
     return mock_resp
 
 
+_ENDPOINT_SUFFIX = "/cm?cmnd=Status%2010"
+
+
+class BuildEndpointTest(unittest.TestCase):
+    """Address variants must all yield the canonical Tasmota endpoint.
+
+    Regression cover for the real-device failure where a plain IP address
+    stored by the settings UI produced a scheme-less URL that requests
+    rejected before any network call was made.
+    """
+
+    def test_plain_ipv4_gets_http_scheme(self):
+        self.assertEqual(
+            collector.build_endpoint("192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_plain_mdns_hostname_gets_http_scheme(self):
+        self.assertEqual(
+            collector.build_endpoint("zaehler.local"),
+            "http://zaehler.local" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_explicit_http_scheme_is_kept(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_explicit_https_scheme_is_kept(self):
+        self.assertEqual(
+            collector.build_endpoint("https://zaehler.local"),
+            "https://zaehler.local" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_scheme_is_never_duplicated(self):
+        for address in ("192.168.178.83", "http://192.168.178.83", "https://zaehler.local"):
+            with self.subTest(address=address):
+                endpoint = collector.build_endpoint(address)
+                self.assertEqual(endpoint.count("://"), 1)
+                self.assertNotIn("http://http", endpoint)
+
+    def test_uppercase_scheme_is_normalised(self):
+        self.assertEqual(
+            collector.build_endpoint("HTTP://192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_surrounding_whitespace_is_ignored(self):
+        self.assertEqual(
+            collector.build_endpoint("  192.168.178.83\n"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_port_is_preserved(self):
+        self.assertEqual(
+            collector.build_endpoint("192.168.178.83:8080"),
+            "http://192.168.178.83:8080" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_trailing_slash_does_not_duplicate_separator(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83/"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_repeated_slashes_are_collapsed(self):
+        endpoint = collector.build_endpoint("http://192.168.178.83///")
+        self.assertEqual(endpoint, "http://192.168.178.83" + _ENDPOINT_SUFFIX)
+        self.assertNotIn("//cm", endpoint)
+
+    def test_leading_slashes_on_bare_host_are_dropped(self):
+        self.assertEqual(
+            collector.build_endpoint("//192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_already_complete_endpoint_is_idempotent(self):
+        full = "http://192.168.178.83" + _ENDPOINT_SUFFIX
+        self.assertEqual(collector.build_endpoint(full), full)
+
+    def test_command_path_without_query_is_not_duplicated(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83/cm"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_stale_query_is_replaced_by_canonical_query(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83/cm?cmnd=Status%200"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_reverse_proxy_prefix_is_preserved(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83/meter"),
+            "http://192.168.178.83/meter" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_path_segment_ending_in_cm_is_not_truncated(self):
+        self.assertEqual(
+            collector.build_endpoint("http://192.168.178.83/tasmotacm"),
+            "http://192.168.178.83/tasmotacm" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_hostname_is_lowercased(self):
+        self.assertEqual(
+            collector.build_endpoint("Zaehler.Local"),
+            "http://zaehler.local" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_ipv6_literal_keeps_brackets(self):
+        self.assertEqual(
+            collector.build_endpoint("http://[fd00::1]"),
+            "http://[fd00::1]" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_endpoint_always_carries_the_status_10_query(self):
+        for address in (
+            "192.168.178.83",
+            "zaehler.local",
+            "http://192.168.178.83",
+            "https://zaehler.local",
+        ):
+            with self.subTest(address=address):
+                self.assertTrue(collector.build_endpoint(address).endswith(_ENDPOINT_SUFFIX))
+
+    # --- rejected input ---
+
+    def test_empty_address_raises(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint("")
+
+    def test_whitespace_only_address_raises(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint("   ")
+
+    def test_non_string_address_raises(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint(None)  # type: ignore[arg-type]
+
+    def test_unsupported_scheme_raises(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint("ftp://192.168.178.83")
+
+    def test_embedded_credentials_raise(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint("http://user:secret@192.168.178.83")
+
+    def test_invalid_port_raises(self):
+        with self.assertRaises(collector.MT175AddressError):
+            collector.build_endpoint("http://192.168.178.83:99999")
+
+    def test_address_error_is_a_value_error(self):
+        self.assertTrue(issubclass(collector.MT175AddressError, ValueError))
+
+
+class ReadUrlAddressVariantsTest(unittest.TestCase):
+    """read_url must reach the device for every accepted address form."""
+
+    def _called_url(self, address: str) -> str:
+        with patch("collectors.mt175.requests.get", return_value=_mock_response()) as mock_get:
+            collector.read_url(address)
+        return mock_get.call_args[0][0]
+
+    def test_plain_ip_reaches_device(self):
+        self.assertEqual(
+            self._called_url("192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_plain_hostname_reaches_device(self):
+        self.assertEqual(
+            self._called_url("zaehler.local"),
+            "http://zaehler.local" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_http_url_reaches_device(self):
+        self.assertEqual(
+            self._called_url("http://192.168.178.83"),
+            "http://192.168.178.83" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_https_url_reaches_device(self):
+        self.assertEqual(
+            self._called_url("https://zaehler.local"),
+            "https://zaehler.local" + _ENDPOINT_SUFFIX,
+        )
+
+    def test_invalid_address_fails_before_any_request(self):
+        with patch("collectors.mt175.requests.get") as mock_get:
+            with self.assertRaises(collector.MT175AddressError):
+                collector.read_url("ftp://192.168.178.83")
+        mock_get.assert_not_called()
+
+
+class ReadUrlFailureResponseTest(unittest.TestCase):
+    """Failed device responses must surface, never be mistaken for a reading."""
+
+    def _assert_raises_for(self, address: str, error) -> None:
+        with patch(
+            "collectors.mt175.requests.get",
+            return_value=_mock_response(http_error=error),
+        ):
+            with self.assertRaises(type(error)):
+                collector.read_url(address)
+
+    def test_http_401_propagates_for_plain_ip(self):
+        import requests as req_lib
+        self._assert_raises_for("192.168.178.83", req_lib.exceptions.HTTPError("401"))
+
+    def test_http_500_propagates_for_plain_hostname(self):
+        import requests as req_lib
+        self._assert_raises_for("zaehler.local", req_lib.exceptions.HTTPError("500"))
+
+    def test_connection_error_propagates_for_plain_ip(self):
+        import requests as req_lib
+        with patch(
+            "collectors.mt175.requests.get",
+            side_effect=req_lib.exceptions.ConnectionError("unreachable"),
+        ):
+            with self.assertRaises(req_lib.exceptions.ConnectionError):
+                collector.read_url("192.168.178.83")
+
+    def test_timeout_propagates_for_plain_hostname(self):
+        import requests as req_lib
+        with patch(
+            "collectors.mt175.requests.get",
+            side_effect=req_lib.exceptions.Timeout("timed out"),
+        ):
+            with self.assertRaises(req_lib.exceptions.Timeout):
+                collector.read_url("zaehler.local")
+
+    def test_non_json_body_propagates_for_plain_ip(self):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.side_effect = ValueError("no json")
+        with patch("collectors.mt175.requests.get", return_value=response):
+            with self.assertRaises(ValueError):
+                collector.read_url("192.168.178.83")
+
+    def test_unexpected_payload_raises_key_error_for_plain_ip(self):
+        with patch(
+            "collectors.mt175.requests.get",
+            return_value=_mock_response(json_data={"unexpected": "payload"}),
+        ):
+            with self.assertRaises(KeyError):
+                collector.read_url("192.168.178.83")
+
+
 class ReadUrlTest(unittest.TestCase):
     """read_url must call the correct endpoint and propagate all HTTP errors."""
 
@@ -519,6 +769,21 @@ class ReceivedAtTest(unittest.TestCase):
         with patch.object(cfg_module, "MT175_TIMEZONE", "UTC"):
             reading = collector.parse(_make_payload())
         self.assertEqual(reading.received_at.tzinfo, ZoneInfo("UTC"))
+
+
+# ---------------------------------------------------------------------------
+# 13. Demo source
+# ---------------------------------------------------------------------------
+
+class ReadDemoTest(unittest.TestCase):
+    """The demo source must produce a usable reading, not raise."""
+
+    def test_returns_reading_with_aware_timestamps(self):
+        reading = collector.read_demo()
+        self.assertIsInstance(reading, MT175Reading)
+        self.assertIsNotNone(reading.received_at.tzinfo)
+        self.assertIsNotNone(reading.timestamp)
+        self.assertIsNotNone(reading.timestamp.tzinfo)
 
 
 if __name__ == "__main__":

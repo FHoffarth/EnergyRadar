@@ -341,6 +341,7 @@ class EnergyBridge(QObject):
         def _do_test() -> None:
             import time
             from datetime import datetime, timezone
+            from energyradar.collectors import mt175 as mt175_coll
             from energyradar.services import data_source as ds
 
             start_time = time.time()
@@ -369,6 +370,8 @@ class EnergyBridge(QObject):
                             res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet vollständig", "capabilities": ["grid_import_total", "grid_export_total", "current_power"]}
                 else:
                     res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Unbekanntes Gerät: {target_id}", "capabilities": []}
+            except mt175_coll.MT175AddressError as exc:
+                res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Adresse ungültig: {str(exc)[:80]}", "capabilities": []}
             except Exception as exc:
                 latency = int((time.time() - start_time) * 1000)
                 res = {"ok": False, "status": "error", "latency_ms": latency, "message": f"Verbindung fehlgeschlagen: {str(exc)[:80]}", "capabilities": []}
@@ -869,8 +872,9 @@ def _run_connection_test(device_id: str, address: str) -> tuple[bool, str]:
             return True, S.settings_test_ok
 
     except Exception as exc:
+        from energyradar.collectors import mt175 as mc
         from energyradar.services import data_source as ds
-        if isinstance(exc, ds.UnsafeTargetError):
+        if isinstance(exc, (ds.UnsafeTargetError, mc.MT175AddressError)):
             return False, S.settings_invalid_address
         return False, S.settings_test_failed
 

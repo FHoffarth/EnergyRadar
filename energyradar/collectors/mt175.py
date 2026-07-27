@@ -29,6 +29,7 @@ Typical response::
 from __future__ import annotations
 
 from datetime import datetime
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -36,8 +37,14 @@ import requests
 from energyradar import config
 from energyradar.models.mt175 import MT175Reading
 
-# Fixed Tasmota query that returns the sensor status block.
+# Fixed Tasmota command path and query that return the sensor status block.
 _TASMOTA_PATH = "/cm?cmnd=Status%2010"
+_TASMOTA_COMMAND_PATH = "/cm"
+_TASMOTA_QUERY = "cmnd=Status%2010"
+
+
+class MT175AddressError(ValueError):
+    """The configured MT175 address cannot be turned into a valid endpoint."""
 
 
 # ---------------------------------------------------------------------------
@@ -186,15 +193,86 @@ def parse(raw: dict) -> MT175Reading:
     )
 
 
+def build_endpoint(address: str) -> str:
+    """Turn a user-supplied device address into the full Tasmota endpoint URL.
+
+    The settings UI stores whatever the user typed, which in practice is a
+    bare host or IP (``192.168.178.83``), an mDNS name (``zaehler.local``),
+    or a full origin (``http://192.168.178.83``).  A bare host has no URL
+    scheme, and :mod:`requests` refuses such a target outright, so the scheme
+    is supplied here rather than being assumed of the caller.
+
+    Accepted input forms::
+
+        192.168.178.83
+        zaehler.local
+        zaehler.local:8080
+        http://192.168.178.83
+        https://zaehler.local
+        http://192.168.178.83/          (trailing slashes collapsed)
+        http://192.168.178.83/cm?cmnd=Status%2010   (already an endpoint)
+
+    ``http://`` is added only when no scheme is present, so a scheme is never
+    duplicated.  Path separators are collapsed so the fixed command path is
+    appended exactly once, and any query or fragment the user pasted is
+    replaced by the canonical ``Status 10`` query.
+
+    Raises
+    ------
+    MT175AddressError
+        If the address is empty, has no host, carries embedded credentials,
+        or uses a scheme other than http/https.
+    """
+    if not isinstance(address, str) or not address.strip():
+        raise MT175AddressError("Enter the IP address or hostname of the meter bridge.")
+
+    candidate = address.strip()
+    if "://" not in candidate:
+        # Bare host/IP — supply the scheme requests needs. lstrip("/") keeps a
+        # pasted "//192.168.178.83" from becoming "http:////192.168.178.83".
+        candidate = f"http://{candidate.lstrip('/')}"
+
+    parts = urlsplit(candidate)
+    scheme = parts.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise MT175AddressError("Only http:// and https:// addresses are supported.")
+    if parts.username is not None or parts.password is not None:
+        raise MT175AddressError("Credentials are not allowed in the device address.")
+
+    hostname = parts.hostname
+    if not hostname:
+        raise MT175AddressError("Enter the IP address or hostname of the meter bridge.")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise MT175AddressError("The port must be between 1 and 65535.") from exc
+
+    host = hostname.rstrip(".").lower()
+    if ":" in host:  # IPv6 literal
+        host = f"[{host}]"
+    netloc = f"{host}:{port}" if port is not None else host
+
+    # Collapse repeated separators and drop a command path the user already
+    # supplied, so the canonical path is appended exactly once.
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if segments and segments[-1].lower() == "cm":
+        segments.pop()
+    base_path = f"/{'/'.join(segments)}" if segments else ""
+
+    return urlunsplit(
+        (scheme, netloc, f"{base_path}{_TASMOTA_COMMAND_PATH}", _TASMOTA_QUERY, "")
+    )
+
+
 def read_url(url: str) -> MT175Reading:
     """Fetch one reading from a Tasmota device and return an :class:`~models.mt175.MT175Reading`.
 
     Parameters
     ----------
     url:
-        Base device URL, e.g. ``"http://tasmota.local"`` or
-        ``"http://192.168.1.25"``.  A trailing slash is stripped and the
-        fixed Tasmota ``Status 10`` query path is appended automatically.
+        Device address in any form accepted by :func:`build_endpoint` — a
+        bare host or IP, an mDNS name, or a full URL.  The fixed Tasmota
+        ``Status 10`` query path is appended automatically.
 
     Returns
     -------
@@ -205,13 +283,15 @@ def read_url(url: str) -> MT175Reading:
 
     Raises
     ------
+    MT175AddressError
+        If the address cannot be turned into a valid http(s) endpoint.
     requests.exceptions.RequestException
         On any network or HTTP-level failure (timeout, connection refused,
         non-2xx status, …).  The caller is responsible for handling these.
     KeyError
         If the HTTP response JSON does not contain the expected structure.
     """
-    endpoint = url.rstrip("/") + _TASMOTA_PATH
+    endpoint = build_endpoint(url)
     response = requests.get(endpoint, timeout=(1.5, 3.0), allow_redirects=False)
     response.raise_for_status()
     return parse(response.json())
@@ -221,13 +301,14 @@ def read_demo() -> MT175Reading:
     """Demo-Quelle für ISKRA MT175 Smart Meter mit plausiblem Live-Netzfluss."""
     import random
     from energyradar.collectors import fronius
-    now = datetime.now(_local_zone())
+    zone = _local_zone()
+    now = datetime.now(zone)
     pv_w = fronius._demo_power(now)
     home_w = 1100.0 + random.uniform(-100, 100)
     grid_w = home_w - pv_w  # Negative = Export, Positive = Import
     return MT175Reading(
         timestamp=now,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(zone),
         grid_import_total_kwh=9755.0 + (now.hour * 0.4),
         grid_export_total_kwh=12399.0 + (now.hour * 1.8),
         current_power_w=grid_w,

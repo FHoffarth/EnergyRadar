@@ -1,23 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, useNumberLocale } from '../context/AppContext';
 import { RawSettings, ThemeMode, LocationCandidateData } from '../types';
+import { formatNumber } from '../lib/format';
 import {
   Palette, Sun, Moon, Monitor, MapPin, CloudRain, Folder, FileText,
   Check, RotateCcw, Save, Info, Loader2, ExternalLink,
   Trash2, CheckCircle2, AlertCircle, AlertTriangle, Search, Globe, Server
 } from 'lucide-react';
 
+/**
+ * Reduce a pasted address to "host" or "host:port".
+ *
+ * The scheme and any path are dropped because the backend collectors build the
+ * device-specific endpoint themselves. A non-default port is kept — dropping it
+ * would silently point the collector at the wrong port.
+ */
 function normalizeHost(input: string): string {
   let v = input.trim();
   v = v.replace(/^https?:\/\//i, '');
+  v = v.replace(/^\/+/, '');
   v = v.replace(/\/.*$/, '');
-  const colonIdx = v.lastIndexOf(':');
-  if (colonIdx > 0) {
-    const afterColon = v.substring(colonIdx + 1);
-    if (/^\d+$/.test(afterColon)) {
-      v = v.substring(0, colonIdx);
-    }
-  }
   return v;
 }
 
@@ -29,16 +31,18 @@ export function SettingsView() {
     testWeatherConnection, weatherTestState, weatherReport,
     openDiagnosticLog, openLogDirectory, setTheme,
     saveFroniusAddress, testConnection, testConnectionStatus,
-    updateSettings
+    updateSettings, settingsSaveState
   } = useApp();
 
   const effective = settingsPayload?.effective_settings;
   const raw = settingsPayload?.settings;
   const system = settingsPayload?.system;
+  const numberLocale = useNumberLocale();
+  const formatCoordinate = (value: number) =>
+    formatNumber(value, numberLocale, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
   const [draft, setDraft] = useState<RawSettings>({});
   const [isDirty, setIsDirty] = useState(false);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
   const [locationInput, setLocationInput] = useState('');
   const [froniusAddr, setFroniusAddr] = useState('');
   const [mt175Addr, setMt175Addr] = useState('');
@@ -68,11 +72,11 @@ export function SettingsView() {
     });
   };
 
+  // The success badge is driven by settingsSaveState, which only turns
+  // "saved" once the backend has confirmed the write.
   const handleSave = () => {
     updateSettings(draft);
     setIsDirty(false);
-    setSaveSuccessMsg(true);
-    setTimeout(() => setSaveSuccessMsg(false), 3000);
   };
 
   const handleResetDraft = () => {
@@ -138,9 +142,19 @@ export function SettingsView() {
           <p className="text-[#6E6E6E] dark:text-slate-400 mt-1 text-sm">Verwalte Darstellung, Standort, Wetter und Systemoptionen.</p>
         </div>
         <div className="flex items-center gap-3">
-          {saveSuccessMsg && (
+          {settingsSaveState.status === 'saving' && (
+            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
+              <Loader2 className="w-4 h-4 animate-spin" /> Wird gespeichert…
+            </span>
+          )}
+          {settingsSaveState.status === 'saved' && (
             <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800">
               <CheckCircle2 className="w-4 h-4" /> Gespeichert
+            </span>
+          )}
+          {settingsSaveState.status === 'error' && (
+            <span role="alert" className="flex items-center gap-1.5 text-sm font-medium text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-800">
+              <AlertCircle className="w-4 h-4" /> {settingsSaveState.message || 'Speichern fehlgeschlagen.'}
             </span>
           )}
           {isDirty && (
@@ -341,7 +355,7 @@ export function SettingsView() {
                     <div>
                       <p className="font-semibold text-sm text-slate-900 dark:text-slate-100">{cand.display_name}</p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Lat: {cand.latitude.toFixed(4)}, Lon: {cand.longitude.toFixed(4)}
+                        Lat: {formatCoordinate(cand.latitude)}, Lon: {formatCoordinate(cand.longitude)}
                       </p>
                     </div>
                     <button onClick={() => handleConfirmLocation(cand)}
@@ -362,7 +376,7 @@ export function SettingsView() {
                   <span className="font-bold text-sm text-slate-900 dark:text-slate-100">{resLoc.display_name}</span>
                 </div>
                 <p className="text-xs font-mono text-slate-600 dark:text-slate-400">
-                  {resLoc.latitude.toFixed(4)}, {resLoc.longitude.toFixed(4)} · {resLoc.timezone || 'Europe/Berlin'}
+                  {formatCoordinate(resLoc.latitude)}, {formatCoordinate(resLoc.longitude)} · {resLoc.timezone || 'Europe/Berlin'}
                 </p>
               </div>
               <button onClick={handleRemoveLocation}
@@ -427,7 +441,7 @@ export function SettingsView() {
                 {weatherTestState.status === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
                 <span className="flex-1">{weatherTestState.result.message}</span>
                 {typeof weatherTestState.result.latency_ms === 'number' && (
-                  <span className="font-mono text-[10px] opacity-70">{weatherTestState.result.latency_ms} ms</span>
+                  <span className="font-mono text-[10px] opacity-70">{formatNumber(weatherTestState.result.latency_ms, numberLocale)} ms</span>
                 )}
               </div>
             )}

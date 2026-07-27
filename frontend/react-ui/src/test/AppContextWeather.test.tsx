@@ -163,6 +163,30 @@ describe('AppContext weather state machines', () => {
     expect(result.current.weatherSearchState.candidates).toEqual([dieburg]);
   });
 
+  it('reports a settings save as saved only after the backend confirms', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => result.current.updateSettings({ number_format: 'en-US' }));
+    expect(result.current.settingsSaveState.status).toBe('saving');
+
+    act(() => callbacks.settingsSaveSucceeded(JSON.stringify({ ok: true })));
+    expect(result.current.settingsSaveState.status).toBe('saved');
+  });
+
+  it('surfaces a failed settings save instead of a success message', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => result.current.updateSettings({ number_format: 'en-US' }));
+    act(() =>
+      callbacks.settingsSaveFailed(JSON.stringify({ ok: false, error: 'Datei nicht beschreibbar' })),
+    );
+
+    expect(result.current.settingsSaveState.status).toBe('error');
+    expect(result.current.settingsSaveState.message).toBe('Datei nicht beschreibbar');
+  });
+
   it('requests the persisted weather report after the desktop bridge connects', async () => {
     const { result } = renderHook(() => useApp(), { wrapper });
     await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
