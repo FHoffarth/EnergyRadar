@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
 import { Activity, BarChart2, Cpu, Settings, Zap, Database, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import markDark from '../../assets/icons/energyradar-mark.svg';
+import markLight from '../../assets/icons/energyradar-mark-light.svg';
 
 interface SidebarProps {
   onOpenSetupWizard?: () => void;
@@ -46,11 +48,23 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
     <aside className="w-64 flex-shrink-0 z-20 bg-[#F1F1EF] dark:bg-[#1C1C1E] border-r border-[#E5E5E3] dark:border-slate-800 flex flex-col h-full">
       <div className="p-8 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-emerald-500 p-[1px] shadow-sm">
-            <div className="w-full h-full bg-[#F1F1EF] dark:bg-[#1C1C1E] rounded-[11px] flex items-center justify-center">
-              <Activity className="w-5 h-5 text-sky-500" />
-            </div>
-          </div>
+          {/* Supplied mark, one variant per theme. The `dark` class lives on
+              <html>, so CSS picks the variant without duplicating theme logic. */}
+          <img
+            src={markLight}
+            width={40}
+            height={40}
+            alt="EnergyRadar"
+            className="w-10 h-10 flex-shrink-0 dark:hidden"
+          />
+          <img
+            src={markDark}
+            width={40}
+            height={40}
+            alt=""
+            aria-hidden="true"
+            className="w-10 h-10 flex-shrink-0 hidden dark:block"
+          />
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
             <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EnergyRadar app icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#132132"></stop>
+      <stop offset="1" stop-color="#0A111C"></stop>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#1B5563" stop-opacity="0.55"></stop>
+      <stop offset="1" stop-color="#1B5563" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+
+  
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#bg)"></rect>
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#glow)"></rect>
+  <rect x="4" y="4" width="504" height="504" rx="112" fill="none" stroke="#39606E" stroke-opacity="0.35" stroke-width="2"></rect>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    
+    <path d="M 128 341 A 150 150 0 0 1 128 171" stroke="#2C6C7A" stroke-opacity="0.35" stroke-width="10"></path>
+    <path d="M 384 171 A 150 150 0 0 1 384 341" stroke="#2C6C7A" stroke-opacity="0.35" stroke-width="10"></path>
+    
+    <circle cx="256" cy="256" r="150" stroke="#2E7080" stroke-width="20"></circle>
+    
+    <path d="M 126 256 L 198 256 L 242 176 L 288 336 L 332 256 L 392 256" stroke="#3DDCEB" stroke-width="27"></path>
+  </g>
+
+  
+  <circle cx="392" cy="256" r="24" fill="#4FE3F2"></circle>
+  <circle cx="392" cy="256" r="24" fill="none" stroke="#4FE3F2" stroke-opacity="0.30" stroke-width="16"></circle>
+</svg>

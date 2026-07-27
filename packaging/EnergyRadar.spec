@@ -20,7 +20,7 @@ if sys.platform == "win32":
 elif sys.platform == "darwin":
     executable_icon = None
     # PyInstaller converts the source PNG to ICNS through Pillow.
-    bundle_icon = str(PROJECT_ROOT / "energyradar" / "static" / "icons" / "icon-512.png")
+    bundle_icon = str(UI_ASSETS / "icon-512.png")
 else:
     executable_icon = None
     bundle_icon = None
