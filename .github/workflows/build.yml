@@ -182,6 +182,117 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # The Windows runner image ships Inno Setup (windows-latest -> Windows
+      # Server 2025, "InnoSetup 6.7.1"), so no download or third-party action is
+      # needed. The image does not document the ISCC.exe path, so locate it
+      # instead of hardcoding, and fail loudly if the image ever drops it.
+      - name: Locate Inno Setup
+        id: inno
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not $iscc) {
+            throw "Inno Setup compiler (ISCC.exe) not found on this runner image."
+          }
+          "  ISCC: $iscc"
+          # Inno Setup ships no VERSIONINFO on ISCC.exe (FileVersion reads
+          # 0.0.0.0), so take the version from the compiler's own banner.
+          # Running it without arguments prints usage and exits non-zero.
+          $banner = (& $iscc 2>&1 | Select-Object -First 1)
+          $global:LASTEXITCODE = 0
+          "  compiler: $banner"
+          "iscc=$iscc" >> $env:GITHUB_OUTPUT
+
+      - name: Compile Windows installer
+        id: installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Package exactly the bundle this job just built and smoke-tested.
+          $payloadExe = "dist/EnergyRadar/EnergyRadar.exe"
+          if (-not (Test-Path -LiteralPath $payloadExe)) {
+            throw "Application payload is missing: $payloadExe"
+          }
+          $payloadCount = (Get-ChildItem dist/EnergyRadar -Recurse -File).Count
+          $payloadHash = (Get-FileHash -LiteralPath $payloadExe -Algorithm SHA256).Hash
+          "  payload files      : $payloadCount"
+          "  payload exe SHA256 : $payloadHash"
+
+          # Derive the version from the installer script so CI cannot drift
+          # from installer/EnergyRadar.iss when the version is bumped.
+          $iss = Get-Content installer/EnergyRadar.iss -Raw
+          if ($iss -notmatch '#define\s+MyAppVersion\s+"([^"]+)"') {
+            throw "Could not read MyAppVersion from installer/EnergyRadar.iss"
+          }
+          $version = $Matches[1]
+          $setupName = "EnergyRadar-$version-Setup.exe"
+          "  version            : $version"
+          "  expected installer : $setupName"
+
+          & "${{ steps.inno.outputs.iscc }}" /Q installer\EnergyRadar.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+
+          "version=$version"            >> $env:GITHUB_OUTPUT
+          "setup_name=$setupName"       >> $env:GITHUB_OUTPUT
+          "payload_count=$payloadCount" >> $env:GITHUB_OUTPUT
+
+      - name: Verify installer and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "${{ steps.installer.outputs.setup_name }}"
+          $setup = Join-Path "release" $name
+
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+            Get-ChildItem release -ErrorAction SilentlyContinue
+            throw "Installer not found at expected path: $setup"
+          }
+          $item = Get-Item -LiteralPath $setup
+          if ($item.Length -eq 0) {
+            throw "Installer is zero bytes: $setup"
+          }
+
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Set-Content -LiteralPath "$setup.sha256" -Encoding ascii -NoNewline
+
+          if (-not (Test-Path -LiteralPath "$setup.sha256" -PathType Leaf)) {
+            throw "Checksum file was not created."
+          }
+
+          # Verify the recorded checksum against a fresh read of the file.
+          $recorded = ((Get-Content -LiteralPath "$setup.sha256" -Raw) -split '\s+')[0]
+          $actual = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLower()
+          if ($recorded -ne $actual) {
+            throw "Checksum verification failed: recorded $recorded, actual $actual."
+          }
+
+          "  installer      : $name"
+          "  size           : $($item.Length) bytes"
+          "  SHA256         : $actual"
+          "  checksum file  : $name.sha256 (verified)"
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnergyRadar-Windows-Installer-${{ steps.installer.outputs.version }}
+          path: |
+            release/${{ steps.installer.outputs.setup_name }}
+            release/${{ steps.installer.outputs.setup_name }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   macos:
     name: Build macOS (Intel .app)
     runs-on: macos-15-intel
