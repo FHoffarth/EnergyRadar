@@ -45,8 +45,13 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
   const bridgeRef = useRef<DesktopBridgeEnergyProviderImpl | null>(null);
   const demoRef = useRef<DemoEnergyProviderImpl | null>(null);
   const initialisedRef = useRef(false);
+  const unsubDevicesRef = useRef<(() => void) | null>(null);
 
   const destroyProviders = useCallback(() => {
+    if (unsubDevicesRef.current) {
+      unsubDevicesRef.current();
+      unsubDevicesRef.current = null;
+    }
     if (bridgeRef.current) {
       bridgeRef.current.destroy();
       bridgeRef.current = null;
@@ -72,7 +77,7 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     setSourceType('demo');
     setSnapshot(provider.getCurrentSnapshot());
     setTimeline(provider.getTimeline());
-    setDevices(provider.getDevices());
+    unsubDevicesRef.current = provider.subscribeDevices(setDevices);
     provider.subscribe(setSnapshot);
   }, [destroyProviders]);
 
@@ -82,11 +87,12 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     bridgeRef.current = provider;
     setSourceType('bridge');
     setSnapshot(provider.getCurrentSnapshot());
-    setDevices(provider.getDevices());
     setTimeline(provider.getTimeline());
+    // Subscribe before init(): device data usually arrives on the first poll,
+    // well after setup, and a one-shot read here would freeze an empty list.
+    unsubDevicesRef.current = provider.subscribeDevices(setDevices);
     provider.subscribe(setSnapshot);
     await provider.init();
-    setDevices(provider.getDevices());
     setTimeline(provider.getTimeline());
   }, [destroyProviders]);
 
@@ -107,6 +113,11 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
       }
     });
   }, [demoMode, setupDemo, setupBridge, goOffline]);
+
+  // Tear the providers down on unmount so their bridge listeners and device
+  // subscriptions do not outlive the tree. destroyProviders is stable, so this
+  // cleanup runs only when unmounting.
+  useEffect(() => destroyProviders, [destroyProviders]);
 
   // Subscribe to timeline updates in bridge mode
   useEffect(() => {

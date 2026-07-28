@@ -101,6 +101,15 @@ export class DemoEnergyProviderImpl implements DemoEnergyProviderInterface {
     return DEMO_DEVICES;
   }
 
+  /**
+   * The demo device list is a fixed fixture, so the value is delivered once and
+   * never changes. The unsubscribe function exists to satisfy the contract.
+   */
+  subscribeDevices(callback: (devices: DemoDeviceSummary[]) => void): () => void {
+    callback(DEMO_DEVICES);
+    return () => {};
+  }
+
   getSettings(): RawSettings | null {
     return null;
   }
