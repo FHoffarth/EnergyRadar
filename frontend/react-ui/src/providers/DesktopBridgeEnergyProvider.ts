@@ -113,6 +113,8 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   private boundSettingsHandler: (() => void) | null = null;
 
   async init() {
+    if (this.destroyed) return;
+
     const b = getBridge();
     if (b) {
       this.bridge = b;
@@ -123,6 +125,9 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
     }
 
     const bridge = await initBridge();
+    // destroy() can land while initBridge() is still polling; binding listeners
+    // afterwards would attach handlers that can never be cleaned up.
+    if (this.destroyed) return;
     if (!bridge) {
       this.bridgeConnected = false;
       return;

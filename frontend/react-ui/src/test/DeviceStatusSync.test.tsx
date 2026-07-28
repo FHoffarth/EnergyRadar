@@ -7,7 +7,7 @@
  * therefore claimed "Keine Geräte verbunden" for the whole session even while
  * Fronius and MT175 were connected and delivering.
  */
-import React from 'react';
+import React, { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, renderHook, screen, act } from '@testing-library/react';
 import { EnergyProviderRoot, useEnergyProvider } from '../providers/EnergyProviderContext';
@@ -278,5 +278,60 @@ describe('device status synchronisation', () => {
 
     await vi.waitFor(() => expect(result.current.sourceType).toBe('demo'));
     expect(result.current.devices.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The app mounts EnergyProviderRoot under React.StrictMode (main.tsx), which in
+ * development mounts, tears down, then mounts again on the same instance. Setup
+ * and teardown must therefore pair up: an "already initialised" guard combined
+ * with a separate cleanup effect destroys the providers and never rebuilds them.
+ */
+describe('provider lifecycle under StrictMode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetBridge.mockReturnValue(null);
+  });
+
+  /** Captures the live context so it can be probed after everything settles. */
+  let captured: ReturnType<typeof useEnergyProvider> | null = null;
+  function Capture() {
+    captured = useEnergyProvider();
+    return null;
+  }
+
+  it('leaves the demo provider alive after the double-mount', async () => {
+    captured = null;
+    mockInitBridge.mockResolvedValue(null);
+
+    render(
+      <StrictMode>
+        <EnergyProviderRoot demoMode><Capture /></EnergyProviderRoot>
+      </StrictMode>
+    );
+    await vi.waitFor(() => expect(captured?.sourceType).toBe('demo'));
+
+    // A destroyed provider falls through to the "no bridge" branch instead.
+    const res = await captured!.testConnection('fronius_primary');
+    expect(res.message).toContain('Demo-Modus');
+    expect(captured!.devices.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the bridge provider live and still propagates devices', async () => {
+    captured = null;
+    const bridge = createMockQtBridge();
+    mockInitBridge.mockResolvedValue(bridge);
+
+    render(
+      <StrictMode>
+        <EnergyProviderRoot><Capture /></EnergyProviderRoot>
+      </StrictMode>
+    );
+    await vi.waitFor(() => expect(bridge.__deviceHandlerCount()).toBe(1));
+    expect(captured?.sourceType).toBe('bridge');
+
+    await act(async () => bridge.__emitDevices(CONNECTED_DEVICES));
+
+    expect(captured!.devices).toHaveLength(2);
   });
 });

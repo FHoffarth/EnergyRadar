@@ -44,7 +44,6 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
   const [devices, setDevices] = useState<DemoDeviceSummary[]>([]);
   const bridgeRef = useRef<DesktopBridgeEnergyProviderImpl | null>(null);
   const demoRef = useRef<DemoEnergyProviderImpl | null>(null);
-  const initialisedRef = useRef(false);
   const unsubDevicesRef = useRef<(() => void) | null>(null);
 
   const destroyProviders = useCallback(() => {
@@ -96,28 +95,33 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     setTimeline(provider.getTimeline());
   }, [destroyProviders]);
 
+  // Setup and teardown live in one effect so they always pair up. React 18
+  // StrictMode mounts, tears down, then mounts again on the same instance; a
+  // separate cleanup effect combined with a "already initialised" ref would
+  // destroy the providers and never rebuild them. Every dependency here is a
+  // stable useCallback or a prop, so in production this runs exactly once.
   useEffect(() => {
-    if (initialisedRef.current) return;
-    initialisedRef.current = true;
+    let cancelled = false;
 
     if (demoMode) {
       setupDemo();
-      return;
+    } else {
+      initBridge().then((bridge) => {
+        // The tree may already have unmounted while initBridge() was polling.
+        if (cancelled) return;
+        if (bridge) {
+          setupBridge();
+        } else {
+          goOffline();
+        }
+      });
     }
 
-    initBridge().then((bridge) => {
-      if (bridge) {
-        setupBridge();
-      } else {
-        goOffline();
-      }
-    });
-  }, [demoMode, setupDemo, setupBridge, goOffline]);
-
-  // Tear the providers down on unmount so their bridge listeners and device
-  // subscriptions do not outlive the tree. destroyProviders is stable, so this
-  // cleanup runs only when unmounting.
-  useEffect(() => destroyProviders, [destroyProviders]);
+    return () => {
+      cancelled = true;
+      destroyProviders();
+    };
+  }, [demoMode, setupDemo, setupBridge, goOffline, destroyProviders]);
 
   // Subscribe to timeline updates in bridge mode
   useEffect(() => {
