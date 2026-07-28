@@ -41,7 +41,12 @@ Diese Dokumentation beschreibt den kanonischen Build-Prozess für Windows und ma
    ```powershell
    & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\EnergyRadar.iss
    ```
-   Das Ergebnis liegt im Ordner `release/` als `EnergyRadar-0.9-Beta-Setup.exe`.
+   Das Ergebnis liegt im Ordner `release/` als `EnergyRadar-<Version>-Setup.exe`,
+   zum Beispiel `EnergyRadar-0.5.0-rc1-Setup.exe`. Die Version stammt aus
+   `MyAppVersion` in `installer/EnergyRadar.iss` und muss zu
+   `energyradar/config.py` (`APP_VERSION`) sowie `packaging/version_info.txt`
+   passen. Für einen abweichenden Stand ohne Dateiänderung:
+   `ISCC.exe /DMyAppVersion=0.5.0-rc2 installer\EnergyRadar.iss`.
 
 ## Hinweise zu Pfaden
 - Das React-Produktionsbundle und die App-Icons werden über den `datas`-Parameter in der `.spec`-Datei eingebunden.
