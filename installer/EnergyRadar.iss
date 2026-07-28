@@ -70,6 +70,23 @@ RestartApplications=yes
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+; Clear the packaged runtime before copying the new one. [Files] overwrites but
+; never removes, so upgrading left files behind from older builds -- an upgrade
+; from 0.9 Beta stranded 192 of them, including the retired QML UI and the
+; pythonnet, webview, clr_loader and Flask trees. Those are on the import path
+; and are no longer tracked by the uninstaller once unins000.dat is rewritten,
+; so they would also survive an uninstall.
+;
+; Scoped deliberately to {app}\_internal, the PyInstaller runtime directory:
+;   - user data lives in %LOCALAPPDATA%\EnergyRadar (config.py maps DATA_DIR,
+;     DB_PATH and DATA_SOURCE_CONFIG_PATH there when frozen), so settings, the
+;     measurement database and logs are untouched;
+;   - unins000.exe and unins000.dat sit in {app} root, not in _internal, so the
+;     uninstaller survives;
+;   - the whole application directory is NOT deleted.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "..\dist\EnergyRadar\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
