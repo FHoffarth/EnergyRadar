@@ -4,6 +4,7 @@ import { initBridge, QtBridge, getBridge } from '../lib/bridge';
 import { nowData$, todayData$ } from '../lib/energyService';
 
 type Subscriber = (snapshot: EnergySnapshot) => void;
+type DeviceSubscriber = (devices: DemoDeviceSummary[]) => void;
 
 function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
   const { power, status } = data;
@@ -103,8 +104,17 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   private deviceCache: DemoDeviceSummary[] = [];
   private settingsCache: RawSettings | null = null;
   private unsubNowData: (() => void) | null = null;
+  private deviceSubscribers = new Set<DeviceSubscriber>();
+  /** Raw payload the cache was built from, to skip redundant notifications. */
+  private deviceCacheRaw: string | null = null;
+  /** Guards against binding the Qt signals twice if init() is called again. */
+  private listenersBound = false;
+  private boundDevicesHandler: (() => void) | null = null;
+  private boundSettingsHandler: (() => void) | null = null;
 
   async init() {
+    if (this.destroyed) return;
+
     const b = getBridge();
     if (b) {
       this.bridge = b;
@@ -115,6 +125,9 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
     }
 
     const bridge = await initBridge();
+    // destroy() can land while initBridge() is still polling; binding listeners
+    // afterwards would attach handlers that can never be cleaned up.
+    if (this.destroyed) return;
     if (!bridge) {
       this.bridgeConnected = false;
       return;
@@ -127,15 +140,22 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   }
 
   private setupBridgeListeners(b: QtBridge) {
-    b.devicesDataChanged.connect(() => {
+    // init() can run more than once (getBridge() hit vs. awaited initBridge()).
+    // Binding twice would deliver every device update to React twice.
+    if (this.listenersBound) return;
+    this.listenersBound = true;
+
+    this.boundDevicesHandler = () => {
       if (this.destroyed) return;
       this.syncDevices(b);
-    });
+    };
+    b.devicesDataChanged.connect(this.boundDevicesHandler);
 
-    b.settingsDataChanged.connect(() => {
+    this.boundSettingsHandler = () => {
       if (this.destroyed) return;
       this.syncSettings(b);
-    });
+    };
+    b.settingsDataChanged.connect(this.boundSettingsHandler);
 
     this.unsubNowData = nowData$.subscribe(state => {
       if (this.destroyed) return;
@@ -152,8 +172,13 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   private syncDevices(b: QtBridge) {
     try {
       if (b.devicesData) {
+        // The bridge re-emits on every poll, mostly with an unchanged payload.
+        // Comparing the raw JSON keeps React from re-rendering on no-op updates
+        // and stops repeated emissions turning into repeated notifications.
+        if (b.devicesData === this.deviceCacheRaw) return;
         const parsed = JSON.parse(b.devicesData);
         if (Array.isArray(parsed)) {
+          this.deviceCacheRaw = b.devicesData;
           this.deviceCache = parsed.map((d: any) => ({
             id: d.device_id || 'unknown',
             name: d.display_name || 'Unbekannt',
@@ -166,9 +191,14 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
             notes: d.user_message || '',
             iconName: d.device_type === 'inverter' ? 'Sun' : 'Server'
           }));
+          this.notifyDevices();
         }
       }
     } catch {}
+  }
+
+  private notifyDevices() {
+    this.deviceSubscribers.forEach(cb => cb(this.deviceCache));
   }
 
   private syncSettings(b: QtBridge) {
@@ -215,6 +245,14 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
     return this.deviceCache;
   }
 
+  subscribeDevices(callback: DeviceSubscriber): () => void {
+    this.deviceSubscribers.add(callback);
+    // Deliver the current value at once, so a consumer that subscribes after
+    // the first payload has already arrived is not left with an empty list.
+    callback(this.deviceCache);
+    return () => this.deviceSubscribers.delete(callback);
+  }
+
   getSettings(): RawSettings | null {
     return this.settingsCache;
   }
@@ -254,9 +292,23 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   destroy() {
     this.destroyed = true;
     this.subscribers.clear();
+    this.deviceSubscribers.clear();
     if (this.unsubNowData) {
       this.unsubNowData();
       this.unsubNowData = null;
     }
+    // Detach the Qt signal handlers where the transport supports it, so a
+    // replaced provider stops receiving updates instead of leaking a listener.
+    if (this.bridge) {
+      if (this.boundDevicesHandler) {
+        this.bridge.devicesDataChanged.disconnect?.(this.boundDevicesHandler);
+      }
+      if (this.boundSettingsHandler) {
+        this.bridge.settingsDataChanged.disconnect?.(this.boundSettingsHandler);
+      }
+    }
+    this.boundDevicesHandler = null;
+    this.boundSettingsHandler = null;
+    this.listenersBound = false;
   }
 }

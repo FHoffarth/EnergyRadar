@@ -44,9 +44,13 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
   const [devices, setDevices] = useState<DemoDeviceSummary[]>([]);
   const bridgeRef = useRef<DesktopBridgeEnergyProviderImpl | null>(null);
   const demoRef = useRef<DemoEnergyProviderImpl | null>(null);
-  const initialisedRef = useRef(false);
+  const unsubDevicesRef = useRef<(() => void) | null>(null);
 
   const destroyProviders = useCallback(() => {
+    if (unsubDevicesRef.current) {
+      unsubDevicesRef.current();
+      unsubDevicesRef.current = null;
+    }
     if (bridgeRef.current) {
       bridgeRef.current.destroy();
       bridgeRef.current = null;
@@ -72,7 +76,7 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     setSourceType('demo');
     setSnapshot(provider.getCurrentSnapshot());
     setTimeline(provider.getTimeline());
-    setDevices(provider.getDevices());
+    unsubDevicesRef.current = provider.subscribeDevices(setDevices);
     provider.subscribe(setSnapshot);
   }, [destroyProviders]);
 
@@ -82,31 +86,42 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     bridgeRef.current = provider;
     setSourceType('bridge');
     setSnapshot(provider.getCurrentSnapshot());
-    setDevices(provider.getDevices());
     setTimeline(provider.getTimeline());
+    // Subscribe before init(): device data usually arrives on the first poll,
+    // well after setup, and a one-shot read here would freeze an empty list.
+    unsubDevicesRef.current = provider.subscribeDevices(setDevices);
     provider.subscribe(setSnapshot);
     await provider.init();
-    setDevices(provider.getDevices());
     setTimeline(provider.getTimeline());
   }, [destroyProviders]);
 
+  // Setup and teardown live in one effect so they always pair up. React 18
+  // StrictMode mounts, tears down, then mounts again on the same instance; a
+  // separate cleanup effect combined with a "already initialised" ref would
+  // destroy the providers and never rebuild them. Every dependency here is a
+  // stable useCallback or a prop, so in production this runs exactly once.
   useEffect(() => {
-    if (initialisedRef.current) return;
-    initialisedRef.current = true;
+    let cancelled = false;
 
     if (demoMode) {
       setupDemo();
-      return;
+    } else {
+      initBridge().then((bridge) => {
+        // The tree may already have unmounted while initBridge() was polling.
+        if (cancelled) return;
+        if (bridge) {
+          setupBridge();
+        } else {
+          goOffline();
+        }
+      });
     }
 
-    initBridge().then((bridge) => {
-      if (bridge) {
-        setupBridge();
-      } else {
-        goOffline();
-      }
-    });
-  }, [demoMode, setupDemo, setupBridge, goOffline]);
+    return () => {
+      cancelled = true;
+      destroyProviders();
+    };
+  }, [demoMode, setupDemo, setupBridge, goOffline, destroyProviders]);
 
   // Subscribe to timeline updates in bridge mode
   useEffect(() => {
