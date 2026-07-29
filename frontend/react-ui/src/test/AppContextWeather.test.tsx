@@ -193,6 +193,25 @@ describe('AppContext weather state machines', () => {
     expect(bridge.requestWeatherReport).toHaveBeenCalledTimes(1);
   });
 
+  it('replaces successful weather with an unavailable refresh result', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => callbacks.weatherReportChanged(JSON.stringify({
+      status: 'available',
+      current: { condition: 'clear', temperature_c: 22 },
+    })));
+    expect(result.current.weatherReport?.status).toBe('available');
+
+    act(() => callbacks.weatherReportChanged(JSON.stringify({
+      status: 'unreachable',
+      current: null,
+      hourly: [],
+    })));
+    expect(result.current.weatherReport?.status).toBe('unreachable');
+    expect(result.current.weatherReport?.current).toBeNull();
+  });
+
   it('clears search feedback and invalidates an in-flight request when a location is selected', async () => {
     const { result } = renderHook(() => useApp(), { wrapper });
     await waitFor(() => expect(result.current.bridgeConnected).toBe(true));

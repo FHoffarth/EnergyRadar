@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -204,11 +205,12 @@ class OpenMeteoProvider:
         params = urllib.parse.urlencode({
             "latitude": location.latitude,
             "longitude": location.longitude,
-            "current": "temperature_2m,precipitation,weather_code,cloud_cover,is_day",
-            "hourly": "temperature_2m,precipitation,weather_code,cloud_cover",
+            "current": "temperature_2m,apparent_temperature,precipitation,weather_code,cloud_cover,is_day,wind_speed_10m",
+            "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code,cloud_cover",
             "daily": "sunrise,sunset",
-            "forecast_days": 1,
+            "forecast_days": 2,
             "timezone": location.timezone or "auto",
+            "wind_speed_unit": "kmh",
         })
         url = f"{FORECAST_URL}?{params}"
 
@@ -218,38 +220,60 @@ class OpenMeteoProvider:
                 raise RuntimeError(f"Open-Meteo API antwortete mit Status {resp.status}")
             raw_data = json.loads(resp.read().decode("utf-8"))
 
-        curr_raw = raw_data.get("current", {})
-        daily_raw = raw_data.get("daily", {})
-        hourly_raw = raw_data.get("hourly", {})
+        if not isinstance(raw_data, dict):
+            raise RuntimeError("Open-Meteo lieferte kein JSON-Objekt.")
+        current_data = raw_data.get("current", {})
+        daily_data = raw_data.get("daily", {})
+        hourly_data = raw_data.get("hourly", {})
+        curr_raw = current_data if isinstance(current_data, dict) else {}
+        daily_raw = daily_data if isinstance(daily_data, dict) else {}
+        hourly_raw = hourly_data if isinstance(hourly_data, dict) else {}
 
         # Validierung der Rohwerte
         temp_c = _validate_float(curr_raw.get("temperature_2m"))
+        feels_like_c = _validate_float(curr_raw.get("apparent_temperature"))
+        wind_speed_kmh = _validate_float(curr_raw.get("wind_speed_10m"), min_val=0.0)
         precip_mm = _validate_float(curr_raw.get("precipitation"), min_val=0.0)
         cloud_pct = _validate_float(curr_raw.get("cloud_cover"), min_val=0.0, max_val=100.0)
 
         weather_code_raw = curr_raw.get("weather_code")
-        wmo_code = int(weather_code_raw) if isinstance(weather_code_raw, (int, float)) and not isinstance(weather_code_raw, bool) else None
+        wmo_code = (
+            int(weather_code_raw)
+            if isinstance(weather_code_raw, (int, float))
+            and not isinstance(weather_code_raw, bool)
+            and math.isfinite(weather_code_raw)
+            else None
+        )
         condition = map_wmo_code(wmo_code)
 
         is_day_raw = curr_raw.get("is_day")
-        is_day = bool(is_day_raw) if isinstance(is_day_raw, (int, float, bool)) else None
+        is_day = (
+            is_day_raw
+            if isinstance(is_day_raw, bool)
+            else bool(is_day_raw)
+            if isinstance(is_day_raw, (int, float)) and is_day_raw in (0, 1)
+            else None
+        )
 
         current = CurrentWeather(
             condition=condition,
             weather_code=wmo_code,
             cloud_cover_percent=cloud_pct,
             temperature_c=temp_c,
+            feels_like_c=feels_like_c,
+            wind_speed_kmh=wind_speed_kmh,
             precipitation_mm=precip_mm,
             is_day=is_day,
         )
 
         # Hourly forecast parsing
         hourly_points: List[HourlyWeatherPoint] = []
-        times = hourly_raw.get("time", [])
-        temps = hourly_raw.get("temperature_2m", [])
-        precips = hourly_raw.get("precipitation", [])
-        codes = hourly_raw.get("weather_code", [])
-        clouds = hourly_raw.get("cloud_cover", [])
+        times = hourly_raw.get("time", []) if isinstance(hourly_raw.get("time", []), list) else []
+        temps = hourly_raw.get("temperature_2m", []) if isinstance(hourly_raw.get("temperature_2m", []), list) else []
+        precips = hourly_raw.get("precipitation", []) if isinstance(hourly_raw.get("precipitation", []), list) else []
+        precip_probabilities = hourly_raw.get("precipitation_probability", []) if isinstance(hourly_raw.get("precipitation_probability", []), list) else []
+        codes = hourly_raw.get("weather_code", []) if isinstance(hourly_raw.get("weather_code", []), list) else []
+        clouds = hourly_raw.get("cloud_cover", []) if isinstance(hourly_raw.get("cloud_cover", []), list) else []
 
         if isinstance(times, list):
             for idx, t_str in enumerate(times):
@@ -257,9 +281,20 @@ class OpenMeteoProvider:
                     continue
                 h_temp = _validate_float(temps[idx]) if idx < len(temps) else None
                 h_precip = _validate_float(precips[idx], min_val=0.0) if idx < len(precips) else None
+                h_precip_probability = (
+                    _validate_float(precip_probabilities[idx], min_val=0.0, max_val=100.0)
+                    if idx < len(precip_probabilities)
+                    else None
+                )
                 h_cloud = _validate_float(clouds[idx], min_val=0.0, max_val=100.0) if idx < len(clouds) else None
                 h_code_raw = codes[idx] if idx < len(codes) else None
-                h_wmo = int(h_code_raw) if isinstance(h_code_raw, (int, float)) and not isinstance(h_code_raw, bool) else None
+                h_wmo = (
+                    int(h_code_raw)
+                    if isinstance(h_code_raw, (int, float))
+                    and not isinstance(h_code_raw, bool)
+                    and math.isfinite(h_code_raw)
+                    else None
+                )
                 h_cond = map_wmo_code(h_wmo)
 
                 hourly_points.append(HourlyWeatherPoint(
@@ -269,18 +304,56 @@ class OpenMeteoProvider:
                     cloud_cover_percent=h_cloud,
                     temperature_c=h_temp,
                     precipitation_mm=h_precip,
+                    precipitation_probability_percent=h_precip_probability,
                 ))
+
+        # Open-Meteo exposes precipitation probability on the hourly series.
+        # Attach the matching current-hour value when possible so the UI can
+        # present it without inventing a probability from precipitation amount.
+        current_time = curr_raw.get("time")
+        if current_time:
+            current_hour = next((point for point in hourly_points if point.time == str(current_time)), None)
+            if current_hour is not None:
+                current.precipitation_probability_percent = (
+                    current_hour.precipitation_probability_percent
+                )
+            hourly_points = [
+                point for point in hourly_points if point.time >= str(current_time)
+            ]
 
         # Daily Sunrise / Sunset
         sunrises = daily_raw.get("sunrise", [])
         sunsets = daily_raw.get("sunset", [])
-        sunrise_iso = str(sunrises[0]) if isinstance(sunrises, list) and sunrises else None
-        sunset_iso = str(sunsets[0]) if isinstance(sunsets, list) and sunsets else None
+
+        def _next_sun_event(values: Any) -> Optional[str]:
+            if not isinstance(values, list):
+                return None
+            candidates = [str(value) for value in values if value]
+            if current_time:
+                candidates = [
+                    value for value in candidates if value >= str(current_time)
+                ]
+            return candidates[0] if candidates else None
+
+        sunrise_iso = _next_sun_event(sunrises)
+        sunset_iso = _next_sun_event(sunsets)
 
         sun = SunData(sunrise=sunrise_iso, sunset=sunset_iso)
 
-        utc_offset = int(raw_data.get("utc_offset_seconds", 0))
-        tz_resp = str(raw_data.get("timezone", location.timezone or "UTC"))
+        utc_offset_raw = raw_data.get("utc_offset_seconds", 0)
+        utc_offset = (
+            int(utc_offset_raw)
+            if isinstance(utc_offset_raw, (int, float))
+            and not isinstance(utc_offset_raw, bool)
+            and math.isfinite(utc_offset_raw)
+            else 0
+        )
+        timezone_raw = raw_data.get("timezone")
+        tz_resp = (
+            timezone_raw.strip()
+            if isinstance(timezone_raw, str) and timezone_raw.strip()
+            else location.timezone or "UTC"
+        )
         now_iso = datetime.now(timezone.utc).isoformat()
 
         return ProviderWeatherPayload(

@@ -3,7 +3,8 @@ import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Sun, Home, Zap } from 'lucide-react';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
-import { UNKNOWN_VALUE, formatKw, formatNumber, formatTemperature } from '../lib/format';
+import { WeatherIntelligence } from '../components/WeatherIntelligence';
+import { UNKNOWN_VALUE, formatKw, formatNumber } from '../lib/format';
 
 /**
  * Colour for a channel the devices have not delivered. Legible enough to read
@@ -11,17 +12,6 @@ import { UNKNOWN_VALUE, formatKw, formatNumber, formatTemperature } from '../lib
  * values so an unknown never reads as a measurement.
  */
 const UNKNOWN_ACCENT = 'text-slate-500 dark:text-slate-500';
-
-const CONDITION_LABELS: Record<string, string> = {
-  clear: 'Klar',
-  partly_cloudy: 'Teilweise bewölkt',
-  cloudy: 'Bewölkt',
-  rain: 'Regen',
-  heavy_rain: 'Starker Regen',
-  snow: 'Schnee',
-  fog: 'Nebel',
-  thunderstorm: 'Gewitter',
-};
 
 export function NowView() {
   const { snapshot, timeline, devices, sourceType } = useEnergyProvider();
@@ -126,19 +116,6 @@ export function NowView() {
   }
 
   const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
-  if (weatherEnabled) {
-    if (!weatherReport) {
-      statusChips.push('Wetter wird geladen');
-    } else if (weatherReport.status === 'available') {
-      const condition = weatherReport.current?.condition
-        ? CONDITION_LABELS[weatherReport.current.condition] || 'Wetter aktuell'
-        : 'Wetter aktuell';
-      const temperature = formatTemperature(weatherReport.current?.temperature_c, locale);
-      statusChips.push([condition, temperature].filter(Boolean).join(' '));
-    } else {
-      statusChips.push('Wetter nicht verfügbar');
-    }
-  }
 
   const forecast = snapshot.solarForecast;
 
@@ -184,6 +161,8 @@ export function NowView() {
           })}
         </div>
       </section>
+
+      {weatherEnabled && <WeatherIntelligence report={weatherReport} locale={locale} />}
 
       {/* 3 — day trend */}
       <section aria-label="Tagesverlauf" className="border-t border-slate-200/70 dark:border-slate-800 pt-5">
