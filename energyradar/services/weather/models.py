@@ -48,6 +48,7 @@ class HourlyWeatherPoint:
     cloud_cover_percent: Optional[float] = None
     temperature_c: Optional[float] = None
     precipitation_mm: Optional[float] = None
+    precipitation_probability_percent: Optional[float] = None
 
 
 @dataclass
@@ -56,7 +57,10 @@ class CurrentWeather:
     weather_code: Optional[int] = None
     cloud_cover_percent: Optional[float] = None
     temperature_c: Optional[float] = None
+    feels_like_c: Optional[float] = None
+    wind_speed_kmh: Optional[float] = None
     precipitation_mm: Optional[float] = None
+    precipitation_probability_percent: Optional[float] = None
     is_day: Optional[bool] = None
 
 
@@ -95,6 +99,7 @@ class WeatherReport:
     location: Optional[ResolvedLocation] = None
     sun: Optional[SunData] = None
     current: Optional[CurrentWeather] = None
+    hourly: List[HourlyWeatherPoint] = field(default_factory=list)
     quality: Optional[WeatherQuality] = None
     warnings: List[WeatherWarning] = field(default_factory=list)
 

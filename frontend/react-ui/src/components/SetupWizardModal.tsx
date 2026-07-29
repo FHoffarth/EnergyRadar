@@ -26,7 +26,7 @@ export function SetupWizardModal({ isOpen, onClose, onTestConnection, isBridgeCo
 
   const [step, setStep] = useState<SetupStep>('select_target');
   const [targetType, setTargetType] = useState<SetupTarget>('fronius');
-  const [host, setHost] = useState('192.168.1.150');
+  const [host, setHost] = useState('');
   const [port, setPort] = useState(80);
   const [displayName, setDisplayName] = useState('');
   const [isTesting, setIsTesting] = useState(false);
@@ -134,7 +134,7 @@ export function SetupWizardModal({ isOpen, onClose, onTestConnection, isBridgeCo
                 <div className="col-span-2 space-y-1">
                   <label className="font-medium text-slate-700 dark:text-slate-300 block">Lokale IP-Adresse / Hostname</label>
                   <input type="text" value={host} onChange={(e) => setHost(e.target.value)}
-                    placeholder="192.168.1.150"
+                    placeholder="fronius.local"
                     className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono" />
                 </div>
                 <div className="space-y-1">

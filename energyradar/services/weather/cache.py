@@ -11,12 +11,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from energyradar.services.weather.models import CurrentWeather, ProviderWeatherPayload, SunData
+from energyradar.services.weather.models import (
+    CurrentWeather,
+    HourlyWeatherPoint,
+    ProviderWeatherPayload,
+    SunData,
+)
 
 log = logging.getLogger(__name__)
 
 CACHE_LOCK = threading.Lock()
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 
 FRESH_TTL_SECONDS = 1200        # 20 Minuten
 STALE_MAX_AGE_SECONDS = 21600   # 6 Stunden
@@ -90,9 +95,25 @@ def load_cached_payload(location_key: str) -> Tuple[Optional[ProviderWeatherPayl
             weather_code=curr_dict.get("weather_code"),
             cloud_cover_percent=curr_dict.get("cloud_cover_percent"),
             temperature_c=curr_dict.get("temperature_c"),
+            feels_like_c=curr_dict.get("feels_like_c"),
+            wind_speed_kmh=curr_dict.get("wind_speed_kmh"),
             precipitation_mm=curr_dict.get("precipitation_mm"),
+            precipitation_probability_percent=curr_dict.get("precipitation_probability_percent"),
             is_day=curr_dict.get("is_day"),
         )
+        hourly = [
+            HourlyWeatherPoint(
+                time=str(point.get("time", "")),
+                condition=point.get("condition", "unknown"),
+                weather_code=point.get("weather_code"),
+                cloud_cover_percent=point.get("cloud_cover_percent"),
+                temperature_c=point.get("temperature_c"),
+                precipitation_mm=point.get("precipitation_mm"),
+                precipitation_probability_percent=point.get("precipitation_probability_percent"),
+            )
+            for point in payload_dict.get("hourly", [])
+            if isinstance(point, dict) and point.get("time")
+        ]
         payload = ProviderWeatherPayload(
             provider=payload_dict.get("provider", "open_meteo"),
             observed_at=payload_dict.get("observed_at", fetched_at_str),
@@ -101,6 +122,7 @@ def load_cached_payload(location_key: str) -> Tuple[Optional[ProviderWeatherPayl
             utc_offset_seconds=payload_dict.get("utc_offset_seconds", 0),
             sun=sun,
             current=current,
+            hourly=hourly,
         )
         return payload, freshness, age
     except Exception as exc:

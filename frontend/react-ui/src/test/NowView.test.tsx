@@ -198,7 +198,7 @@ describe('NowView - system status row', () => {
     appState.weatherReport = null;
   });
 
-  it('summarises devices and weather in a single compact row', () => {
+  it('keeps device status technical and renders weather separately', () => {
     providerState.devices = [
       { id: 'fronius_primary', name: 'Fronius', status: 'active' } as DemoDeviceSummary,
       { id: 'mt175_primary', name: 'Zähler', status: 'idle' } as DemoDeviceSummary,
@@ -211,8 +211,10 @@ describe('NowView - system status row', () => {
 
     render(<NowView />);
     expect(screen.getByTestId('system-status-row').textContent).toBe(
-      'Fronius online · Zähler nicht verbunden · Klar 21 °C',
+      'Fronius online · Zähler nicht verbunden',
     );
+    expect(screen.getByRole('region', { name: 'Wetter und Solarbedingungen' })).toBeTruthy();
+    expect(screen.getByTestId('system-status-row').textContent).not.toContain('21 °C');
   });
 
   it('omits weather entirely when the weather feature is off', () => {

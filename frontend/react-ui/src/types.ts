@@ -155,8 +155,21 @@ export interface CurrentWeatherData {
   weather_code: number | null;
   cloud_cover_percent: number | null;
   temperature_c: number | null;
+  feels_like_c?: number | null;
+  wind_speed_kmh?: number | null;
   precipitation_mm: number | null;
+  precipitation_probability_percent?: number | null;
   is_day: boolean | null;
+}
+
+export interface HourlyWeatherData {
+  time: string;
+  condition: string;
+  weather_code: number | null;
+  cloud_cover_percent: number | null;
+  temperature_c: number | null;
+  precipitation_mm: number | null;
+  precipitation_probability_percent?: number | null;
 }
 
 export interface WeatherQualityData {
@@ -179,6 +192,7 @@ export interface WeatherReportData {
   location: ResolvedLocationData | null;
   sun: SunData | null;
   current: CurrentWeatherData | null;
+  hourly?: HourlyWeatherData[];
   quality: WeatherQualityData | null;
   warnings: WeatherWarningData[];
 }
