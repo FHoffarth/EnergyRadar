@@ -360,9 +360,148 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  macos_arm64:
+    name: Build macOS (Apple Silicon arm64)
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify native Apple Silicon runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          echo "Native runner architecture: $(uname -m)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/react-ui/package-lock.json
+
+      - name: Build React UI
+        working-directory: frontend/react-ui
+        run: |
+          set -euo pipefail
+          test "$(node -p 'process.arch')" = "arm64"
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.MACOS_PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            energyradar/requirements.txt
+            requirements-build.txt
+
+      - name: Install native Python dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r energyradar/requirements.txt -r requirements-build.txt
+          python3 - <<'PY'
+          import platform
+          import struct
+
+          architecture = platform.machine()
+          if architecture != "arm64":
+              raise SystemExit(f"Python is not native arm64: {architecture}")
+          if struct.calcsize("P") != 8:
+              raise SystemExit("Python is not a 64-bit runtime.")
+          print(f"Native Python runtime verified: {architecture}")
+          PY
+
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python3 -m pytest tests/ -v
+
+      - name: Build canonical desktop bundle
+        run: python3 tools/build.py
+
+      - name: Validate arm64 bundle contract
+        run: |
+          set -euo pipefail
+          python3 tools/validate_macos_bundle.py "dist/EnergyRadar.app"
+          plutil -lint "dist/EnergyRadar.app/Contents/Info.plist"
+
+      - name: Packaged startup smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_bin="dist/EnergyRadar.app/Contents/MacOS/EnergyRadar"
+          smoke_home="$RUNNER_TEMP/energyradar-arm64-smoke"
+          stdout_log="$RUNNER_TEMP/energyradar-arm64-stdout.log"
+          stderr_log="$RUNNER_TEMP/energyradar-arm64-stderr.log"
+          mkdir -p "$smoke_home"
+          export HOME="$smoke_home"
+          unset FRONIUS_URL ENERGYRADAR_DEMO
+
+          "$app_bin" >"$stdout_log" 2>"$stderr_log" &
+          app_pid=$!
+          cleanup() {
+            if kill -0 "$app_pid" 2>/dev/null; then
+              kill -TERM "$app_pid" 2>/dev/null || true
+              wait "$app_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          for second in $(seq 1 15); do
+            sleep 1
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              wait "$app_pid" || exit_code=$?
+              cat "$stdout_log" || true
+              cat "$stderr_log" >&2 || true
+              echo "EnergyRadar exited during packaged startup smoke after ${second}s (exit ${exit_code:-0})." >&2
+              exit 1
+            fi
+          done
+
+          diagnostic_log="$HOME/Library/Application Support/EnergyRadar/energyradar.log"
+          test -f "$diagnostic_log"
+          if grep -Eiq \
+            'Traceback|ImportError|ModuleNotFoundError|Library not loaded|wrong architecture|mach-o.*incompatible|\[ERROR\]' \
+            "$stdout_log" "$stderr_log" "$diagnostic_log"; then
+            cat "$stdout_log" || true
+            cat "$stderr_log" >&2 || true
+            cat "$diagnostic_log" >&2 || true
+            echo "Packaged startup diagnostics contain a fatal error." >&2
+            exit 1
+          fi
+          echo "Packaged arm64 process remained healthy for 15 seconds."
+
+      - name: Package arm64 app and checksum
+        run: |
+          set -euo pipefail
+          cd dist
+          ditto -c -k --keepParent \
+            "EnergyRadar.app" \
+            "EnergyRadar-macOS-arm64.zip"
+          shasum -a 256 "EnergyRadar-macOS-arm64.zip" \
+            > "EnergyRadar-macOS-arm64.zip.sha256"
+          shasum -a 256 -c "EnergyRadar-macOS-arm64.zip.sha256"
+          zipinfo -1 "EnergyRadar-macOS-arm64.zip" | grep -q '^EnergyRadar\.app/'
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnergyRadar-macos-arm64
+          path: |
+            dist/EnergyRadar-macOS-arm64.zip
+            dist/EnergyRadar-macOS-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   package:
     name: Prepare release assets
-    needs: [windows, macos]
+    needs: [windows, macos, macos_arm64]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -378,21 +517,35 @@ jobs:
           name: EnergyRadar-macos
           path: package-input/macos
 
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: EnergyRadar-macos-arm64
+          path: package-input/macos-arm64
+
       - name: Package and checksum release files
         shell: bash
         run: |
           set -euo pipefail
           test -f "package-input/EnergyRadar-Windows-x64/EnergyRadar.exe"
           test -f "package-input/macos/EnergyRadar-macos.zip"
+          test -f "package-input/macos-arm64/EnergyRadar-macOS-arm64.zip"
+          test -f "package-input/macos-arm64/EnergyRadar-macOS-arm64.zip.sha256"
           mkdir release-assets
           (
             cd package-input
             zip -q -r "../release-assets/EnergyRadar-Windows-x64.zip" "EnergyRadar-Windows-x64"
             mv "macos/EnergyRadar-macos.zip" "../release-assets/EnergyRadar-macOS-Intel.zip"
+            mv "macos-arm64/EnergyRadar-macOS-arm64.zip" \
+              "../release-assets/EnergyRadar-macOS-arm64.zip"
+            mv "macos-arm64/EnergyRadar-macOS-arm64.zip.sha256" \
+              "../release-assets/EnergyRadar-macOS-arm64.zip.sha256"
             cd ../release-assets
+            sha256sum --check --strict "EnergyRadar-macOS-arm64.zip.sha256"
             sha256sum \
               "EnergyRadar-Windows-x64.zip" \
               "EnergyRadar-macOS-Intel.zip" \
+              "EnergyRadar-macOS-arm64.zip" \
               > "SHA256SUMS.txt"
           )
 
@@ -401,9 +554,10 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nEnergyRadar-macOS-arm64.zip\nEnergyRadar-macOS-arm64.zip.sha256\nSHA256SUMS.txt'
           actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
           test "$actual_files" = "$(printf '%s\n' "$expected_files" | sort)"
+          sha256sum --check --strict "EnergyRadar-macOS-arm64.zip.sha256"
           sha256sum --check --strict SHA256SUMS.txt
 
       - name: Upload release assets
@@ -413,6 +567,8 @@ jobs:
           path: |
             release-assets/EnergyRadar-Windows-x64.zip
             release-assets/EnergyRadar-macOS-Intel.zip
+            release-assets/EnergyRadar-macOS-arm64.zip
+            release-assets/EnergyRadar-macOS-arm64.zip.sha256
             release-assets/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

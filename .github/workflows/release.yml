@@ -126,14 +126,14 @@ jobs:
           set -euo pipefail
           cd release
 
-          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nEnergyRadar-macOS-arm64.zip\nEnergyRadar-macOS-arm64.zip.sha256\nSHA256SUMS.txt'
           actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
           if [[ "$actual_files" != "$(printf '%s\n' "$expected_files" | sort)" ]]; then
             echo "Unexpected release artifact contents:" >&2
             printf '%s\n' "$actual_files" >&2
             exit 1
           fi
-          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip'
+          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nEnergyRadar-macOS-arm64.zip'
           actual_checksum_entries="$(awk '
             /^[[:xdigit:]]{64}  [^/]+$/ { print $2; next }
             { exit 2 }
@@ -146,6 +146,7 @@ jobs:
             exit 1
           fi
 
+          sha256sum --check --strict EnergyRadar-macOS-arm64.zip.sha256
           sha256sum --check --strict SHA256SUMS.txt
 
   publish:
@@ -211,16 +212,17 @@ jobs:
           set -euo pipefail
           cd release
 
-          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nSHA256SUMS.txt'
+          expected_files=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nEnergyRadar-macOS-arm64.zip\nEnergyRadar-macOS-arm64.zip.sha256\nSHA256SUMS.txt'
           actual_files="$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
           test "$actual_files" = "$(printf '%s\n' "$expected_files" | sort)"
 
-          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip'
+          expected_checksum_entries=$'EnergyRadar-Windows-x64.zip\nEnergyRadar-macOS-Intel.zip\nEnergyRadar-macOS-arm64.zip'
           actual_checksum_entries="$(awk '
             /^[[:xdigit:]]{64}  [^/]+$/ { print $2; next }
             { exit 2 }
           ' SHA256SUMS.txt | sort)"
           test "$actual_checksum_entries" = "$(printf '%s\n' "$expected_checksum_entries" | sort)"
+          sha256sum --check --strict EnergyRadar-macOS-arm64.zip.sha256
           sha256sum --check --strict SHA256SUMS.txt
 
       - name: Publish GitHub Release
@@ -250,6 +252,8 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "release/EnergyRadar-Windows-x64.zip" \
             "release/EnergyRadar-macOS-Intel.zip" \
+            "release/EnergyRadar-macOS-arm64.zip" \
+            "release/EnergyRadar-macOS-arm64.zip.sha256" \
             "release/SHA256SUMS.txt" \
             --draft \
             --verify-tag \
