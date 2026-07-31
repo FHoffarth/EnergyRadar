@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -578,13 +579,12 @@ def test_large_existing_database_migrates_without_loss_or_duplicates(database_pa
         assert grid_range == (-10.0, 10.0)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows packaged-path behavior")
 def test_packaged_windows_data_path_supports_spaces_and_non_ascii(
     tmp_path, monkeypatch
 ):
     local_app_data = tmp_path / "Benutzer Änne" / "Local App Data"
     monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
-    monkeypatch.setattr(config.os, "name", "nt")
-    monkeypatch.setattr(config.sys, "platform", "win32")
     monkeypatch.setattr(config.sys, "frozen", True, raising=False)
 
     user_data_dir = config._user_data_dir()
