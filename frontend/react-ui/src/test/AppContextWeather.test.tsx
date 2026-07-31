@@ -180,11 +180,86 @@ describe('AppContext weather state machines', () => {
 
     act(() => result.current.updateSettings({ number_format: 'en-US' }));
     act(() =>
-      callbacks.settingsSaveFailed(JSON.stringify({ ok: false, error: 'Datei nicht beschreibbar' })),
+      callbacks.settingsSaveFailed(JSON.stringify({ ok: false, message: 'Einstellungen konnten nicht gespeichert werden.' })),
     );
 
     expect(result.current.settingsSaveState.status).toBe('error');
-    expect(result.current.settingsSaveState.message).toBe('Datei nicht beschreibbar');
+    expect(result.current.settingsSaveState.message).toBe('Einstellungen konnten nicht gespeichert werden.');
+  });
+
+  it('does not expose a raw backend exception from a failed settings save', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => result.current.updateSettings({ number_format: 'en-US' }));
+    act(() => callbacks.settingsSaveFailed(JSON.stringify({ ok: false, error: "name 'os' is not defined" })));
+
+    expect(result.current.settingsSaveState).toEqual({
+      status: 'error',
+      message: 'Einstellungen konnten nicht gespeichert werden.',
+    });
+  });
+
+  it('wires every system action and blocks duplicate clicks until its result arrives', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    const actions = [
+      ['chooseExportDirectory', bridge.chooseExportDirectory],
+      ['openExportDirectory', bridge.openExportDirectory],
+      ['openDiagnosticLog', bridge.openDiagnosticLog],
+      ['openLogDirectory', bridge.openLogDirectory],
+    ] as const;
+
+    for (const [action, method] of actions) {
+      act(() => {
+        result.current[action]();
+        result.current[action]();
+      });
+      expect(method).toHaveBeenCalledTimes(1);
+      expect(result.current.systemActionState).toEqual(expect.objectContaining({ status: 'loading', action }));
+      act(() => callbacks.systemActionResult(JSON.stringify({
+        ok: true, status: 'success', action, message: 'Ausgeführt.',
+      })));
+      expect(result.current.systemActionState).toEqual(expect.objectContaining({ status: 'success', action }));
+    }
+  });
+
+  it('keeps folder-picker cancellation unchanged and exposes a selected path as draft state', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+    const settingsBefore = result.current.settingsPayload;
+
+    act(() => result.current.chooseExportDirectory());
+    act(() => callbacks.systemActionResult(JSON.stringify({
+      ok: true, status: 'cancelled', action: 'chooseExportDirectory', message: 'Ordnerauswahl abgebrochen.',
+    })));
+    expect(result.current.settingsPayload).toBe(settingsBefore);
+    expect(result.current.systemActionState.status).toBe('cancelled');
+
+    act(() => result.current.chooseExportDirectory());
+    act(() => callbacks.directorySelected('C:\\Users\\Flo\\Export Daten'));
+    expect(result.current.settingsPayload).toBe(settingsBefore);
+    expect(result.current.systemActionState).toEqual(expect.objectContaining({
+      status: 'success',
+      action: 'chooseExportDirectory',
+      path: 'C:\\Users\\Flo\\Export Daten',
+    }));
+  });
+
+  it('renders only a friendly system-action failure message', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => result.current.openExportDirectory());
+    act(() => callbacks.systemActionResult(JSON.stringify({
+      ok: false,
+      action: 'openExportDirectory',
+      error: "NameError: name 'os' is not defined",
+    })));
+
+    expect(result.current.systemActionState.message).toBe('Aktion konnte nicht ausgeführt werden.');
+    expect(result.current.systemActionState.message).not.toContain('NameError');
   });
 
   it('runs one connection check at a time and exposes the backend result', async () => {

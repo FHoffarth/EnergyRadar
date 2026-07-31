@@ -386,7 +386,8 @@ def test_settings_save_reports_device_address_persistence_failure(tmp_path, monk
 
     assert succeeded == []
     assert failed and failed[0]["ok"] is False
-    assert "read-only" in failed[0]["error"]
+    assert failed[0]["message"] == "Einstellungen konnten nicht gespeichert werden."
+    assert "read-only" not in json.dumps(failed[0])
     assert data_source.load_saved() == previous_source
     assert ui_settings.load_raw_dict() == previous_settings
 
@@ -468,4 +469,5 @@ def test_settings_store_failure_restores_previous_data_source(tmp_path, monkeypa
 
     assert data_source.load_saved() == previous_source
     assert succeeded == []
-    assert failed and "read-only" in failed[0]["error"]
+    assert failed and failed[0]["message"] == "Einstellungen konnten nicht gespeichert werden."
+    assert "read-only" not in json.dumps(failed[0])

@@ -26,7 +26,7 @@ function normalizeHost(input: string): string {
 
 export function SettingsView() {
   const {
-    settingsPayload, chooseExportDirectory,
+    settingsPayload, chooseExportDirectory, consumeSystemActionPath,
     openExportDirectory, searchWeatherLocations, weatherSearchState, savedLocationState,
     confirmWeatherLocation, removeResolvedLocation,
     testWeatherConnection, weatherTestState, weatherReport,
@@ -101,6 +101,18 @@ export function SettingsView() {
     }
   }, [settingsSaveState.status, raw, awaitingFormSave]);
 
+  useEffect(() => {
+    if (
+      systemActionState?.status === 'success'
+      && systemActionState.action === 'chooseExportDirectory'
+      && systemActionState.path
+    ) {
+      setDraft(previous => ({ ...previous, export_directory: systemActionState.path }));
+      setIsDirty(true);
+      consumeSystemActionPath();
+    }
+  }, [systemActionState?.status, systemActionState?.action, systemActionState?.path, consumeSystemActionPath]);
+
   const handleSearchLocations = (e: React.FormEvent) => {
     e.preventDefault();
     const q = locationInput.trim();
@@ -154,6 +166,7 @@ export function SettingsView() {
     return `${formatNumber(bytes / 1024 / 1024, numberLocale, { maximumFractionDigits: 1 })} MB`;
   };
   const deviceOnline = (id: string) => (devices ?? []).find(device => device.device_id === id)?.connection_status === 'connected';
+  const systemActionBusy = systemActionState?.status === 'loading';
   const deviceSystemStatus = (id: string): [string, boolean] => {
     const device = (devices ?? []).find(candidate => candidate.device_id === id);
     if (!device || device.connection_status === 'unconfigured') return ['Nicht eingerichtet', false];
@@ -186,8 +199,19 @@ export function SettingsView() {
               <AlertCircle className="w-4 h-4" /> {settingsSaveState.message || 'Speichern fehlgeschlagen.'}
             </span>
           )}
-          {systemActionState?.status === 'error' && (
-            <span role="alert" className="text-sm font-medium text-rose-600 dark:text-rose-400">
+          {systemActionState?.status !== 'idle' && systemActionState?.message && (
+            <span
+              role={systemActionState.status === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+              className={`text-sm font-medium ${
+                systemActionState.status === 'error'
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : systemActionState.status === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {systemActionState.status === 'loading' && <Loader2 className="inline w-4 h-4 mr-1.5 animate-spin" />}
               {systemActionState.message}
             </span>
           )}
@@ -522,12 +546,12 @@ export function SettingsView() {
               ))}
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={openDiagnosticLog}
-                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5">
+              <button type="button" onClick={openDiagnosticLog} disabled={systemActionBusy}
+                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FileText className="w-3.5 h-3.5" /> Systemprotokoll öffnen
               </button>
-              <button type="button" onClick={openLogDirectory}
-                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5">
+              <button type="button" onClick={openLogDirectory} disabled={systemActionBusy}
+                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                 <Folder className="w-3.5 h-3.5" /> Protokollordner öffnen
               </button>
             </div>
@@ -562,14 +586,14 @@ export function SettingsView() {
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Exportordner</label>
             <div className="flex items-center gap-2">
               <div className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-xs truncate">
-                {system?.export_directory || getEff('export_directory') || 'Dokumente'}
+                {getEff('export_directory') || system?.export_directory || 'Dokumente'}
               </div>
-              <button onClick={chooseExportDirectory}
-                className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs transition-colors shrink-0">
+              <button onClick={chooseExportDirectory} disabled={systemActionBusy}
+                className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 Ordner wählen
               </button>
-              <button onClick={openExportDirectory}
-                className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors shrink-0">
+              <button onClick={openExportDirectory} disabled={systemActionBusy}
+                className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 <ExternalLink className="w-4 h-4" /> Exportordner öffnen
               </button>
             </div>

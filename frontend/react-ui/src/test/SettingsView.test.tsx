@@ -7,6 +7,7 @@ import { SettingsView } from '../views/SettingsView';
 const mockAppContext: any = {
   settingsPayload: null,
   chooseExportDirectory: vi.fn(),
+  consumeSystemActionPath: vi.fn(),
   openExportDirectory: vi.fn(),
   searchWeatherLocations: vi.fn(),
   weatherSearchState: {
@@ -28,6 +29,7 @@ const mockAppContext: any = {
   testConnectionStatus: {},
   updateSettings: vi.fn(),
   settingsSaveState: { status: 'idle' as const },
+  systemActionState: { status: 'idle' as const },
   devices: [],
 };
 
@@ -41,6 +43,10 @@ vi.mock('../context/AppContext', () => ({
 vi.mock('../components/SetupWizardModal', () => ({
   SetupWizardModal: () => null,
 }));
+
+beforeEach(() => {
+  mockAppContext.systemActionState = { status: 'idle' };
+});
 
 describe('SettingsView - no provider selection', () => {
   beforeEach(() => {
@@ -301,5 +307,87 @@ describe('SettingsView - persisted dirty state', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Iskra MT631/ }));
     expect(screen.getByLabelText('IP oder Hostname des SmartMeterReaders')).toBeInTheDocument();
+  });
+
+  it('invokes every visible file and system control', () => {
+    render(<SettingsView />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ordner wählen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exportordner öffnen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Systemprotokoll öffnen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Protokollordner öffnen' }));
+
+    expect(mockAppContext.chooseExportDirectory).toHaveBeenCalledTimes(1);
+    expect(mockAppContext.openExportDirectory).toHaveBeenCalledTimes(1);
+    expect(mockAppContext.openDiagnosticLog).toHaveBeenCalledTimes(1);
+    expect(mockAppContext.openLogDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables system controls while an action is running and renders its result', () => {
+    mockAppContext.systemActionState = {
+      status: 'loading', action: 'openExportDirectory', message: 'Aktion wird ausgeführt …',
+    };
+    const { rerender } = render(<SettingsView />);
+
+    expect(screen.getByRole('button', { name: 'Ordner wählen' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Exportordner öffnen' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Systemprotokoll öffnen' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Protokollordner öffnen' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Aktion wird ausgeführt');
+
+    mockAppContext.systemActionState = {
+      status: 'success', action: 'openExportDirectory', message: 'Exportordner geöffnet.',
+    };
+    rerender(<SettingsView />);
+    expect(screen.getByRole('status')).toHaveTextContent('Exportordner geöffnet.');
+
+    mockAppContext.systemActionState = {
+      status: 'error', action: 'openDiagnosticLog', message: 'Das Systemprotokoll ist derzeit nicht verfügbar.',
+    };
+    rerender(<SettingsView />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Das Systemprotokoll ist derzeit nicht verfügbar.');
+  });
+
+  it('keeps picker cancellation unchanged and saves a selected folder only through the draft', () => {
+    const { rerender } = render(<SettingsView />);
+    const save = screen.getByRole('button', { name: /Änderungen speichern/ });
+    expect(save).toBeDisabled();
+
+    mockAppContext.systemActionState = {
+      status: 'cancelled', action: 'chooseExportDirectory', message: 'Ordnerauswahl abgebrochen.',
+    };
+    rerender(<SettingsView />);
+    expect(save).toBeDisabled();
+
+    mockAppContext.systemActionState = {
+      status: 'success',
+      action: 'chooseExportDirectory',
+      message: 'Exportordner ausgewählt. Noch nicht gespeichert.',
+      path: 'C:\\Users\\Flo\\Export Daten',
+    };
+    rerender(<SettingsView />);
+    expect(screen.getByText('C:\\Users\\Flo\\Export Daten')).toBeInTheDocument();
+    expect(save).toBeEnabled();
+
+    fireEvent.click(save);
+    expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      export_directory: 'C:\\Users\\Flo\\Export Daten',
+    }));
+  });
+
+  it('discard restores the persisted export folder after a selection', () => {
+    const { rerender } = render(<SettingsView />);
+    mockAppContext.systemActionState = {
+      status: 'success',
+      action: 'chooseExportDirectory',
+      message: 'Exportordner ausgewählt. Noch nicht gespeichert.',
+      path: 'C:\\Users\\Flo\\Unsaved',
+    };
+    rerender(<SettingsView />);
+    expect(screen.getByText('C:\\Users\\Flo\\Unsaved')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Verwerfen/ }));
+    expect(screen.queryByText('C:\\Users\\Flo\\Unsaved')).toBeNull();
+    expect(screen.getByRole('button', { name: /Änderungen speichern/ })).toBeDisabled();
   });
 });

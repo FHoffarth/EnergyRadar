@@ -8,10 +8,19 @@ export type SearchState = 'idle' | 'loading' | 'results' | 'empty' | 'error' | '
 export type SavedLocationState = 'absent' | 'saved';
 export type WeatherTestStatus = 'idle' | 'loading' | 'success' | 'error' | 'timeout';
 export type SettingsSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type SystemActionName = 'chooseExportDirectory' | 'openExportDirectory' | 'openDiagnosticLog' | 'openLogDirectory';
+export type SystemActionStatus = 'idle' | 'loading' | 'success' | 'cancelled' | 'error';
 
 export interface SettingsSaveState {
   status: SettingsSaveStatus;
   message?: string;
+}
+
+export interface SystemActionState {
+  status: SystemActionStatus;
+  action?: SystemActionName;
+  message?: string;
+  path?: string;
 }
 
 export interface WeatherSearchState {
@@ -51,7 +60,7 @@ interface AppContextType {
   weatherReport: WeatherReportData | null;
   weatherTestState: WeatherTestState;
   settingsSaveState: SettingsSaveState;
-  systemActionState: { status: 'idle' | 'success' | 'error'; message?: string };
+  systemActionState: SystemActionState;
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -63,6 +72,7 @@ interface AppContextType {
   saveFroniusAddress: (address: string) => void;
   testConnection: (deviceId: string) => void;
   chooseExportDirectory: () => void;
+  consumeSystemActionPath: () => void;
   openExportDirectory: () => void;
   validateWeatherConfiguration: () => void;
   openDiagnosticLog: () => void;
@@ -115,7 +125,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const weatherTestSequenceRef = useRef(0);
   const weatherTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settingsSaveState, setSettingsSaveState] = useState<SettingsSaveState>({ status: 'idle' });
-  const [systemActionState, setSystemActionState] = useState<{ status: 'idle' | 'success' | 'error'; message?: string }>({ status: 'idle' });
+  const [systemActionState, setSystemActionState] = useState<SystemActionState>({ status: 'idle' });
+  const systemActionsInFlightRef = useRef(new Set<SystemActionName>());
   const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Subscribe to energyService ────────────────────────────────────
@@ -183,10 +194,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       b.systemActionResult.connect((resultJson) => {
         try {
           const result = JSON.parse(resultJson);
-          setSystemActionState(result.ok
-            ? { status: 'success', message: 'Aktion ausgeführt.' }
-            : { status: 'error', message: result.error || 'Aktion konnte nicht ausgeführt werden.' });
+          const action = result.action as SystemActionName | undefined;
+          if (action) systemActionsInFlightRef.current.delete(action);
+          const status: SystemActionStatus = result.ok
+            ? (result.status === 'cancelled' ? 'cancelled' : 'success')
+            : 'error';
+          setSystemActionState({
+            status,
+            action,
+            message: typeof result.message === 'string'
+              ? result.message
+              : (result.ok ? 'Aktion ausgeführt.' : 'Aktion konnte nicht ausgeführt werden.'),
+            path: typeof result.path === 'string' ? result.path : undefined,
+          });
         } catch {
+          systemActionsInFlightRef.current.clear();
           setSystemActionState({ status: 'error', message: 'Systemantwort konnte nicht gelesen werden.' });
         }
       });
@@ -228,7 +250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let message = 'Einstellungen konnten nicht gespeichert werden.';
         try {
           const parsed = JSON.parse(errorJson);
-          if (typeof parsed?.error === 'string' && parsed.error) message = parsed.error;
+          if (typeof parsed?.message === 'string' && parsed.message) message = parsed.message;
         } catch {}
         setSettingsSaveState({ status: 'error', message });
       });
@@ -323,13 +345,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       b.directorySelected.connect((dirPath) => {
-        setSettingsPayload(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            effective_settings: { ...prev.effective_settings, export_directory: dirPath },
-            settings: { ...prev.settings, export_directory: dirPath }
-          };
+        setSystemActionState({
+          status: 'success',
+          action: 'chooseExportDirectory',
+          message: 'Exportordner ausgewählt. Noch nicht gespeichert.',
+          path: dirPath,
         });
       });
     });
@@ -501,14 +521,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (bridge) bridge.saveFroniusAddress(address);
   };
 
+  const runSystemAction = (action: SystemActionName, invoke: (desktopBridge: QtBridge) => void) => {
+    if (systemActionsInFlightRef.current.has(action)) return;
+    if (!bridge) {
+      setSystemActionState({ status: 'error', action, message: 'Desktop-Verbindung ist nicht verfügbar.' });
+      return;
+    }
+    systemActionsInFlightRef.current.add(action);
+    setSystemActionState({ status: 'loading', action, message: 'Aktion wird ausgeführt …' });
+    try {
+      invoke(bridge);
+    } catch {
+      systemActionsInFlightRef.current.delete(action);
+      setSystemActionState({ status: 'error', action, message: 'Aktion konnte nicht ausgeführt werden.' });
+    }
+  };
+
   const chooseExportDirectory = () => {
-    if (bridge) bridge.chooseExportDirectory();
-    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+    runSystemAction('chooseExportDirectory', desktopBridge => desktopBridge.chooseExportDirectory());
+  };
+
+  const consumeSystemActionPath = () => {
+    setSystemActionState(previous => previous.path ? { ...previous, path: undefined } : previous);
   };
 
   const openExportDirectory = () => {
-    if (bridge) bridge.openExportDirectory();
-    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+    runSystemAction('openExportDirectory', desktopBridge => desktopBridge.openExportDirectory());
   };
 
   const validateWeatherConfiguration = () => {
@@ -524,13 +562,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const openDiagnosticLog = () => {
-    if (bridge) bridge.openDiagnosticLog();
-    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+    runSystemAction('openDiagnosticLog', desktopBridge => desktopBridge.openDiagnosticLog());
   };
 
   const openLogDirectory = () => {
-    if (bridge) bridge.openLogDirectory();
-    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+    runSystemAction('openLogDirectory', desktopBridge => desktopBridge.openLogDirectory());
   };
 
   const testConnection = (deviceId: string) => {
@@ -609,6 +645,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveFroniusAddress,
       testConnection,
       chooseExportDirectory,
+      consumeSystemActionPath,
       openExportDirectory,
       validateWeatherConfiguration,
       openDiagnosticLog,
