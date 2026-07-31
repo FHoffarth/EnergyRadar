@@ -65,6 +65,88 @@ def _make_payload(mt175_overrides: dict | None = None, time: str = "2026-07-21T1
     return {"StatusSNS": {"Time": time, "MT175": mt175}}
 
 
+def _make_mt631_payload(**overrides) -> dict:
+    meter = {
+        "ImportActive": 9798.031,
+        "ExportActive": 12480.630,
+        "Power": -789,
+    }
+    meter.update(overrides)
+    return {
+        "StatusSNS": {
+            "Time": "2026-07-31T12:00:00",
+            "MT631": meter,
+        }
+    }
+
+
+class MT631Test(unittest.TestCase):
+    """Verified MT631 payloads keep signed power and optional capabilities."""
+
+    def test_verified_negative_export_payload(self):
+        reading = collector.parse(_make_mt631_payload())
+        self.assertEqual(reading.meter_type, "MT631")
+        self.assertEqual(reading.current_power_w, -789.0)
+        self.assertEqual(reading.grid_import_total_kwh, 9798.031)
+        self.assertEqual(reading.grid_export_total_kwh, 12480.630)
+        self.assertIsNone(reading.phase_l1_w)
+        self.assertIsNone(reading.phase_l2_w)
+        self.assertIsNone(reading.phase_l3_w)
+        self.assertIsNone(reading.meter_id)
+        self.assertFalse(reading.pin_locked)
+
+    def test_positive_import_power(self):
+        reading = collector.parse(_make_mt631_payload(Power=1419))
+        self.assertEqual(reading.current_power_w, 1419.0)
+
+    def test_genuine_zero_without_phases_or_server_id(self):
+        reading = collector.parse(_make_mt631_payload(Power=0))
+        self.assertEqual(reading.current_power_w, 0.0)
+        self.assertFalse(reading.pin_locked)
+
+    def test_numeric_strings_are_supported(self):
+        reading = collector.parse(
+            _make_mt631_payload(
+                ImportActive="9798.031",
+                ExportActive="12480.630",
+                Power="-789",
+            )
+        )
+        self.assertEqual(reading.current_power_w, -789.0)
+        self.assertEqual(reading.grid_import_total_kwh, 9798.031)
+        self.assertEqual(reading.grid_export_total_kwh, 12480.630)
+
+    def test_missing_and_null_power_are_unavailable(self):
+        missing = _make_mt631_payload()
+        del missing["StatusSNS"]["MT631"]["Power"]
+        self.assertIsNone(collector.parse(missing).current_power_w)
+        self.assertIsNone(
+            collector.parse(_make_mt631_payload(Power=None)).current_power_w
+        )
+
+    def test_malformed_and_non_finite_power_are_unavailable(self):
+        for value in ("not-a-number", float("nan"), float("inf"), "-Infinity"):
+            with self.subTest(value=value):
+                reading = collector.parse(_make_mt631_payload(Power=value))
+                self.assertIsNone(reading.current_power_w)
+                self.assertFalse(reading.pin_locked)
+
+    def test_malformed_and_non_finite_totals_are_unavailable(self):
+        reading = collector.parse(
+            _make_mt631_payload(ImportActive="NaN", ExportActive=float("inf"))
+        )
+        self.assertIsNone(reading.grid_import_total_kwh)
+        self.assertIsNone(reading.grid_export_total_kwh)
+
+    def test_explicit_lookup_prefers_mt631_even_when_block_is_empty(self):
+        payload = _make_payload()
+        payload["StatusSNS"]["MT631"] = {}
+        reading = collector.parse(payload)
+        self.assertEqual(reading.meter_type, "MT631")
+        self.assertIsNone(reading.current_power_w)
+        self.assertFalse(reading.pin_locked)
+
+
 # ---------------------------------------------------------------------------
 # 1. Specification example — PIN-locked meter
 # ---------------------------------------------------------------------------
@@ -92,8 +174,11 @@ class SpecExampleTest(unittest.TestCase):
         self.assertEqual(self.reading.phase_l2_w, 0.0)
         self.assertEqual(self.reading.phase_l3_w, 0.0)
 
-    def test_meter_id_is_empty_string(self):
-        self.assertEqual(self.reading.meter_id, "")
+    def test_meter_id_is_unavailable(self):
+        self.assertIsNone(self.reading.meter_id)
+
+    def test_legacy_pin_lock_state_is_explicit(self):
+        self.assertTrue(self.reading.pin_locked)
 
     # --- timestamp ---
 
@@ -223,7 +308,7 @@ class NumericStringValuesTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class MissingFieldsTest(unittest.TestCase):
-    """Optional MT175 fields are absent — must degrade to safe defaults."""
+    """Absent fields remain unavailable rather than becoming measurements."""
 
     def setUp(self):
         payload = {
@@ -237,21 +322,20 @@ class MissingFieldsTest(unittest.TestCase):
         }
         self.reading = collector.parse(payload)
 
-    def test_export_defaults_to_zero(self):
-        self.assertEqual(self.reading.grid_export_total_kwh, 0.0)
+    def test_export_is_unavailable(self):
+        self.assertIsNone(self.reading.grid_export_total_kwh)
 
     def test_current_power_is_none_missing_power_fields(self):
-        # Missing power fields default to 0, missing server_id defaults to ""
-        # → all PIN-lock conditions satisfied → None
         self.assertIsNone(self.reading.current_power_w)
+        self.assertFalse(self.reading.pin_locked)
 
-    def test_phases_default_to_zero(self):
-        self.assertEqual(self.reading.phase_l1_w, 0.0)
-        self.assertEqual(self.reading.phase_l2_w, 0.0)
-        self.assertEqual(self.reading.phase_l3_w, 0.0)
+    def test_phases_are_unavailable(self):
+        self.assertIsNone(self.reading.phase_l1_w)
+        self.assertIsNone(self.reading.phase_l2_w)
+        self.assertIsNone(self.reading.phase_l3_w)
 
-    def test_meter_id_defaults_to_empty_string(self):
-        self.assertEqual(self.reading.meter_id, "")
+    def test_meter_id_is_unavailable(self):
+        self.assertIsNone(self.reading.meter_id)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +343,7 @@ class MissingFieldsTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class NoneFieldValuesTest(unittest.TestCase):
-    """Fields present in JSON but explicitly null/None degrade gracefully."""
+    """Explicit null fields remain unavailable."""
 
     def setUp(self):
         payload = {
@@ -278,18 +362,18 @@ class NoneFieldValuesTest(unittest.TestCase):
         }
         self.reading = collector.parse(payload)
 
-    def test_import_defaults_to_zero(self):
-        self.assertEqual(self.reading.grid_import_total_kwh, 0.0)
+    def test_import_is_unavailable(self):
+        self.assertIsNone(self.reading.grid_import_total_kwh)
 
-    def test_export_defaults_to_zero(self):
-        self.assertEqual(self.reading.grid_export_total_kwh, 0.0)
+    def test_export_is_unavailable(self):
+        self.assertIsNone(self.reading.grid_export_total_kwh)
 
     def test_current_power_is_none_all_null_fields(self):
-        # None → 0.0 for each power field, None server_id → "" → PIN-locked
         self.assertIsNone(self.reading.current_power_w)
+        self.assertFalse(self.reading.pin_locked)
 
-    def test_meter_id_is_empty_string_for_null_server_id(self):
-        self.assertEqual(self.reading.meter_id, "")
+    def test_meter_id_is_unavailable_for_null_server_id(self):
+        self.assertIsNone(self.reading.meter_id)
 
 
 # ---------------------------------------------------------------------------
@@ -343,18 +427,21 @@ class MalformedTimestampTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class MissingStructureTest(unittest.TestCase):
-    """Top-level or nested structural keys must raise KeyError when absent."""
+    """Unsupported response structures raise a clear domain error."""
 
     def test_empty_dict_raises_key_error(self):
-        with self.assertRaises(KeyError):
+        with self.assertRaisesRegex(
+            collector.SmartMeterDataError,
+            "No supported Tasmota smart meter found",
+        ):
             collector.parse({})
 
     def test_missing_mt175_block_raises_key_error(self):
-        with self.assertRaises(KeyError):
+        with self.assertRaises(collector.SmartMeterDataError):
             collector.parse({"StatusSNS": {"Time": "2026-07-21T12:00:00"}})
 
     def test_status_sns_is_not_a_dict_raises(self):
-        with self.assertRaises((KeyError, TypeError, AttributeError)):
+        with self.assertRaises(collector.SmartMeterDataError):
             collector.parse({"StatusSNS": "unexpected-string"})
 
 
@@ -619,7 +706,7 @@ class ReadUrlFailureResponseTest(unittest.TestCase):
             "collectors.mt175.requests.get",
             return_value=_mock_response(json_data={"unexpected": "payload"}),
         ):
-            with self.assertRaises(KeyError):
+            with self.assertRaises(collector.SmartMeterDataError):
                 collector.read_url("192.168.178.83")
 
 
@@ -687,7 +774,27 @@ class ReadUrlTest(unittest.TestCase):
             "collectors.mt175.requests.get",
             return_value=_mock_response(json_data={"unexpected": "payload"}),
         ):
-            with self.assertRaises(KeyError):
+            with self.assertRaises(collector.SmartMeterDataError):
+                collector.read_url("http://tasmota.local")
+
+    def test_mt631_connection_succeeds(self):
+        with patch(
+            "collectors.mt175.requests.get",
+            return_value=_mock_response(json_data=_make_mt631_payload(Power=0)),
+        ):
+            reading = collector.read_url("http://tasmota.local")
+        self.assertEqual(reading.meter_type, "MT631")
+        self.assertEqual(reading.current_power_w, 0.0)
+        self.assertFalse(reading.pin_locked)
+
+    def test_malformed_json_has_distinct_domain_error(self):
+        response = _mock_response()
+        response.json.side_effect = ValueError("bad JSON")
+        with patch("collectors.mt175.requests.get", return_value=response):
+            with self.assertRaisesRegex(
+                collector.SmartMeterDataError,
+                "malformed JSON",
+            ):
                 collector.read_url("http://tasmota.local")
 
 

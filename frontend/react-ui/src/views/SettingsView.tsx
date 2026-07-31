@@ -553,7 +553,7 @@ export function SettingsView() {
             <button type="button" onClick={() => setMt175Expanded(!mt175Expanded)}
               className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors w-full">
               <span className={`transition-transform duration-200 ${mt175Expanded ? 'rotate-90' : ''}`}>▶</span>
-              <span>ISKRA MT175 / Tasmota Lesekopf</span>
+              <span>Iskra MT631 / MT175 · Tasmota Lesekopf</span>
               <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">Optional</span>
             </button>
 

@@ -37,6 +37,37 @@ def test_devices_vm_pin_locked():
     assert "current_power" not in mt175_card.capabilities
 
 
+def test_mt631_unavailable_power_is_not_reported_as_pin_locked():
+    now = datetime.now(timezone.utc)
+    meter = MT175Reading(
+        received_at=now,
+        timestamp=now,
+        grid_import_total_kwh=100.0,
+        grid_export_total_kwh=200.0,
+        current_power_w=None,
+        phase_l1_w=None,
+        phase_l2_w=None,
+        phase_l3_w=None,
+        meter_id=None,
+        meter_type="MT631",
+        pin_locked=False,
+    )
+    cards = build_devices_vm(
+        fronius=None,
+        mt175=meter,
+        fronius_configured=False,
+        mt175_configured=True,
+        fronius_error=None,
+        mt175_error=None,
+    )
+    card = next(c for c in cards if c.device_id == "mt175_primary")
+    assert card.display_name == "Tasmota SmartMeterReader"
+    assert card.data_status == "partial"
+    assert card.pin_status == "not_applicable"
+    assert card.pin_instructions is None
+    assert "keine gültige Netzleistung" in card.user_message
+
+
 def test_devices_vm_firmware_missing():
     fronius = EnergyReading(
         timestamp=datetime.now(timezone.utc),

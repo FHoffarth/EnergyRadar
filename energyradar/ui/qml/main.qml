@@ -88,7 +88,7 @@ ApplicationWindow {
         // Geräte-Screen
         readonly property string devicesTitle:       "Geräte & Datenqualität"
         readonly property string deviceFronius:      "Fronius Wechselrichter"
-        readonly property string deviceMt175:        "Stromzähler (MT175)"
+        readonly property string deviceMt175:        "Tasmota SmartMeterReader"
         readonly property string statusConnected:    "Verbunden"
         readonly property string statusUnavailable:  "Nicht erreichbar"
         readonly property string statusError:        "Fehler"
