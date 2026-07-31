@@ -196,7 +196,7 @@ Item {
                         Slider {
                             Layout.fillWidth: true
                             from: 3
-                            to: 60
+                            to: 10
                             stepSize: 1
                             value: localRefresh
                             onValueChanged: localRefresh = value

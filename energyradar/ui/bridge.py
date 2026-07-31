@@ -138,8 +138,9 @@ class EnergyBridge(QObject):
         effective_settings = ui_settings.resolve_effective()
         self._timer.start(int(effective_settings["refresh_seconds"]) * 1000)
 
-        # Ersten Refresh kurz nach Start anstoßen
-        QTimer.singleShot(400, self._on_timer)
+        # Beim nächsten Event-Loop-Tick sofort abrufen. Der Live-Zustand darf
+        # nicht erst ein vollständiges Timer-Intervall nach dem Start erscheinen.
+        QTimer.singleShot(0, self._on_timer)
 
     # ---------------------------------------------------------------- #
     # Q_PROPERTY – nur auf Main-Thread schreiben
