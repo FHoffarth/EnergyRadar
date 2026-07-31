@@ -1,138 +1,824 @@
-"""Database migration and setup script."""
+"""Versioned, additive SQLite migrations for EnergyRadar.
+
+``PRAGMA user_version`` is authoritative from schema version 3 onward.
+``schema_info`` remains updated for compatibility with existing databases and
+older application builds, but new migrations are recorded in
+``schema_migrations`` with deterministic checksums.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
 import logging
+import os
+from pathlib import Path
 import sqlite3
-import shutil
-from datetime import datetime
+from typing import Callable
+from uuid import uuid4
+
 from energyradar import config
 from energyradar.models.energy import QualityStatus
 
 log = logging.getLogger(__name__)
 
-_SCHEMA_V2 = """
-CREATE TABLE IF NOT EXISTS energy_samples_v1 (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    measured_at TEXT NOT NULL,
-    received_at TEXT NOT NULL,
-    pv_measured_at TEXT,
-    grid_measured_at TEXT,
-
-    pv_power_w REAL,
-    grid_power_w REAL,
-
-    pv_energy_today_wh REAL,
-    grid_import_total_wh REAL,
-    grid_export_total_wh REAL,
-
-    pv_quality_status TEXT NOT NULL,
-    grid_quality_status TEXT NOT NULL,
-    sample_quality_status TEXT NOT NULL,
-
-    UNIQUE(measured_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_energy_samples_v1_measured_at
-ON energy_samples_v1(measured_at);
-
-CREATE TABLE IF NOT EXISTS schema_info (
-    version INTEGER PRIMARY KEY
-);
-"""
+BUSY_TIMEOUT_MS = 5_000
 
 
-def _get_current_version(con: sqlite3.Connection) -> int:
-    try:
-        row = con.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
-        return row[0] if row else 1
-    except sqlite3.OperationalError:
-        # Table does not exist -> V1 or fresh
-        return 1
+class MigrationError(RuntimeError):
+    """Base class for migration failures safe to surface to startup code."""
 
 
-def _set_version(con: sqlite3.Connection, version: int):
-    con.execute("DELETE FROM schema_info")
-    con.execute("INSERT INTO schema_info (version) VALUES (?)", (version,))
+class UnsupportedSchemaVersion(MigrationError):
+    """The database was written by a newer EnergyRadar version."""
 
 
-def _backup_db():
-    if not config.DB_PATH.exists():
-        return
-    backup_path = config.DB_PATH.with_suffix(".db.bak")
-    shutil.copy2(config.DB_PATH, backup_path)
-    log.info(f"Database backed up to {backup_path}")
+class MigrationMetadataError(MigrationError):
+    """The migration ledger or legacy version metadata is inconsistent."""
 
 
-def _integrity_check(con: sqlite3.Connection):
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+    checksum_basis: str
+    apply: Callable[[sqlite3.Connection], None]
+
+    @property
+    def checksum(self) -> str:
+        payload = f"{self.version}:{self.name}:{self.checksum_basis}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _utc_now_text() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _open_connection(path: Path) -> sqlite3.Connection:
+    con = sqlite3.connect(path)
+    con.execute("PRAGMA foreign_keys = ON")
+    con.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    return con
+
+
+def _table_exists(con: sqlite3.Connection, table: str) -> bool:
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in con.execute(f'PRAGMA table_info("{table}")')}
+
+
+def _integrity_check(con: sqlite3.Connection) -> None:
     row = con.execute("PRAGMA integrity_check").fetchone()
-    if row and row[0] != "ok":
-        raise RuntimeError(f"Database integrity check failed: {row[0]}")
+    if not row or row[0] != "ok":
+        detail = row[0] if row else "no result"
+        raise MigrationError(f"Database integrity check failed: {detail}")
 
 
-def run_migrations():
-    """Führt Schema-Updates sicher durch (idempotent, Transaktion, Backup)."""
-    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _foreign_key_check(con: sqlite3.Connection) -> None:
+    row = con.execute("PRAGMA foreign_key_check").fetchone()
+    if row is not None:
+        raise MigrationError(f"Database foreign-key check failed: {row}")
 
-    _backup_db()
 
-    with sqlite3.connect(config.DB_PATH) as con:
-        # Guarantee core V2 tables exist (idempotent)
-        con.executescript(_SCHEMA_V2)
-
-        current_v = _get_current_version(con)
-        if current_v >= config.SCHEMA_VERSION:
-            return  # Nichts zu tun
-
-        log.info(f"Migrating database from v{current_v} to v{config.SCHEMA_VERSION}")
-
-        # PRAGMA integrity_check vor Migration
-        _integrity_check(con)
-
+def _create_consistent_backup(con: sqlite3.Connection, database_path: Path) -> Path:
+    """Create and integrity-check an atomic pre-migration backup."""
+    backup_path = database_path.with_suffix(".db.bak")
+    temporary = backup_path.with_suffix(backup_path.suffix + ".tmp")
+    try:
+        temporary.unlink(missing_ok=True)
+        destination = _open_connection(temporary)
         try:
-            # Migration V1 -> V2
-            if current_v < 2:
-                con.executescript(_SCHEMA_V2)
+            con.backup(destination)
+            _integrity_check(destination)
+        finally:
+            destination.close()
+        os.replace(temporary, backup_path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    log.info("Database backed up to %s", backup_path)
+    return backup_path
 
-                # Check if production table exists
-                has_legacy = False
-                try:
-                    res = con.execute("SELECT COUNT(*) FROM production").fetchone()
-                    if res:
-                        has_legacy = True
-                        src_count = res[0]
-                except sqlite3.OperationalError:
-                    pass
 
-                if has_legacy:
-                    log.info(f"Migrating {src_count} legacy records from 'production'...")
+def _create_schema_info(con: sqlite3.Connection) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_info (
+            version INTEGER PRIMARY KEY
+        )
+        """
+    )
 
-                    # Kopieren (additiv). Da wir INSERT OR IGNORE verwenden, ist es idempotent
-                    cursor = con.cursor()
-                    cursor.execute(
-                        """
-                        INSERT OR IGNORE INTO energy_samples_v1 (
-                            measured_at, received_at, pv_measured_at, grid_measured_at,
-                            pv_power_w, grid_power_w,
-                            pv_energy_today_wh, grid_import_total_wh, grid_export_total_wh,
-                            pv_quality_status, grid_quality_status, sample_quality_status
-                        )
-                        SELECT
-                            timestamp, timestamp, timestamp, NULL,
-                            power, NULL,
-                            energy_today, NULL, NULL,
-                            ?, ?, ?
-                        FROM production
-                        """,
-                        (QualityStatus.LEGACY.value, QualityStatus.UNKNOWN.value, QualityStatus.PARTIAL.value)
-                    )
-                    log.info(f"Migrated {cursor.rowcount} legacy records.")
 
-            # Migration erfolgreich -> Version setzen
-            _set_version(con, config.SCHEMA_VERSION)
+def _set_legacy_schema_version(con: sqlite3.Connection, version: int) -> None:
+    """Keep known ``schema_info`` variants coherent without replacing them."""
+    _create_schema_info(con)
+    columns = _table_columns(con, "schema_info")
+    if "version" not in columns:
+        raise MigrationMetadataError("schema_info has no version column")
 
-            # Post-Migration Check
+    count = int(con.execute("SELECT COUNT(*) FROM schema_info").fetchone()[0])
+    if count > 1:
+        raise MigrationMetadataError("schema_info contains multiple version rows")
+
+    now = _utc_now_text()
+    if count == 1:
+        if "applied_at" in columns:
+            con.execute(
+                "UPDATE schema_info SET version = ?, applied_at = ?", (version, now)
+            )
+        else:
+            con.execute("UPDATE schema_info SET version = ?", (version,))
+        return
+
+    if {"id", "applied_at"}.issubset(columns):
+        con.execute(
+            "INSERT INTO schema_info (id, version, applied_at) VALUES (1, ?, ?)",
+            (version, now),
+        )
+    else:
+        con.execute("INSERT INTO schema_info (version) VALUES (?)", (version,))
+
+
+def _migration_1(con: sqlite3.Connection) -> None:
+    """Create the original production table for a fresh install."""
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS production (
+            timestamp TEXT PRIMARY KEY,
+            power REAL NOT NULL,
+            energy_today REAL NOT NULL,
+            energy_year REAL NOT NULL,
+            energy_total REAL NOT NULL
+        )
+        """
+    )
+
+
+def _migration_2(con: sqlite3.Connection) -> None:
+    """Create the current live/history table and preserve legacy production rows."""
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS energy_samples_v1 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            measured_at TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            pv_measured_at TEXT,
+            grid_measured_at TEXT,
+            pv_power_w REAL,
+            grid_power_w REAL,
+            pv_energy_today_wh REAL,
+            grid_import_total_wh REAL,
+            grid_export_total_wh REAL,
+            pv_quality_status TEXT NOT NULL,
+            grid_quality_status TEXT NOT NULL,
+            sample_quality_status TEXT NOT NULL,
+            UNIQUE(measured_at)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_energy_samples_v1_measured_at
+        ON energy_samples_v1(measured_at)
+        """
+    )
+    _create_schema_info(con)
+
+    if _table_exists(con, "production"):
+        con.execute(
+            """
+            INSERT OR IGNORE INTO energy_samples_v1 (
+                measured_at, received_at, pv_measured_at, grid_measured_at,
+                pv_power_w, grid_power_w,
+                pv_energy_today_wh, grid_import_total_wh, grid_export_total_wh,
+                pv_quality_status, grid_quality_status, sample_quality_status
+            )
+            SELECT
+                timestamp, timestamp, timestamp, NULL,
+                power, NULL, energy_today, NULL, NULL,
+                ?, ?, ?
+            FROM production
+            """,
+            (
+                QualityStatus.LEGACY.value,
+                QualityStatus.UNKNOWN.value,
+                QualityStatus.PARTIAL.value,
+            ),
+        )
+
+
+def _create_migration_ledger(con: sqlite3.Connection) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            applied_at_utc TEXT NOT NULL CHECK(substr(applied_at_utc, -1) = 'Z'),
+            app_version TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _require_columns(
+    con: sqlite3.Connection, table: str, required: set[str]
+) -> None:
+    columns = _table_columns(con, table)
+    if not required.issubset(columns):
+        missing = ", ".join(sorted(required - columns))
+        raise MigrationMetadataError(
+            f"{table} has an unsupported shape; missing columns: {missing}"
+        )
+
+
+def _validate_phase0_table_shapes(con: sqlite3.Connection) -> None:
+    required_by_table = {
+        "application_metadata": {"key", "value_json", "updated_at_utc"},
+        "device_sources": {
+            "source_id",
+            "source_uuid",
+            "provider",
+            "adapter_version",
+            "sign_convention",
+            "capabilities_json",
+            "first_seen_utc",
+        },
+        "source_state": {
+            "state_id",
+            "source_id",
+            "state_kind",
+            "state_value",
+            "effective_at_utc",
+            "received_at_utc",
+        },
+        "backfill_runs": {
+            "run_id",
+            "idempotency_key",
+            "source_id",
+            "requested_start_utc",
+            "requested_end_utc",
+            "status",
+        },
+        "raw_samples": {
+            "sample_id",
+            "source_id",
+            "received_at_utc",
+            "dedupe_key",
+            "pv_power_w",
+            "house_power_w",
+            "grid_power_w",
+            "grid_import_total_kwh",
+            "grid_export_total_kwh",
+            "source_available",
+            "provenance",
+            "quality_state",
+        },
+    }
+    for table, required in required_by_table.items():
+        _require_columns(con, table, required)
+
+
+def _migration_3(con: sqlite3.Connection) -> None:
+    """Add the Phase 0 history foundation without changing current reads/writes."""
+    _create_migration_ledger(con)
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS application_metadata (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at_utc TEXT NOT NULL CHECK(substr(updated_at_utc, -1) = 'Z')
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_sources (
+            source_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_uuid TEXT NOT NULL UNIQUE,
+            provider TEXT NOT NULL,
+            display_name TEXT,
+            device_fingerprint_hash TEXT,
+            model TEXT,
+            firmware TEXT,
+            adapter_version TEXT NOT NULL,
+            sign_convention TEXT,
+            capabilities_json TEXT NOT NULL DEFAULT '{}',
+            first_seen_utc TEXT NOT NULL CHECK(substr(first_seen_utc, -1) = 'Z'),
+            last_seen_utc TEXT CHECK(last_seen_utc IS NULL OR substr(last_seen_utc, -1) = 'Z'),
+            retired_utc TEXT CHECK(retired_utc IS NULL OR substr(retired_utc, -1) = 'Z')
+        )
+        """
+    )
+    _require_columns(
+        con,
+        "device_sources",
+        {
+            "source_id",
+            "source_uuid",
+            "provider",
+            "adapter_version",
+            "sign_convention",
+            "capabilities_json",
+            "first_seen_utc",
+            "retired_utc",
+        },
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_device_sources_provider_active
+        ON device_sources(provider, retired_utc)
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_state (
+            state_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            state_kind TEXT NOT NULL,
+            state_value TEXT NOT NULL,
+            effective_at_utc TEXT NOT NULL CHECK(substr(effective_at_utc, -1) = 'Z'),
+            received_at_utc TEXT NOT NULL CHECK(substr(received_at_utc, -1) = 'Z'),
+            quality_flags TEXT NOT NULL DEFAULT '[]',
+            details_json TEXT NOT NULL DEFAULT '{}',
+            cleared_at_utc TEXT CHECK(cleared_at_utc IS NULL OR substr(cleared_at_utc, -1) = 'Z')
+        )
+        """
+    )
+    _require_columns(
+        con,
+        "source_state",
+        {
+            "state_id",
+            "source_id",
+            "state_kind",
+            "state_value",
+            "effective_at_utc",
+            "received_at_utc",
+        },
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_source_state_source_time
+        ON source_state(source_id, effective_at_utc)
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS backfill_runs (
+            run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            provider TEXT NOT NULL,
+            requested_start_utc TEXT NOT NULL CHECK(substr(requested_start_utc, -1) = 'Z'),
+            requested_end_utc TEXT NOT NULL CHECK(substr(requested_end_utc, -1) = 'Z'),
+            capability_version TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+            cursor TEXT,
+            started_at_utc TEXT CHECK(started_at_utc IS NULL OR substr(started_at_utc, -1) = 'Z'),
+            completed_at_utc TEXT CHECK(completed_at_utc IS NULL OR substr(completed_at_utc, -1) = 'Z'),
+            rows_seen INTEGER NOT NULL DEFAULT 0 CHECK(rows_seen >= 0),
+            rows_inserted INTEGER NOT NULL DEFAULT 0 CHECK(rows_inserted >= 0),
+            rows_deduplicated INTEGER NOT NULL DEFAULT 0 CHECK(rows_deduplicated >= 0),
+            error_code TEXT,
+            error_message_redacted TEXT,
+            CHECK(requested_end_utc > requested_start_utc)
+        )
+        """
+    )
+    _require_columns(
+        con,
+        "backfill_runs",
+        {
+            "run_id",
+            "idempotency_key",
+            "source_id",
+            "requested_start_utc",
+            "requested_end_utc",
+            "status",
+        },
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_backfill_runs_source_status
+        ON backfill_runs(source_id, status)
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS raw_samples (
+            sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            observed_at_utc TEXT CHECK(observed_at_utc IS NULL OR substr(observed_at_utc, -1) = 'Z'),
+            received_at_utc TEXT NOT NULL CHECK(substr(received_at_utc, -1) = 'Z'),
+            source_time_text TEXT,
+            source_timezone TEXT,
+            dedupe_key TEXT NOT NULL,
+            pv_power_w REAL,
+            house_power_w REAL,
+            grid_power_w REAL,
+            grid_import_total_kwh REAL,
+            grid_export_total_kwh REAL,
+            pv_energy_today_kwh REAL,
+            pv_energy_year_kwh REAL,
+            pv_energy_lifetime_kwh REAL,
+            source_available INTEGER NOT NULL CHECK(source_available IN (0, 1)),
+            provenance TEXT NOT NULL CHECK(provenance IN ('measured', 'backfilled')),
+            quality_state TEXT NOT NULL,
+            quality_flags TEXT NOT NULL DEFAULT '[]',
+            adapter_version TEXT NOT NULL,
+            payload_fingerprint TEXT,
+            UNIQUE(source_id, dedupe_key)
+        )
+        """
+    )
+    _require_columns(
+        con,
+        "raw_samples",
+        {
+            "sample_id",
+            "source_id",
+            "received_at_utc",
+            "dedupe_key",
+            "pv_power_w",
+            "house_power_w",
+            "grid_power_w",
+            "grid_import_total_kwh",
+            "grid_export_total_kwh",
+            "source_available",
+            "provenance",
+            "quality_state",
+        },
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_raw_samples_source_received
+        ON raw_samples(source_id, received_at_utc)
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_raw_samples_source_observed
+        ON raw_samples(source_id, observed_at_utc)
+        """
+    )
+
+    _validate_phase0_table_shapes(con)
+
+    now = _utc_now_text()
+    con.execute(
+        """
+        INSERT OR IGNORE INTO application_metadata (key, value_json, updated_at_utc)
+        VALUES ('database_uuid', ?, ?)
+        """,
+        (json.dumps(str(uuid4())), now),
+    )
+    con.execute(
+        """
+        INSERT OR REPLACE INTO application_metadata (key, value_json, updated_at_utc)
+        VALUES ('schema_owner', ?, ?)
+        """,
+        (json.dumps("PRAGMA user_version + schema_migrations"), now),
+    )
+
+    _seed_ledger_for_completed_versions(con, through_version=2)
+    _migrate_v2_samples_additively(con, now)
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(1, "legacy-production", "production-v1-columns", _migration_1),
+    Migration(2, "combined-energy-samples", "energy-samples-v1-additive", _migration_2),
+    Migration(
+        3,
+        "energy-memory-schema-foundation",
+        "schema-ledger-metadata-sources-state-backfill-raw-v1",
+        _migration_3,
+    ),
+)
+
+_MIGRATION_BY_VERSION = {migration.version: migration for migration in MIGRATIONS}
+
+
+def _seed_ledger_for_completed_versions(
+    con: sqlite3.Connection, *, through_version: int
+) -> None:
+    _create_migration_ledger(con)
+    now = _utc_now_text()
+    for migration in MIGRATIONS:
+        if migration.version > through_version:
+            break
+        con.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations
+                (version, name, checksum, applied_at_utc, app_version)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                migration.version,
+                migration.name,
+                migration.checksum,
+                now,
+                config.APP_VERSION,
+            ),
+        )
+
+
+def _legacy_received_utc(value: str) -> str:
+    """Mark the v2 receive timestamp as UTC without altering its wall value."""
+    text = str(value).strip()
+    return text if text.endswith("Z") else f"{text}Z"
+
+
+def _migrate_v2_samples_additively(con: sqlite3.Connection, now: str) -> None:
+    """Copy v2 values into auditable legacy source rows; keep v2 untouched."""
+    if not _table_exists(con, "energy_samples_v1"):
+        return
+
+    con.row_factory = sqlite3.Row
+    rows = con.execute("SELECT * FROM energy_samples_v1 ORDER BY id").fetchall()
+    if not rows:
+        return
+
+    has_pv = any(
+        row["pv_power_w"] is not None or row["pv_energy_today_wh"] is not None
+        for row in rows
+    )
+    has_grid = any(
+        row["grid_power_w"] is not None
+        or row["grid_import_total_wh"] is not None
+        or row["grid_export_total_wh"] is not None
+        for row in rows
+    )
+
+    source_ids: dict[str, int] = {}
+    source_specs = []
+    if has_pv:
+        source_specs.append(
+            (
+                "legacy-fronius-v2",
+                "fronius",
+                "Legacy Fronius source",
+                None,
+            )
+        )
+    if has_grid:
+        source_specs.append(
+            (
+                "legacy-tasmota-v2",
+                "tasmota",
+                "Legacy Tasmota smart meter",
+                "grid_positive_import_v1",
+            )
+        )
+
+    for source_uuid, provider, display_name, sign_convention in source_specs:
+        con.execute(
+            """
+            INSERT OR IGNORE INTO device_sources (
+                source_uuid, provider, display_name, adapter_version,
+                sign_convention, capabilities_json, first_seen_utc
+            ) VALUES (?, ?, ?, 'legacy-v2', ?, '{}', ?)
+            """,
+            (source_uuid, provider, display_name, sign_convention, now),
+        )
+        source_ids[source_uuid] = int(
+            con.execute(
+                "SELECT source_id FROM device_sources WHERE source_uuid = ?",
+                (source_uuid,),
+            ).fetchone()[0]
+        )
+
+    for row in rows:
+        row_id = row["id"]
+        received = _legacy_received_utc(row["received_at"])
+        if has_pv and (
+            row["pv_power_w"] is not None or row["pv_energy_today_wh"] is not None
+        ):
+            con.execute(
+                """
+                INSERT OR IGNORE INTO raw_samples (
+                    source_id, observed_at_utc, received_at_utc,
+                    source_time_text, dedupe_key,
+                    pv_power_w, pv_energy_today_kwh,
+                    source_available, provenance, quality_state,
+                    quality_flags, adapter_version
+                ) VALUES (?, NULL, ?, ?, ?, ?, ?, 1, 'measured', ?, '[]', 'legacy-v2')
+                """,
+                (
+                    source_ids["legacy-fronius-v2"],
+                    received,
+                    row["pv_measured_at"],
+                    f"energy_samples_v1:pv:{row_id}",
+                    row["pv_power_w"],
+                    (
+                        row["pv_energy_today_wh"] / 1000.0
+                        if row["pv_energy_today_wh"] is not None
+                        else None
+                    ),
+                    row["pv_quality_status"],
+                ),
+            )
+        if has_grid and (
+            row["grid_power_w"] is not None
+            or row["grid_import_total_wh"] is not None
+            or row["grid_export_total_wh"] is not None
+        ):
+            con.execute(
+                """
+                INSERT OR IGNORE INTO raw_samples (
+                    source_id, observed_at_utc, received_at_utc,
+                    source_time_text, dedupe_key,
+                    grid_power_w, grid_import_total_kwh, grid_export_total_kwh,
+                    source_available, provenance, quality_state,
+                    quality_flags, adapter_version
+                ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 1, 'measured', ?, '[]', 'legacy-v2')
+                """,
+                (
+                    source_ids["legacy-tasmota-v2"],
+                    received,
+                    row["grid_measured_at"],
+                    f"energy_samples_v1:grid:{row_id}",
+                    row["grid_power_w"],
+                    (
+                        row["grid_import_total_wh"] / 1000.0
+                        if row["grid_import_total_wh"] is not None
+                        else None
+                    ),
+                    (
+                        row["grid_export_total_wh"] / 1000.0
+                        if row["grid_export_total_wh"] is not None
+                        else None
+                    ),
+                    row["grid_quality_status"],
+                ),
+            )
+    con.row_factory = None
+
+
+def _validate_migration_ledger(con: sqlite3.Connection, user_version: int) -> None:
+    if not _table_exists(con, "schema_migrations"):
+        if user_version >= 3:
+            raise MigrationMetadataError(
+                "schema_migrations is missing for a version 3+ database"
+            )
+        return
+
+    required = {"version", "name", "checksum", "applied_at_utc", "app_version"}
+    if not required.issubset(_table_columns(con, "schema_migrations")):
+        raise MigrationMetadataError("schema_migrations has an unsupported shape")
+
+    rows = con.execute(
+        "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    versions = [int(row[0]) for row in rows]
+    if versions and versions != list(range(1, max(versions) + 1)):
+        raise MigrationMetadataError("schema_migrations versions are not contiguous")
+
+    for version, name, checksum in rows:
+        migration = _MIGRATION_BY_VERSION.get(int(version))
+        if migration is None:
+            if int(version) > config.SCHEMA_VERSION:
+                raise UnsupportedSchemaVersion(
+                    f"Database schema v{version} is newer than supported v{config.SCHEMA_VERSION}"
+                )
+            raise MigrationMetadataError(f"Unknown migration version {version}")
+        if name != migration.name or checksum != migration.checksum:
+            raise MigrationMetadataError(
+                f"Migration metadata mismatch for version {version}"
+            )
+
+    ledger_version = max(versions, default=0)
+    if user_version >= 3 and ledger_version != user_version:
+        raise MigrationMetadataError(
+            "PRAGMA user_version and schema_migrations do not agree"
+        )
+
+
+def _detect_current_version(con: sqlite3.Connection) -> int:
+    user_version = int(con.execute("PRAGMA user_version").fetchone()[0])
+    if user_version > config.SCHEMA_VERSION:
+        raise UnsupportedSchemaVersion(
+            f"Database schema v{user_version} is newer than supported v{config.SCHEMA_VERSION}"
+        )
+    _validate_migration_ledger(con, user_version)
+    if user_version > 0:
+        return user_version
+
+    if _table_exists(con, "schema_migrations"):
+        rows = con.execute("SELECT version FROM schema_migrations").fetchall()
+        if rows:
+            raise MigrationMetadataError(
+                "schema_migrations exists but PRAGMA user_version is zero"
+            )
+
+    if _table_exists(con, "schema_info"):
+        if "version" not in _table_columns(con, "schema_info"):
+            raise MigrationMetadataError("schema_info has no version column")
+        rows = con.execute("SELECT version FROM schema_info").fetchall()
+        if len(rows) != 1:
+            raise MigrationMetadataError(
+                "schema_info must contain exactly one version row"
+            )
+        try:
+            version = int(rows[0][0])
+        except (TypeError, ValueError) as exc:
+            raise MigrationMetadataError("schema_info version is invalid") from exc
+        if version > config.SCHEMA_VERSION:
+            raise UnsupportedSchemaVersion(
+                f"Database schema v{version} is newer than supported v{config.SCHEMA_VERSION}"
+            )
+        return version
+
+    if _table_exists(con, "energy_samples_v1"):
+        return 2
+    if _table_exists(con, "production"):
+        return 1
+    return 0
+
+
+def _record_migration(con: sqlite3.Connection, migration: Migration) -> None:
+    if migration.version >= 3:
+        _create_migration_ledger(con)
+        con.execute(
+            """
+            INSERT INTO schema_migrations
+                (version, name, checksum, applied_at_utc, app_version)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                migration.version,
+                migration.name,
+                migration.checksum,
+                _utc_now_text(),
+                config.APP_VERSION,
+            ),
+        )
+    _set_legacy_schema_version(con, migration.version)
+    con.execute(f"PRAGMA user_version = {migration.version}")
+
+
+def run_migrations() -> None:
+    """Bring the configured database to ``config.SCHEMA_VERSION`` safely.
+
+    Migrations run automatically at desktop startup and lazily before the
+    first storage connection. Existing databases receive one consistent
+    pre-migration backup. Each migration is idempotently selected by version,
+    executes in its own transaction, and rolls back fully on failure.
+    """
+    database_path = Path(config.DB_PATH)
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    existed_before = database_path.exists()
+
+    con = _open_connection(database_path)
+    try:
+        current = _detect_current_version(con)
+        if current == config.SCHEMA_VERSION:
             _integrity_check(con)
-            log.info("Migration completed successfully.")
+            _foreign_key_check(con)
+            return
 
-        except Exception as e:
-            con.rollback()
-            log.error(f"Migration failed! Rolled back. Error: {e}")
-            raise
+        _integrity_check(con)
+        if existed_before:
+            _create_consistent_backup(con, database_path)
+
+        for migration in MIGRATIONS:
+            if migration.version <= current:
+                continue
+            log.info(
+                "Migrating database from v%s to v%s (%s)",
+                current,
+                migration.version,
+                migration.name,
+            )
+            try:
+                con.execute("BEGIN IMMEDIATE")
+                migration.apply(con)
+                _record_migration(con, migration)
+                _foreign_key_check(con)
+                con.commit()
+            except Exception:
+                con.rollback()
+                log.exception(
+                    "Migration v%s (%s) failed and was rolled back",
+                    migration.version,
+                    migration.name,
+                )
+                raise
+            current = migration.version
+
+        _integrity_check(con)
+        _validate_migration_ledger(con, current)
+        log.info("Database migration completed at schema v%s", current)
+    finally:
+        con.close()

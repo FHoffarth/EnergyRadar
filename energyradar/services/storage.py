@@ -25,6 +25,8 @@ def _connect() -> sqlite3.Connection:
         _MIGRATED = True
 
     con = sqlite3.connect(config.DB_PATH)
+    con.execute("PRAGMA foreign_keys = ON")
+    con.execute(f"PRAGMA busy_timeout = {migration.BUSY_TIMEOUT_MS}")
     return con
 
 def save_sample(
