@@ -11,7 +11,7 @@
   --color-radar-surfaceHighlightLight: #F1F5F9;
   --color-radar-border: #1F2B44;
   --color-radar-borderLight: #E2E8F0;
-  --color-radar-accent: #0284C7;
+  --color-radar-accent: #0F766E;
   --color-radar-solar: #D97706;
   --color-radar-grid: #E11D48;
   --color-radar-battery: #059669;
@@ -19,6 +19,100 @@
   --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-metric: 'Geist', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+:root {
+  --radar-canvas: #eef2f3;
+  --radar-surface: rgba(255, 255, 255, 0.92);
+  --radar-surface-muted: rgba(248, 250, 252, 0.82);
+  --radar-border: rgba(148, 163, 184, 0.28);
+  --radar-accent: #0f766e;
+  --radar-accent-strong: #0b5f59;
+  --radar-gutter: clamp(1.5rem, 2.5vw, 2.75rem);
+}
+
+.dark {
+  --radar-canvas: #101414;
+  --radar-surface: rgba(22, 29, 30, 0.94);
+  --radar-surface-muted: rgba(29, 39, 40, 0.78);
+  --radar-border: rgba(148, 163, 184, 0.18);
+  --radar-accent: #2dd4bf;
+  --radar-accent-strong: #5eead4;
+}
+
+@layer components {
+  .cockpit-shell {
+    width: 100%;
+    max-width: 1720px;
+    margin-inline: auto;
+  }
+
+  .cockpit-page {
+    width: 100%;
+    min-width: 0;
+    padding: 2rem var(--radar-gutter) 3rem;
+  }
+
+  .cockpit-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .cockpit-surface {
+    min-width: 0;
+    border: 1px solid var(--radar-border);
+    border-radius: 1rem;
+    background: var(--radar-surface);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+  }
+
+  .cockpit-surface-muted {
+    min-width: 0;
+    border: 1px solid var(--radar-border);
+    border-radius: 0.875rem;
+    background: var(--radar-surface-muted);
+  }
+
+  .cockpit-eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--radar-accent);
+  }
+
+  .cockpit-title {
+    font-size: clamp(1.625rem, 2vw, 2.125rem);
+    line-height: 1.18;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+  }
+
+  .cockpit-section-title {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    color: rgb(71 85 105);
+  }
+
+  .dark .cockpit-section-title {
+    color: rgb(203 213 225);
+  }
+}
+
+@media (max-width: 1079px) {
+  .cockpit-page {
+    padding-inline: 1.25rem;
+  }
+
+  .cockpit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cockpit-grid > * {
+    grid-column: 1 / -1 !important;
+  }
 }
 
 /* Geist 1.7.2, self-hosted. Source, license and rationale for the bundled

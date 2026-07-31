@@ -45,7 +45,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
   ] as const;
 
   return (
-    <aside className="w-64 flex-shrink-0 z-20 bg-[#F1F1EF] dark:bg-[#1C1C1E] border-r border-[#E5E5E3] dark:border-slate-800 flex flex-col h-full">
+    <aside className="w-60 2xl:w-64 flex-shrink-0 z-20 bg-[#F4F6F5] dark:bg-[#151A1A] border-r border-slate-200/80 dark:border-slate-800 flex flex-col h-full">
       <div className="p-8 pb-6">
         <div className="flex items-center gap-3">
           {/* Supplied mark, one variant per theme. The `dark` class lives on
@@ -67,7 +67,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           />
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
-            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
+            <span className="text-[10px] font-medium text-teal-700 dark:text-teal-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
           </div>
         </div>
       </div>
@@ -83,7 +83,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors",
                 isActive
-                  ? "bg-white dark:bg-slate-800 shadow-sm text-[#1C1C1E] dark:text-white font-medium"
+                  ? "bg-white dark:bg-slate-800 text-teal-800 dark:text-teal-300 font-semibold ring-1 ring-slate-200/70 dark:ring-slate-700"
                   : "text-[#6E6E6E] dark:text-slate-400 hover:text-[#1C1C1E] dark:hover:text-slate-200"
               )}
             >
@@ -107,7 +107,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
         {onOpenSetupWizard && !hasConfiguredSource && (
           <button
             onClick={onOpenSetupWizard}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             Datenquelle einrichten

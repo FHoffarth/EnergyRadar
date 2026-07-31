@@ -147,14 +147,14 @@ function ForecastItem({
 }
 
 export function WeatherIntelligence({
-  report, locale,
+  report, locale, compact = false,
 }: {
-  report: WeatherReportData | null; locale: NumberLocale;
+  report: WeatherReportData | null; locale: NumberLocale; compact?: boolean;
 }) {
   if (!report || report.status !== 'available' || !report.current) {
     return (
-      <section aria-label="Wetter und Solarbedingungen" className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/45">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Wetter</h2>
+      <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted px-5 py-4">
+        <h2 className="cockpit-section-title">Energie-Kontext</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Wetterdaten aktuell nicht verfügbar</p>
       </section>
     );
@@ -174,12 +174,12 @@ export function WeatherIntelligence({
     .slice(0, 6);
 
   return (
-    <section aria-label="Wetter und Solarbedingungen" className="overflow-hidden rounded-2xl border border-sky-200/80 bg-sky-50/75 dark:border-sky-900/80 dark:bg-sky-950/30">
+    <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted overflow-hidden">
       <div className="px-5 py-5 sm:px-6">
-        <p className="text-xs font-medium uppercase tracking-wider text-sky-700 dark:text-sky-300">Wetter &amp; PV-Kontext</p>
+        <p className="cockpit-eyebrow">Energie-Kontext</p>
         {location && <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300" title={location}>{location}</p>}
         <div className="mt-3 flex min-w-0 items-center gap-4">
-          <CurrentIcon className="h-12 w-12 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />
+          <CurrentIcon className="h-12 w-12 shrink-0 text-teal-700 dark:text-teal-300" aria-hidden />
           <div className="min-w-0">
             {temperature
               ? <p className="text-4xl font-semibold tracking-tight tabular-nums text-slate-950 dark:text-white">{temperature}</p>
@@ -202,7 +202,7 @@ export function WeatherIntelligence({
         {context && <p className="mt-4 border-l-2 border-amber-500 pl-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{context}</p>}
       </div>
 
-      {forecast.length > 0 && (
+      {!compact && forecast.length > 0 && (
         <div className="border-t border-sky-200/70 px-5 py-4 dark:border-sky-900/70 sm:px-6">
           <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Nächste Stunden</h3>
           <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">

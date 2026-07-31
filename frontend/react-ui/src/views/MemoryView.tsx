@@ -43,13 +43,14 @@ export function MemoryView() {
   const isZip = exportType === 'zip';
 
   return (
-    <div className="flex-1 flex flex-col p-8 pt-12 overflow-y-auto">
-      <div className="mb-10">
-        <h1 className="text-4xl font-bold text-[#1C1C1E] dark:text-slate-100 tracking-tight">Daten & Gedächtnis</h1>
-        <p className="text-[#6E6E6E] dark:text-slate-400 mt-2 text-lg">Exportiere Berichte oder erstelle Sicherungen.</p>
+    <div className="cockpit-page flex-1 flex flex-col overflow-y-auto" data-testid="memory-workspace">
+      <div className="mb-7 max-w-3xl">
+        <p className="cockpit-eyebrow">Historie &amp; Export</p>
+        <h1 className="cockpit-title mt-2 text-[#1C1C1E] dark:text-slate-100">Daten & Gedächtnis</h1>
+        <p className="text-[#6E6E6E] dark:text-slate-400 mt-2 text-base">Exportiere Berichte oder erstelle Sicherungen.</p>
       </div>
 
-      <div className="mb-8 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 flex items-start gap-3 text-sky-800 dark:text-sky-300 text-sm">
+      <div className="cockpit-surface-muted mb-6 p-4 flex items-start gap-3 text-slate-700 dark:text-slate-300 text-sm">
         <Brain className="w-5 h-5 shrink-0 mt-0.5" />
         <div>
           <strong className="font-semibold">Gedächtnisfunktion — in Entwicklung</strong>
@@ -60,10 +61,10 @@ export function MemoryView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="col-span-1 lg:col-span-2 space-y-8">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm">
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2"><Database className="w-5 h-5 text-indigo-500" /> Export-Format</h2>
+      <div className="cockpit-grid">
+        <div className="col-span-12 space-y-6 lg:col-span-8">
+          <div className="cockpit-surface p-6">
+            <h2 className="text-lg font-semibold mb-6 flex items-center gap-2"><Database className="w-5 h-5 text-teal-600 dark:text-teal-400" /> Export-Format</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 { id: 'pdf', label: 'PDF Bericht', icon: FileText, desc: 'Visuell' },
@@ -74,10 +75,10 @@ export function MemoryView() {
                 <button key={f.id} onClick={() => setExportType(f.id as any)}
                   className={`flex flex-col p-4 rounded-xl border text-left transition-colors ${
                     exportType === f.id
-                      ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500'
-                      : 'border-[#E5E5E3] dark:border-slate-700 hover:border-indigo-300'
+                      ? 'bg-teal-50 dark:bg-teal-950/30 border-teal-600'
+                      : 'border-[#E5E5E3] dark:border-slate-700 hover:border-teal-400'
                   }`}>
-                  <f.icon className={`w-8 h-8 mb-3 ${exportType === f.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`} />
+                  <f.icon className={`w-8 h-8 mb-3 ${exportType === f.id ? 'text-teal-700 dark:text-teal-300' : 'text-slate-500'}`} />
                   <span className="font-medium text-slate-900 dark:text-slate-100">{f.label}</span>
                   <span className="text-xs text-slate-500 mt-1">{f.desc}</span>
                 </button>
@@ -86,8 +87,8 @@ export function MemoryView() {
           </div>
 
           {!isZip && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm">
-              <h2 className="text-xl font-semibold mb-6">Zeitraum</h2>
+            <div className="cockpit-surface p-6">
+              <h2 className="text-lg font-semibold mb-6">Zeitraum</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {[
                   { id: 'today', label: 'Heute' },
@@ -111,19 +112,19 @@ export function MemoryView() {
           )}
         </div>
 
-        <div className="col-span-1 space-y-8">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm flex flex-col h-full">
-            <h2 className="text-xl font-semibold mb-6">Aktionen</h2>
+        <div className="col-span-12 space-y-6 lg:col-span-4">
+          <div className="cockpit-surface p-6 flex flex-col h-full">
+            <h2 className="text-lg font-semibold mb-6">Aktionen</h2>
             <div className="space-y-4 flex-1">
               <button onClick={handleExport} disabled={exportStatus.status === 'running'}
-                className="w-full py-4 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
+                className="w-full py-4 px-4 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
                 {exportStatus.status === 'running' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                 Export Speichern
               </button>
 
               {!isZip && exportType === 'pdf' && (
                 <button onClick={handleMailShare} disabled={exportStatus.status === 'running'}
-                  className="w-full py-4 px-4 bg-white dark:bg-slate-800 border-2 border-indigo-600 dark:border-indigo-500 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 disabled:opacity-50 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
+                  className="w-full py-4 px-4 bg-white dark:bg-slate-800 border border-teal-700 dark:border-teal-500 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700 disabled:opacity-50 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
                   <Mail className="w-5 h-5" />
                   Per E-Mail teilen
                 </button>

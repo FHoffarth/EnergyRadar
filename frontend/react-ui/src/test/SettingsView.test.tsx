@@ -67,6 +67,16 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.queryByText('Datenanbieter')).toBeNull();
   });
 
+  it('uses the shared fluid desktop grid without narrowing the settings workspace', () => {
+    render(<SettingsView />);
+    const workspace = screen.getByTestId('settings-workspace');
+    expect(workspace.className).toContain('cockpit-page');
+    const grid = workspace.querySelector('.cockpit-grid');
+    expect(grid).toBeTruthy();
+    expect(grid?.querySelectorAll('section.xl\\:col-span-6')).toHaveLength(4);
+    expect(workspace.innerHTML).not.toContain('max-w-3xl');
+  });
+
   it('does not render "Demo-Modus" radio', () => {
     render(<SettingsView />);
     expect(screen.queryByText('Demo-Modus')).toBeNull();
