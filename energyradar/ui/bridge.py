@@ -60,6 +60,7 @@ class EnergyBridge(QObject):
     # ---------------------------------------------------------------- #
     nowDataChanged = Signal()
     todayDataChanged = Signal()
+    historyDataChanged = Signal()
     devicesDataChanged = Signal()
     settingsDataChanged = Signal()
 
@@ -94,6 +95,7 @@ class EnergyBridge(QObject):
     # ---------------------------------------------------------------- #
     _nowReady = Signal(str)
     _todayReady = Signal(str)
+    _historyReady = Signal(str)
     _devicesReady = Signal(str)
     _connectionTestReady = Signal(str, str, str)
     _weatherCandidatesReady = Signal(str, str)
@@ -110,6 +112,8 @@ class EnergyBridge(QObject):
         self._settings: UISettings = ui_settings.load()
         self._now_json: str = "{}"
         self._today_json: str = "{}"
+        self._history_json: str = "{}"
+        self._history_range: Optional[str] = None
         self._devices_json: str = "[]"
         self._settings_json: str = "{}"
 
@@ -123,6 +127,7 @@ class EnergyBridge(QObject):
         # Interne Signale verbinden (immer auf Main-Thread ausgeliefert)
         self._nowReady.connect(self._apply_now, Qt.ConnectionType.QueuedConnection)
         self._todayReady.connect(self._apply_today, Qt.ConnectionType.QueuedConnection)
+        self._historyReady.connect(self._apply_history, Qt.ConnectionType.QueuedConnection)
         self._devicesReady.connect(self._apply_devices, Qt.ConnectionType.QueuedConnection)
         self._connectionTestReady.connect(self._relay_connection_test, Qt.ConnectionType.QueuedConnection)
         self._weatherCandidatesReady.connect(self._relay_weather_candidates, Qt.ConnectionType.QueuedConnection)
@@ -153,6 +158,10 @@ class EnergyBridge(QObject):
     @Property(str, notify=todayDataChanged)
     def todayData(self) -> str:       # noqa: N802
         return self._today_json
+
+    @Property(str, notify=historyDataChanged)
+    def historyData(self) -> str:     # noqa: N802
+        return self._history_json
 
     @Property(str, notify=devicesDataChanged)
     def devicesData(self) -> str:     # noqa: N802
@@ -265,18 +274,6 @@ class EnergyBridge(QObject):
         ):
             sample_q = QualityStatus.PARTIAL
 
-        if fronius_configured or mt175_configured:
-            # Nur speichern, wenn mindestens eine Quelle konfiguriert ist
-            storage.save_sample(
-                measured_at=measured_at,
-                received_at=measured_at,
-                pv=fronius_reading,
-                mt175=mt175_reading,
-                pv_quality=pv_q,
-                grid_quality=grid_q,
-                sample_quality=sample_q
-            )
-
         # ── Viewmodels bauen ─────────────────────────────────────────
         now_vm = viewmodels.build_now_vm(
             fronius=fronius_reading,
@@ -287,6 +284,22 @@ class EnergyBridge(QObject):
             mt175_error=mt175_error,
             stale_threshold_s=stale_s,
         )
+
+        if fronius_configured or mt175_configured:
+            # Reuse the existing live freshness/alignment decision. History
+            # must never derive house power from stale or misaligned inputs.
+            storage.save_sample(
+                measured_at=measured_at,
+                received_at=measured_at,
+                pv=fronius_reading,
+                mt175=mt175_reading,
+                house_power_w=now_vm.consumption_w,
+                trusted_pv_power_w=now_vm.pv_power_w,
+                trusted_grid_power_w=now_vm.grid_power_w,
+                pv_quality=pv_q,
+                grid_quality=grid_q,
+                sample_quality=sample_q
+            )
 
         today_vm = viewmodels.build_today_vm_with_mt175(
             fronius=fronius_reading,
@@ -310,6 +323,8 @@ class EnergyBridge(QObject):
         self._devicesReady.emit(
             json.dumps([dataclasses.asdict(d) for d in devices_vm], ensure_ascii=False)
         )
+        if self._history_range is not None:
+            self.requestHistory(self._history_range)
 
     # ---------------------------------------------------------------- #
     # Slots (Main-Thread) für interne Signal-Lieferung
@@ -324,6 +339,36 @@ class EnergyBridge(QObject):
     def _apply_today(self, data_json: str) -> None:
         self._today_json = data_json
         self.todayDataChanged.emit()
+
+    @Slot(str)
+    def requestHistory(self, range_key: str) -> None:  # noqa: N802
+        """Load a bounded persisted-history range away from the UI thread."""
+        if range_key not in {"today", "7days", "30days"}:
+            log.warning("Ungültiger History-Zeitraum: %s", range_key)
+            return
+        self._history_range = range_key
+
+        def _load() -> None:
+            try:
+                import zoneinfo
+                from energyradar.services import history
+
+                tz = zoneinfo.ZoneInfo(config.MT175_TIMEZONE)
+                payload = history.get_history(range_key, tz)
+                self._historyReady.emit(json.dumps(payload, ensure_ascii=False))
+            except Exception:
+                log.exception("History-Zeitraum konnte nicht geladen werden")
+
+        threading.Thread(
+            target=_load,
+            name=f"history-reader-{range_key}",
+            daemon=True,
+        ).start()
+
+    @Slot(str)
+    def _apply_history(self, data_json: str) -> None:
+        self._history_json = data_json
+        self.historyDataChanged.emit()
 
     @Slot(str)
     def _apply_devices(self, data_json: str) -> None:

@@ -237,7 +237,7 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
       homeLoadKw: pt.home !== null ? pt.home / 1000 : null,
       gridKw: pt.gridImport !== null ? pt.gridImport / 1000 : pt.gridExport !== null ? -(pt.gridExport / 1000) : null,
       batteryPct: null,
-      origin: 'estimated' as DataOrigin
+      origin: pt.quality === 'missing' ? 'unavailable' as DataOrigin : 'calculated' as DataOrigin
     }));
   }
 

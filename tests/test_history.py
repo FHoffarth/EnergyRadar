@@ -32,26 +32,32 @@ def test_coverage_and_integration(monkeypatch):
 
     samples = [
         {
-            "measured_at": "2026-07-22 10:00:00",
+            "received_at_utc": "2026-07-22T10:00:00Z",
             "pv_power_w": 1000,
             "grid_power_w": 500,
-            "pv_energy_today_wh": 1000,
-            "grid_import_total_wh": 500,
-            "grid_export_total_wh": 0,
-            "sample_quality_status": "valid"
+            "house_power_w": 1500,
+            "pv_energy_today_kwh": 1.0,
+            "grid_import_total_kwh": 0.5,
+            "grid_export_total_kwh": 0.0,
+            "quality_state": "derived",
         },
         {
-            "measured_at": "2026-07-22 10:01:00",
+            "received_at_utc": "2026-07-22T10:01:00Z",
             "pv_power_w": 2000,
             "grid_power_w": -500,
-            "pv_energy_today_wh": 1025, # 25 wh in 1 min
-            "grid_import_total_wh": 505,
-            "grid_export_total_wh": 5,
-            "sample_quality_status": "valid"
+            "house_power_w": 1500,
+            "pv_energy_today_kwh": 1.025,
+            "grid_import_total_kwh": 0.505,
+            "grid_export_total_kwh": 0.005,
+            "quality_state": "derived",
         }
     ]
 
-    monkeypatch.setattr(history.storage, "get_samples_since", lambda start: samples)
+    monkeypatch.setattr(
+        history.storage,
+        "get_persisted_history_rows",
+        lambda start, end: (samples, len(samples)),
+    )
 
     res = history.get_today_history(tz)
 
@@ -61,3 +67,4 @@ def test_coverage_and_integration(monkeypatch):
     # Cov
     assert res["coverage"]["pv"] == round(60 / (12*3600), 3)
     assert res["summary"]["autarky_pct"] is None # Cov too low
+    assert any(point["quality_status"] == "missing" for point in res["points"])

@@ -11,6 +11,7 @@ from energyradar.services import storage
 
 # Wenn der Abstand zwischen zwei Punkten größer ist, wird die Lücke nicht interpoliert.
 MAX_GAP_SECONDS = 300  # 5 Minuten
+CURVE_GAP_SECONDS = 30
 
 
 def derive_home_power(
@@ -37,7 +38,7 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     if total_seconds_today < 1:
         total_seconds_today = 1
 
-    samples = storage.get_samples_since(start_of_day)
+    samples, _ = storage.get_persisted_history_rows(start_of_day, now)
 
     points = []
 
@@ -50,6 +51,7 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     last_grid_import = None
     last_grid_export = None
     last_home = None
+    last_point_time = None
 
     pv_wh_integrated = 0.0
     grid_import_wh_integrated = 0.0
@@ -67,14 +69,25 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     last_grid_export_counter: Optional[float] = None
 
     for row in samples:
-        dt = datetime.strptime(row["measured_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone(tz)
+        dt = datetime.fromisoformat(
+            row["received_at_utc"].replace("Z", "+00:00")
+        ).astimezone(tz)
 
         pv_w = row["pv_power_w"]
         grid_w = row["grid_power_w"]
 
-        pv_counter = row["pv_energy_today_wh"]
-        import_counter = row["grid_import_total_wh"]
-        export_counter = row["grid_export_total_wh"]
+        pv_counter = (
+            row["pv_energy_today_kwh"] * 1000.0
+            if row["pv_energy_today_kwh"] is not None else None
+        )
+        import_counter = (
+            row["grid_import_total_kwh"] * 1000.0
+            if row["grid_import_total_kwh"] is not None else None
+        )
+        export_counter = (
+            row["grid_export_total_kwh"] * 1000.0
+            if row["grid_export_total_kwh"] is not None else None
+        )
 
         # Counter Delta Tracking
         if pv_counter is not None:
@@ -93,9 +106,24 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             last_grid_export_counter = export_counter
 
         # Derive Base Metrics
-        home_w = derive_home_power(pv_w, grid_w)
+        home_w = row["house_power_w"]
         grid_import_w = max(grid_w, 0) if grid_w is not None else None
         grid_export_w = max(-grid_w, 0) if grid_w is not None else None
+
+        if (
+            last_point_time is not None
+            and (dt - last_point_time).total_seconds() > CURVE_GAP_SECONDS
+        ):
+            gap_time = last_point_time + (dt - last_point_time) / 2
+            points.append({
+                "measured_at": gap_time.isoformat(),
+                "pv_power_w": None,
+                "home_power_w": None,
+                "grid_power_w": None,
+                "grid_import_w": None,
+                "grid_export_w": None,
+                "quality_status": "missing",
+            })
 
         points.append({
             "measured_at": dt.isoformat(),
@@ -104,8 +132,9 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             "grid_power_w": grid_w,
             "grid_import_w": grid_import_w,
             "grid_export_w": grid_export_w,
-            "quality_status": row["sample_quality_status"]
+            "quality_status": row["quality_state"]
         })
+        last_point_time = dt
 
         # Integration & Coverage (Trapezregel)
         if last_pv is not None and pv_w is not None:
@@ -209,4 +238,102 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             "autarky_pct": autarky_pct
         },
         "points": points
+    }
+
+
+def _range_bounds(
+    range_key: str, tz: timezone, now: datetime
+) -> tuple[datetime, datetime]:
+    local_now = now.astimezone(tz)
+    start_today = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    days = {"today": 1, "7days": 7, "30days": 30}
+    if range_key not in days:
+        raise ValueError("Unsupported history range")
+    start = start_today - timedelta(days=days[range_key] - 1)
+    return start, local_now
+
+
+def get_history(
+    range_key: str,
+    tz: timezone,
+    *,
+    now: datetime | None = None,
+    max_points: int = 3_000,
+) -> dict[str, Any]:
+    """Return gap-aware persisted power history for Today, 7 or 30 days."""
+    current = now or datetime.now(timezone.utc)
+    start_local, end_local = _range_bounds(range_key, tz, current)
+    rows, total = storage.get_persisted_history_rows(
+        start_local, end_local, max_points=max_points
+    )
+    recording_start, recording_end = storage.get_history_recording_bounds()
+    points: list[dict[str, Any]] = []
+    has_gap = False
+    has_partial = False
+
+    for row in rows:
+        previous = row.get("previous_received_at")
+        if previous:
+            previous_dt = datetime.fromisoformat(previous.replace("Z", "+00:00"))
+            current_dt = datetime.fromisoformat(
+                row["received_at_utc"].replace("Z", "+00:00")
+            )
+            if (current_dt - previous_dt).total_seconds() > 30.0:
+                has_gap = True
+                points.append({
+                    "timestamp_utc": (
+                        previous_dt + (current_dt - previous_dt) / 2
+                    ).isoformat().replace("+00:00", "Z"),
+                    "pv_power_w": None,
+                    "house_power_w": None,
+                    "grid_power_w": None,
+                    "quality_state": "missing",
+                    "source_available": False,
+                    "source_uuid": row["source_uuid"],
+                    "source_name": row["source_name"],
+                    "provenance": "measured",
+                    "gap": True,
+                })
+        quality = row["quality_state"]
+        if quality != "derived":
+            has_partial = True
+        points.append({
+            "timestamp_utc": row["received_at_utc"],
+            "pv_power_w": row["pv_power_w"],
+            "house_power_w": row["house_power_w"],
+            "grid_power_w": row["grid_power_w"],
+            "quality_state": quality,
+            "quality_flags": row["quality_flags"],
+            "source_available": bool(row["source_available"]),
+            "source_uuid": row["source_uuid"],
+            "source_name": row["source_name"],
+            "provenance": row["provenance"],
+            "gap": False,
+        })
+
+    status = "no_history"
+    if rows:
+        first = datetime.fromisoformat(rows[0]["received_at_utc"].replace("Z", "+00:00"))
+        last = datetime.fromisoformat(rows[-1]["received_at_utc"].replace("Z", "+00:00"))
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        edge_gap = (
+            (first - start_utc).total_seconds() > 30.0
+            or (end_utc - last).total_seconds() > 30.0
+        )
+        status = "partial" if has_gap or has_partial or edge_gap else "available"
+
+    return {
+        "range": range_key,
+        "period": {
+            "from": start_local.isoformat(),
+            "to": end_local.isoformat(),
+            "timezone": str(tz),
+        },
+        "status": status,
+        "recording_since_utc": recording_start,
+        "last_recorded_at_utc": recording_end,
+        "total_samples": total,
+        "returned_points": len(points),
+        "points": points,
     }

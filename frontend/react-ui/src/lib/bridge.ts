@@ -8,10 +8,12 @@
 export interface QtBridge {
   nowData: string;
   todayData: string;
+  historyData: string;
   devicesData: string;
   settingsData: string;
   nowDataChanged: { connect: (cb: () => void) => void };
   todayDataChanged: { connect: (cb: () => void) => void };
+  historyDataChanged: { connect: (cb: () => void) => void };
   // QWebChannel signals also expose disconnect() at runtime. It is optional
   // here so mock bridges in tests and browser mode stay valid without it.
   devicesDataChanged: { connect: (cb: () => void) => void; disconnect?: (cb: () => void) => void };
@@ -19,6 +21,7 @@ export interface QtBridge {
   connectionTestStarted: { connect: (cb: (deviceId: string, opId: string) => void) => void };
   connectionTestResult: { connect: (cb: (deviceId: string, opId: string, resultJson: string) => void) => void };
   testConnection: (deviceId: string) => void;
+  requestHistory: (rangeKey: string) => void;
   updateSettings: (patchJson: string) => void;
   saveSettings: (json: string) => void;
   saveFroniusAddress: (address: string) => void;
