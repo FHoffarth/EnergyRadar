@@ -77,6 +77,8 @@ export interface RawSettings {
   fronius_address?: string | null;
   mt175_address?: string | null;
   pv_installed_kwp?: number | null;
+  preferred_name?: string | null;
+  greeting_enabled?: boolean | null;
   resolved_location?: ResolvedLocationData | null;
 }
 
@@ -96,6 +98,8 @@ export interface EffectiveSettings {
   fronius_address: string;
   mt175_address: string;
   pv_installed_kwp: number | null;
+  preferred_name: string | null;
+  greeting_enabled: boolean;
 }
 
 export interface SystemInfo {
@@ -104,6 +108,13 @@ export interface SystemInfo {
   database_schema_version: number;
   database_path: string;
   log_path: string;
+  export_directory: string;
+  database_healthy: boolean;
+  recording_active: boolean;
+  recording_since: string | null;
+  stored_samples: number;
+  database_size_bytes: number;
+  last_recorded_sample_at: string | null;
 }
 
 export interface SettingsPayload {
@@ -277,17 +288,23 @@ export interface DemoDeviceSummary {
   id: string;
   name: string;
   category: string;
-  status: 'active' | 'idle' | 'last_known' | 'unknown';
+  status: 'active' | 'partial' | 'last_known' | 'offline' | 'unconfigured' | 'idle' | 'unknown';
   powerWatts: number | null;
   origin: DataOrigin;
   lastSeen: string;
   smartShedEnabled: boolean;
   notes: string;
   iconName: string;
+  connectionStatus?: string;
+  dataStatus?: string;
+  capabilities?: string[];
 }
 
 export interface ConnectionTestResult {
   ok: boolean;
   message: string;
   latencyMs: number | null;
+  status?: 'success' | 'partial' | 'failure' | string;
+  testedAt?: string | null;
+  capabilities?: string[];
 }

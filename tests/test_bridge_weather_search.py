@@ -361,3 +361,26 @@ def test_weather_report_is_delivered_after_bridge_connection(tmp_path, monkeypat
     assert received
     assert received[0]["status"] == "available"
     assert received[0]["location"]["display_name"] == "Dieburg, Hessen, Deutschland"
+
+
+def test_settings_save_reports_device_address_persistence_failure(tmp_path, monkeypatch):
+    from energyradar.services import data_source
+    from energyradar.ui import settings as ui_settings
+
+    bridge = _make_bridge(tmp_path, monkeypatch)
+    succeeded = []
+    failed = []
+    bridge.settingsSaveSucceeded.connect(lambda payload: succeeded.append(json.loads(payload)))
+    bridge.settingsSaveFailed.connect(lambda payload: failed.append(json.loads(payload)))
+
+    def fail_save(_address):
+        raise OSError("device settings are read-only")
+
+    monkeypatch.setattr(data_source, "save", fail_save)
+    bridge.updateSettings(json.dumps({"fronius_address": "192.168.1.10", "preferred_name": "Flo"}))
+    bridge.shutdown()
+
+    assert succeeded == []
+    assert failed and failed[0]["ok"] is False
+    assert "read-only" in failed[0]["error"]
+    assert ui_settings.load_raw_dict() == {}

@@ -7,6 +7,7 @@ import {
   Check, RotateCcw, Save, Info, Loader2, ExternalLink,
   Trash2, CheckCircle2, AlertCircle, AlertTriangle, Search, Globe, Server
 } from 'lucide-react';
+import { greetingTitle } from '../lib/greeting';
 
 /**
  * Reduce a pasted address to "host" or "host:port".
@@ -30,8 +31,8 @@ export function SettingsView() {
     confirmWeatherLocation, removeResolvedLocation,
     testWeatherConnection, weatherTestState, weatherReport,
     openDiagnosticLog, openLogDirectory, setTheme,
-    saveFroniusAddress, testConnection, testConnectionStatus,
-    updateSettings, settingsSaveState
+    testConnection, testConnectionStatus,
+    updateSettings, settingsSaveState, systemActionState, devices
   } = useApp();
 
   const effective = settingsPayload?.effective_settings;
@@ -47,6 +48,7 @@ export function SettingsView() {
   const [froniusAddr, setFroniusAddr] = useState('');
   const [mt175Addr, setMt175Addr] = useState('');
   const [mt175Expanded, setMt175Expanded] = useState(false);
+  const [awaitingFormSave, setAwaitingFormSave] = useState(false);
 
   useEffect(() => {
     if (raw && !isDirty) {
@@ -75,14 +77,29 @@ export function SettingsView() {
   // The success badge is driven by settingsSaveState, which only turns
   // "saved" once the backend has confirmed the write.
   const handleSave = () => {
+    if (!isDirty || settingsSaveState.status === 'saving') return;
+    setAwaitingFormSave(true);
     updateSettings(draft);
-    setIsDirty(false);
   };
 
   const handleResetDraft = () => {
-    if (raw) setDraft(raw);
+    setDraft(raw ?? {});
+    setLocationInput(raw?.location_query ?? '');
+    setFroniusAddr(effective?.fronius_address || '');
+    setMt175Addr(effective?.mt175_address || '');
+    setTheme((effective?.theme || 'dark') as ThemeMode);
     setIsDirty(false);
   };
+
+  useEffect(() => {
+    if (awaitingFormSave && settingsSaveState.status === 'saved') {
+      setDraft(raw ?? {});
+      setIsDirty(false);
+      setAwaitingFormSave(false);
+    } else if (awaitingFormSave && settingsSaveState.status === 'error') {
+      setAwaitingFormSave(false);
+    }
+  }, [settingsSaveState.status, raw, awaitingFormSave]);
 
   const handleSearchLocations = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,21 +125,11 @@ export function SettingsView() {
   };
 
   const handleSaveFronius = () => {
-    const addr = normalizeHost(froniusAddr);
-    setFroniusAddr(addr);
-    if (addr) {
-      saveFroniusAddress(addr);
-      testConnection('fronius_primary');
-    }
+    if (froniusAddr && froniusAddr === (effective?.fronius_address || '')) testConnection('fronius_primary');
   };
 
   const handleSaveMt175 = () => {
-    const addr = normalizeHost(mt175Addr);
-    setMt175Addr(addr);
-    if (addr) {
-      updateSettings({ mt175_address: addr });
-      testConnection('mt175_primary');
-    }
+    if (mt175Addr && mt175Addr === (effective?.mt175_address || '')) testConnection('mt175_primary');
   };
 
   const resLoc = raw?.resolved_location || (raw?.latitude && raw?.longitude ? {
@@ -133,13 +140,35 @@ export function SettingsView() {
   const searchState = weatherSearchState.status;
   const weatherCandidates = weatherSearchState.candidates;
   const weatherTestLoading = weatherTestState.status === 'loading';
+  const previewName = (draft.preferred_name ?? effective?.preferred_name ?? '') || null;
+  const previewEnabled = draft.greeting_enabled ?? effective?.greeting_enabled ?? true;
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return 'Noch nicht verfügbar';
+    const parsed = new Date(value.replace(' ', 'T'));
+    return Number.isFinite(parsed.getTime())
+      ? new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+      : 'Noch nicht verfügbar';
+  };
+  const formatBytes = (bytes?: number) => {
+    if (!bytes) return '0 MB';
+    return `${formatNumber(bytes / 1024 / 1024, numberLocale, { maximumFractionDigits: 1 })} MB`;
+  };
+  const deviceOnline = (id: string) => (devices ?? []).find(device => device.device_id === id)?.connection_status === 'connected';
+  const deviceSystemStatus = (id: string): [string, boolean] => {
+    const device = (devices ?? []).find(candidate => candidate.device_id === id);
+    if (!device || device.connection_status === 'unconfigured') return ['Nicht eingerichtet', false];
+    if (device.connection_status === 'stale') return ['Veraltet', false];
+    if (device.connection_status !== 'connected') return ['Offline', false];
+    if (device.data_status !== 'complete') return ['Teilweise verfügbar', false];
+    return ['Online', true];
+  };
 
   return (
     <div className="flex flex-col h-full pt-8 pb-8 px-8">
       <header className="pb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-[#1C1C1E] dark:text-white leading-tight">Einstellungen</h1>
-          <p className="text-[#6E6E6E] dark:text-slate-400 mt-1 text-sm">Verwalte Darstellung, Standort, Wetter und Systemoptionen.</p>
+          <p className="text-[#6E6E6E] dark:text-slate-400 mt-1 text-sm">Geräte, Aufzeichnung, Darstellung und Systemstatus an einem Ort.</p>
         </div>
         <div className="flex items-center gap-3">
           {settingsSaveState.status === 'saving' && (
@@ -157,27 +186,55 @@ export function SettingsView() {
               <AlertCircle className="w-4 h-4" /> {settingsSaveState.message || 'Speichern fehlgeschlagen.'}
             </span>
           )}
-          {isDirty && (
-            <>
-              <button onClick={handleResetDraft}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-medium text-sm flex items-center gap-2 transition-colors">
-                <RotateCcw className="w-4 h-4" /> Verwerfen
-              </button>
-              <button onClick={handleSave}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 shadow-sm transition-colors">
-                <Save className="w-4 h-4" /> Änderungen speichern
-              </button>
-            </>
+          {systemActionState?.status === 'error' && (
+            <span role="alert" className="text-sm font-medium text-rose-600 dark:text-rose-400">
+              {systemActionState.message}
+            </span>
           )}
+          <button onClick={handleResetDraft} disabled={!isDirty || settingsSaveState.status === 'saving'}
+            className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <RotateCcw className="w-4 h-4" /> Verwerfen
+          </button>
+          <button onClick={handleSave} disabled={!isDirty || settingsSaveState.status === 'saving'}
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {settingsSaveState.status === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Änderungen speichern
+          </button>
         </div>
       </header>
 
-      <div className="space-y-6 max-w-3xl">
+      <div className="flex flex-col gap-6 max-w-3xl">
         {/* Theme */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="order-3 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <Palette className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Darstellung & Theme</h2>
+            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Darstellung</h2>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <label htmlFor="preferred-name" className="text-sm font-semibold text-slate-800 dark:text-slate-200">Bevorzugter Name</label>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Optional und nur lokal auf diesem Gerät gespeichert.</p>
+              </div>
+              <button type="button" aria-label="Persönliche Begrüßung umschalten"
+                aria-pressed={Boolean(previewEnabled)}
+                onClick={() => updateDraft('greeting_enabled', !previewEnabled)}
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors ${previewEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
+                <div className={`w-6 h-6 rounded-full bg-white transition-transform ${previewEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            <input id="preferred-name" type="text" maxLength={80} value={draft.preferred_name ?? effective?.preferred_name ?? ''}
+              onChange={(event) => updateDraft('preferred_name', event.target.value)}
+              placeholder="Name (optional)"
+              className="w-full px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3" aria-label="Vorschau der Begrüßung">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Vorschau</p>
+              <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                {previewEnabled ? greetingTitle(new Date().getHours(), previewName) : 'Persönliche Begrüßung ist ausgeschaltet.'}
+              </p>
+              {previewEnabled && <p className="mt-1 text-xs text-slate-500">Der zweite Satz erscheint nur mit vertrauenswürdigen Live-Daten.</p>}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -195,7 +252,6 @@ export function SettingsView() {
                     onClick={() => {
                       updateDraft('theme', t.id);
                       setTheme(t.id as ThemeMode);
-                      updateSettings({ theme: t.id as RawSettings['theme'] });
                     }}
                     className={`flex items-center justify-center gap-2 p-3 rounded-xl border font-medium transition-all ${
                       active
@@ -221,7 +277,6 @@ export function SettingsView() {
               onClick={() => {
                 const nextVal = !getEff('dynamic_bg_enabled');
                 updateDraft('dynamic_bg_enabled', nextVal);
-                updateSettings({ dynamic_bg_enabled: nextVal });
               }}
               className={`w-12 h-7 rounded-full p-0.5 transition-colors duration-200 ${
                 getEff('dynamic_bg_enabled') ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
@@ -243,7 +298,7 @@ export function SettingsView() {
                 const active = getEff('motion_mode') === m.id;
                 return (
                   <button key={m.id} type="button"
-                    onClick={() => { updateDraft('motion_mode', m.id); updateSettings({ motion_mode: m.id as RawSettings['motion_mode'] }); }}
+                    onClick={() => updateDraft('motion_mode', m.id)}
                     className={`flex flex-col p-3 rounded-xl border text-left transition-all ${
                       active
                         ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold shadow-sm'
@@ -263,7 +318,7 @@ export function SettingsView() {
               <div className="flex gap-2">
                 {[{ id: 'normal', label: 'Normal' }, { id: 'large', label: 'Groß' }].map(s => (
                   <button key={s.id} type="button"
-                    onClick={() => { updateDraft('text_size', s.id); updateSettings({ text_size: s.id as RawSettings['text_size'] }); }}
+                    onClick={() => updateDraft('text_size', s.id)}
                     className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       getEff('text_size') === s.id
                         ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold'
@@ -277,7 +332,7 @@ export function SettingsView() {
               <div className="flex gap-2">
                 {[{ id: 'de-DE', label: '1.234,56' }, { id: 'en-US', label: '1,234.56' }].map(n => (
                   <button key={n.id} type="button"
-                    onClick={() => { updateDraft('number_format', n.id); updateSettings({ number_format: n.id as RawSettings['number_format'] }); }}
+                    onClick={() => updateDraft('number_format', n.id)}
                     className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       getEff('number_format') === n.id
                         ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold'
@@ -290,11 +345,13 @@ export function SettingsView() {
         </section>
 
         {/* Weather & Location */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="order-4 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <MapPin className="w-5 h-5 text-sky-500" />
-            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Standort & Wetter</h2>
+            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">System</h2>
           </div>
+
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Standort & Wetter</h3>
 
           <div className="p-3 rounded-xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 flex items-start gap-2.5 text-sky-800 dark:text-sky-300 text-xs leading-relaxed">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
@@ -424,8 +481,8 @@ export function SettingsView() {
             <div className="flex items-center justify-between">
               <button onClick={testWeatherConnection} disabled={weatherTestLoading || !resLoc}
                 className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50 shadow-sm">
-                {weatherTestLoading ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Teste...</span></>
-                  : <><CloudRain className="w-4 h-4" /><span>Wetterverbindung testen</span></>}
+                {weatherTestLoading ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Wird aktualisiert …</span></>
+                  : <><CloudRain className="w-4 h-4" /><span>Wetterstatus aktualisieren</span></>}
               </button>
               <span className="text-xs text-slate-400 flex items-center gap-1">
                 <Globe className="w-3 h-3" /> Open-Meteo (CC BY 4.0)
@@ -446,66 +503,92 @@ export function SettingsView() {
               </div>
             )}
           </div>
+
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Systemstatus</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs" aria-label="Systemdiagnose">
+              {[
+                ['Datenbank', system?.database_healthy ? 'Fehlerfrei' : 'Nicht verfügbar', system?.database_healthy],
+                ['Historie', system?.recording_active ? 'Aufzeichnung aktiv' : 'Derzeit nicht aktiv', system?.recording_active],
+                ['Fronius', ...deviceSystemStatus('fronius_primary')],
+                ['Smart Meter', ...deviceSystemStatus('mt175_primary')],
+                ['Letzter Messwert', formatDateTime(system?.last_recorded_sample_at), Boolean(system?.last_recorded_sample_at)],
+              ].map(([label, value, healthy]) => (
+                <div key={String(label)} className="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+                  <span className={`w-2 h-2 rounded-full ${healthy ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  <span className="text-slate-500">{label}:</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={openDiagnosticLog}
+                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Systemprotokoll öffnen
+              </button>
+              <button type="button" onClick={openLogDirectory}
+                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5">
+                <Folder className="w-3.5 h-3.5" /> Protokollordner öffnen
+              </button>
+            </div>
+          </div>
         </section>
 
-        {/* Data & System */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        {/* Data & Storage */}
+        <section className="order-2 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <Folder className="w-5 h-5 text-emerald-500" />
-            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Daten & System</h2>
+            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Daten & Speicher</h2>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3" aria-label="Aufzeichnungsstatus">
+            {[
+              ['Datenbank', system?.database_healthy ? 'Fehlerfrei' : 'Nicht verfügbar'],
+              ['Aufzeichnung', system?.recording_active ? 'Aktiv' : 'Derzeit nicht aktiv'],
+              ['Aufzeichnung seit', formatDateTime(system?.recording_since)],
+              ['Gespeicherte Messwerte', formatNumber(system?.stored_samples ?? 0, numberLocale)],
+              ['Datenbankgröße', formatBytes(system?.database_size_bytes)],
+              ['Schema-Version', system?.database_schema_version != null ? String(system.database_schema_version) : 'Nicht verfügbar'],
+              ['Letzter Messwert', formatDateTime(system?.last_recorded_sample_at)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{value}</p>
+              </div>
+            ))}
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Exportordner</label>
             <div className="flex items-center gap-2">
               <div className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-xs truncate">
-                {getEff('export_directory') || "Standard (Dokumente / EnergyRadar_Exports)"}
+                {system?.export_directory || getEff('export_directory') || 'Dokumente'}
               </div>
               <button onClick={chooseExportDirectory}
                 className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs transition-colors shrink-0">
                 Ordner wählen
               </button>
-              <button onClick={openExportDirectory} title="Ordner im Dateimanager öffnen"
-                className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl transition-colors shrink-0">
-                <ExternalLink className="w-4 h-4" />
+              <button onClick={openExportDirectory}
+                className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors shrink-0">
+                <ExternalLink className="w-4 h-4" /> Exportordner öffnen
               </button>
             </div>
           </div>
 
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-            <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Datenbankpfad</label>
-            <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-[#E5E5E3] dark:border-slate-700/60 text-slate-600 dark:text-slate-400 font-mono text-[11px] truncate">
-              {system?.database_path || "Verbindung wird hergestellt..."}
+          <details className="pt-2 border-t border-slate-100 dark:border-slate-800/60 text-xs">
+            <summary className="cursor-pointer font-medium text-slate-600 dark:text-slate-300">Erweitert</summary>
+            <p className="mt-3 text-slate-500">Lokaler Speicherort</p>
+            <div className="mt-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-mono text-[11px] break-all">
+              {system?.database_path || 'Noch nicht verfügbar'}
             </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/60">
-            <div className="flex items-center gap-2">
-              <button onClick={openDiagnosticLog}
-                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors">
-                <FileText className="w-3.5 h-3.5 text-emerald-500" /> Diagnose
-              </button>
-              <button onClick={openLogDirectory}
-                className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors">
-                <Folder className="w-3.5 h-3.5 text-slate-500" /> Logs
-              </button>
-            </div>
-            <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                v{system?.app_version || '–'}
-              </span>
-              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                schema {system?.database_schema_version || '2'}
-              </span>
-            </div>
-          </div>
+          </details>
         </section>
 
         {/* Device Addresses — Fronius primary, MT175 optional */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="order-1 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <Server className="w-5 h-5 text-amber-500" />
-            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Geräte-IP-Adressen</h2>
+            <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Geräte</h2>
           </div>
 
           <p className="text-xs text-slate-500 dark:text-slate-400 -mt-2">
@@ -521,29 +604,35 @@ export function SettingsView() {
             <div className="flex gap-2">
               <input type="text" placeholder="IP oder Hostname"
                 value={froniusAddr}
-                onChange={(e) => setFroniusAddr(normalizeHost(e.target.value))}
+                onChange={(e) => {
+                  const value = normalizeHost(e.target.value);
+                  setFroniusAddr(value);
+                  updateDraft('fronius_address', value);
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFronius(); }}
                 className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
               <button type="button"
                 onClick={handleSaveFronius}
-                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0">
+                disabled={testConnectionStatus['fronius_primary']?.testing || !froniusAddr || froniusAddr !== (effective?.fronius_address || '')}
+                title={froniusAddr !== (effective?.fronius_address || '') ? 'Änderungen zuerst speichern' : undefined}
+                className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('fronius_primary') ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
                 {testConnectionStatus['fronius_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Testen
+                {deviceOnline('fronius_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
               </button>
             </div>
             {testConnectionStatus['fronius_primary']?.testing && (
-              <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird getestet...
+              <div role="status" aria-live="polite" className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird aktualisiert …
               </div>
             )}
             {testConnectionStatus['fronius_primary']?.result && (
-              <div className={`text-xs px-3 py-2 rounded-xl flex items-center gap-2 font-medium ${
-                testConnectionStatus['fronius_primary'].result.ok
+              <div role={testConnectionStatus['fronius_primary'].result.ok ? 'status' : 'alert'} aria-live="polite" className={`text-xs px-3 py-2 rounded-xl flex items-center gap-2 font-medium ${
+                testConnectionStatus['fronius_primary'].result.ok && testConnectionStatus['fronius_primary'].result.status !== 'partial'
                   ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                   : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
               }`}>
-                {testConnectionStatus['fronius_primary'].result.ok ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-                <span>{testConnectionStatus['fronius_primary'].result.message}</span>
+                {testConnectionStatus['fronius_primary'].result.ok && testConnectionStatus['fronius_primary'].result.status !== 'partial' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                <span>{testConnectionStatus['fronius_primary'].result.status === 'partial' ? 'Teilweise verfügbar: ' : ''}{testConnectionStatus['fronius_primary'].result.message}</span>
               </div>
             )}
           </div>
@@ -563,29 +652,35 @@ export function SettingsView() {
                 <div className="flex gap-2">
                   <input type="text" placeholder="z.B. 192.168.178.83"
                     value={mt175Addr}
-                    onChange={(e) => setMt175Addr(normalizeHost(e.target.value))}
+                    onChange={(e) => {
+                      const value = normalizeHost(e.target.value);
+                      setMt175Addr(value);
+                      updateDraft('mt175_address', value);
+                    }}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveMt175(); }}
                     className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <button type="button"
                     onClick={handleSaveMt175}
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0">
+                    disabled={testConnectionStatus['mt175_primary']?.testing || !mt175Addr || mt175Addr !== (effective?.mt175_address || '')}
+                    title={mt175Addr !== (effective?.mt175_address || '') ? 'Änderungen zuerst speichern' : undefined}
+                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('mt175_primary') ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
                     {testConnectionStatus['mt175_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    Testen
+                    {deviceOnline('mt175_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
                   </button>
                 </div>
                 {testConnectionStatus['mt175_primary']?.testing && (
-                  <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird getestet...
+                  <div role="status" aria-live="polite" className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird aktualisiert …
                   </div>
                 )}
                 {testConnectionStatus['mt175_primary']?.result && (
-                  <div className={`text-xs px-3 py-2 rounded-xl flex items-center gap-2 font-medium ${
-                    testConnectionStatus['mt175_primary'].result.ok
+                  <div role={testConnectionStatus['mt175_primary'].result.ok ? 'status' : 'alert'} aria-live="polite" className={`text-xs px-3 py-2 rounded-xl flex items-center gap-2 font-medium ${
+                    testConnectionStatus['mt175_primary'].result.ok && testConnectionStatus['mt175_primary'].result.status !== 'partial'
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                       : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
                   }`}>
-                    {testConnectionStatus['mt175_primary'].result.ok ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-                    <span>{testConnectionStatus['mt175_primary'].result.message}</span>
+                    {testConnectionStatus['mt175_primary'].result.ok && testConnectionStatus['mt175_primary'].result.status !== 'partial' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span>{testConnectionStatus['mt175_primary'].result.status === 'partial' ? 'Teilweise verfügbar: ' : ''}{testConnectionStatus['mt175_primary'].result.message}</span>
                   </div>
                 )}
               </div>
@@ -595,8 +690,8 @@ export function SettingsView() {
 
         {/* Product attribution. Kept to the end of Settings — deliberately not
             in the sidebar, navigation, Now/Today or any persistent banner. */}
-        <footer className="pt-2 pb-1 text-xs text-slate-500 dark:text-slate-500">
-          <p>EnergyRadar {system?.app_version ? `v${system.app_version}` : ''}</p>
+        <footer className="order-5 pt-2 pb-1 text-xs text-slate-400 dark:text-slate-600">
+          <p>{system?.app_version ? `EnergyRadar ${system.app_version}` : 'EnergyRadar'}</p>
           <p className="mt-0.5">© 2026 Florian Hoffarth. Alle Rechte vorbehalten.</p>
         </footer>
       </div>

@@ -200,7 +200,7 @@ def service_worker():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", app_version=config.APP_VERSION)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ interface AppContextType {
   weatherReport: WeatherReportData | null;
   weatherTestState: WeatherTestState;
   settingsSaveState: SettingsSaveState;
+  systemActionState: { status: 'idle' | 'success' | 'error'; message?: string };
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -93,6 +94,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [exportStatus, setExportStatus] = useState<{ id: string, status: 'idle'|'running'|'done'|'error', msg?: string }>({ id: '', status: 'idle' });
   const [devices, setDevices] = useState<DeviceCardData[]>([]);
   const [testConnectionStatus, setTestConnectionStatus] = useState<Record<string, { testing: boolean; result?: any }>>({});
+  const connectionTestsInFlightRef = useRef(new Set<string>());
+  const connectionTestTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null);
   const [weatherValidationState, setWeatherValidationState] = useState<{ checking: boolean; result?: any }>({ checking: false });
   const [weatherSearchState, setWeatherSearchState] = useState<WeatherSearchState>({
@@ -112,6 +115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const weatherTestSequenceRef = useRef(0);
   const weatherTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settingsSaveState, setSettingsSaveState] = useState<SettingsSaveState>({ status: 'idle' });
+  const [systemActionState, setSystemActionState] = useState<{ status: 'idle' | 'success' | 'error'; message?: string }>({ status: 'idle' });
   const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Subscribe to energyService ────────────────────────────────────
@@ -150,6 +154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       parseDevices();
 
       b.connectionTestStarted.connect((devId) => {
+        connectionTestsInFlightRef.current.add(devId);
         setTestConnectionStatus(prev => ({
           ...prev,
           [devId]: { testing: true }
@@ -157,6 +162,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       b.connectionTestResult.connect((devId, _, resJson) => {
+        connectionTestsInFlightRef.current.delete(devId);
+        const timeout = connectionTestTimeoutsRef.current.get(devId);
+        if (timeout) clearTimeout(timeout);
+        connectionTestTimeoutsRef.current.delete(devId);
         try {
           const res = JSON.parse(resJson);
           setTestConnectionStatus(prev => ({
@@ -168,6 +177,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             [devId]: { testing: false }
           }));
+        }
+      });
+
+      b.systemActionResult.connect((resultJson) => {
+        try {
+          const result = JSON.parse(resultJson);
+          setSystemActionState(result.ok
+            ? { status: 'success', message: 'Aktion ausgeführt.' }
+            : { status: 'error', message: result.error || 'Aktion konnte nicht ausgeführt werden.' });
+        } catch {
+          setSystemActionState({ status: 'error', message: 'Systemantwort konnte nicht gelesen werden.' });
         }
       });
 
@@ -319,6 +339,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (weatherTestTimeoutRef.current) clearTimeout(weatherTestTimeoutRef.current);
     if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
+    connectionTestTimeoutsRef.current.forEach(clearTimeout);
+    connectionTestTimeoutsRef.current.clear();
   }, []);
 
   // ── Apply theme & global styling attributes to DOM ───────────────────────
@@ -481,10 +503,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const chooseExportDirectory = () => {
     if (bridge) bridge.chooseExportDirectory();
+    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
   };
 
   const openExportDirectory = () => {
     if (bridge) bridge.openExportDirectory();
+    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
   };
 
   const validateWeatherConfiguration = () => {
@@ -501,16 +525,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const openDiagnosticLog = () => {
     if (bridge) bridge.openDiagnosticLog();
+    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
   };
 
   const openLogDirectory = () => {
     if (bridge) bridge.openLogDirectory();
+    else setSystemActionState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
   };
 
   const testConnection = (deviceId: string) => {
+    if (connectionTestsInFlightRef.current.has(deviceId)) return;
+    connectionTestsInFlightRef.current.add(deviceId);
     if (bridge) {
       bridge.testConnection(deviceId);
+      const timeout = setTimeout(() => {
+        connectionTestsInFlightRef.current.delete(deviceId);
+        connectionTestTimeoutsRef.current.delete(deviceId);
+        setTestConnectionStatus(previous => ({
+          ...previous,
+          [deviceId]: {
+            testing: false,
+            result: { ok: false, status: 'failure', message: 'Verbindungsprüfung hat zu lange gedauert.' },
+          },
+        }));
+      }, 15000);
+      connectionTestTimeoutsRef.current.set(deviceId, timeout);
     } else {
+      connectionTestsInFlightRef.current.delete(deviceId);
       setTestConnectionStatus(prev => ({
         ...prev,
         [deviceId]: {
@@ -558,7 +599,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) ? 'saved' : 'absent',
       weatherReport,
       weatherTestState,
-      settingsSaveState,
+      settingsSaveState, systemActionState,
       searchWeatherLocations,
       confirmWeatherLocation,
       removeResolvedLocation,

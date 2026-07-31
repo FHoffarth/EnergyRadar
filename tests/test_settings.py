@@ -106,3 +106,35 @@ def test_viewmodel_separation(tmp_path, monkeypatch):
     assert "app_version" in vm.system
     assert "database_schema_version" in vm.system
     assert "database_path" in vm.system
+
+
+def test_personalized_greeting_settings_are_local_and_migration_safe(tmp_path, monkeypatch):
+    settings_file = tmp_path / "ui-settings.json"
+    monkeypatch.setattr(ui_settings, "_settings_path", lambda: settings_file)
+
+    effective = ui_settings.resolve_effective({})
+    assert effective["preferred_name"] is None
+    assert effective["greeting_enabled"] is True
+
+    saved = ui_settings.save_patch({"preferred_name": "  Florian   Hoffarth  ", "greeting_enabled": False})
+    assert saved["preferred_name"] == "Florian Hoffarth"
+    assert saved["greeting_enabled"] is False
+    assert ui_settings.load_raw_dict() == saved
+
+    cleared = ui_settings.save_patch({"preferred_name": "   "})
+    assert cleared["preferred_name"] is None
+
+
+def test_settings_viewmodel_uses_authoritative_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui_settings, "_settings_path", lambda: tmp_path / "ui-settings.json")
+    vm = viewmodels.build_settings_vm()
+    assert vm.system["app_version"] == config.APP_VERSION
+
+
+def test_legacy_footer_uses_authoritative_version():
+    from energyradar.app import app
+
+    with app.test_client() as client:
+        html = client.get("/").get_data(as_text=True)
+    assert f"EnergyRadar {config.APP_VERSION}" in html
+    assert "EnergyRadar v1.0" not in html

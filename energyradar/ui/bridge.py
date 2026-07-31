@@ -437,19 +437,18 @@ class EnergyBridge(QObject):
             patch = json.loads(patch_json)
             if not isinstance(patch, dict):
                 raise ValueError("Patch muss ein JSON-Objekt sein.")
-            updated_raw = ui_settings.save_patch(patch)
-            self._settings = ui_settings.load()
-
-            # Sync fronius_address mit data_source if present
+            # Fronius has a dedicated data-source store. Persist it before the
+            # UI settings file so a failed device-address write can never be
+            # acknowledged to the form as a successful save.
             if "fronius_address" in patch:
                 addr = str(patch["fronius_address"]).strip() if patch["fronius_address"] else ""
                 if addr:
-                    try:
-                        ds.save(addr)
-                    except Exception as exc:
-                        log.warning("Fronius-Adresse konnte nicht in data_source gespeichert werden: %s", exc)
+                    ds.save(addr)
                 else:
                     ds.remove_saved()
+
+            updated_raw = ui_settings.save_patch(patch)
+            self._settings = ui_settings.load()
 
             # Timer-Intervall anpassen, falls refresh_seconds im Patch
             effective = ui_settings.resolve_effective(updated_raw)

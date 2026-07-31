@@ -187,6 +187,29 @@ describe('AppContext weather state machines', () => {
     expect(result.current.settingsSaveState.message).toBe('Datei nicht beschreibbar');
   });
 
+  it('runs one connection check at a time and exposes the backend result', async () => {
+    const { result } = renderHook(() => useApp(), { wrapper });
+    await waitFor(() => expect(result.current.bridgeConnected).toBe(true));
+
+    act(() => {
+      result.current.testConnection('mt175_primary');
+      result.current.testConnection('mt175_primary');
+    });
+    expect(bridge.testConnection).toHaveBeenCalledTimes(1);
+
+    act(() => callbacks.connectionTestStarted('mt175_primary', 'op-1'));
+    expect(result.current.testConnectionStatus.mt175_primary.testing).toBe(true);
+
+    act(() => callbacks.connectionTestResult('mt175_primary', 'op-1', JSON.stringify({
+      ok: true, status: 'partial', message: 'Leistung fehlt.',
+      tested_at: '2026-07-31T20:00:00Z', capabilities: ['ImportActive'],
+    })));
+    expect(result.current.testConnectionStatus.mt175_primary).toEqual(expect.objectContaining({
+      testing: false,
+      result: expect.objectContaining({ status: 'partial', tested_at: '2026-07-31T20:00:00Z' }),
+    }));
+  });
+
   it('requests the persisted weather report after the desktop bridge connects', async () => {
     const { result } = renderHook(() => useApp(), { wrapper });
     await waitFor(() => expect(result.current.bridgeConnected).toBe(true));

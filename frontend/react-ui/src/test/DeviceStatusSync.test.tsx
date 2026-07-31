@@ -136,7 +136,7 @@ describe('device status synchronisation', () => {
     // Listener bound => init() finished. Emitting earlier would be absorbed by
     // the initial read and would not test propagation.
     await vi.waitFor(() => expect(bridge.__deviceHandlerCount()).toBe(1));
-    expect(result.current.sourceType).toBe('bridge');
+    await vi.waitFor(() => expect(result.current.sourceType).toBe('bridge'));
 
     // Setup happened while devicesData was still "[]".
     expect(result.current.devices).toEqual([]);
@@ -162,7 +162,7 @@ describe('device status synchronisation', () => {
           {devices.length === 0
             ? 'Keine Geräte verbunden'
             : devices
-                .map(d => `${d.name} ${d.status === 'active' ? 'online' : 'nicht verbunden'}`)
+                .map(d => `${d.name} ${d.status === 'active' ? 'online' : d.status === 'partial' ? 'teilweise verfügbar' : 'nicht verbunden'}`)
                 .join(' · ')}
         </p>
       );
@@ -178,7 +178,7 @@ describe('device status synchronisation', () => {
     await act(async () => bridge.__emitDevices(CONNECTED_DEVICES));
 
     expect(screen.getByTestId('row').textContent).toBe(
-      'Fronius Wechselrichter online · ISKRA MT175 online');
+      'Fronius Wechselrichter teilweise verfügbar · ISKRA MT175 teilweise verfügbar');
     expect(screen.getByTestId('row').textContent).not.toContain('Keine Geräte verbunden');
   });
 
@@ -191,7 +191,7 @@ describe('device status synchronisation', () => {
     // Listener bound => init() finished. Emitting earlier would be absorbed by
     // the initial read and would not test propagation.
     await vi.waitFor(() => expect(bridge.__deviceHandlerCount()).toBe(1));
-    expect(result.current.sourceType).toBe('bridge');
+    await vi.waitFor(() => expect(result.current.sourceType).toBe('bridge'));
 
     await act(async () => bridge.__emitDevices([
       { device_id: 'fronius_primary', display_name: 'Fronius', connection_status: 'error' },
@@ -200,8 +200,8 @@ describe('device status synchronisation', () => {
     ]));
 
     const byName = Object.fromEntries(result.current.devices.map(d => [d.name, d.status]));
-    expect(byName['Fronius']).toBe('unknown');       // error -> unknown, not active
-    expect(byName['ISKRA MT175']).toBe('idle');      // offline -> idle, not active
+    expect(byName['Fronius']).toBe('offline');       // request error -> offline, not active
+    expect(byName['ISKRA MT175']).toBe('offline');   // offline remains explicit
     expect(byName['Stale']).toBe('last_known');      // stale -> last_known
     expect(Object.values(byName)).not.toContain('active');
   });
@@ -215,7 +215,7 @@ describe('device status synchronisation', () => {
     // Listener bound => init() finished. Emitting earlier would be absorbed by
     // the initial read and would not test propagation.
     await vi.waitFor(() => expect(bridge.__deviceHandlerCount()).toBe(1));
-    expect(result.current.sourceType).toBe('bridge');
+    await vi.waitFor(() => expect(result.current.sourceType).toBe('bridge'));
 
     await act(async () => bridge.__emitDevices(CONNECTED_DEVICES));
     const firstRef = result.current.devices;
@@ -237,7 +237,7 @@ describe('device status synchronisation', () => {
     // Listener bound => init() finished. Emitting earlier would be absorbed by
     // the initial read and would not test propagation.
     await vi.waitFor(() => expect(bridge.__deviceHandlerCount()).toBe(1));
-    expect(result.current.sourceType).toBe('bridge');
+    await vi.waitFor(() => expect(result.current.sourceType).toBe('bridge'));
 
     await act(async () => bridge.__emitDevices(CONNECTED_DEVICES));
     await act(async () => bridge.__reemitDevices());
@@ -246,7 +246,7 @@ describe('device status synchronisation', () => {
     ]));
 
     expect(result.current.devices).toHaveLength(1);
-    expect(result.current.devices[0].status).toBe('unknown');
+    expect(result.current.devices[0].status).toBe('offline');
   });
 
   // 6: no duplicate listeners, and cleanup on unmount.

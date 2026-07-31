@@ -37,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
     "fronius_address": "",
     "mt175_address": "",
     "pv_installed_kwp": None,
+    "preferred_name": None,
+    "greeting_enabled": True,
 }
 
 # Live power is a current-state feature, not a background history job.  Older
@@ -80,6 +82,8 @@ class UISettings:
     fronius_address: Optional[str] = None
     mt175_address: Optional[str] = None
     pv_installed_kwp: Optional[float] = None
+    preferred_name: Optional[str] = None
+    greeting_enabled: Optional[bool] = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UISettings:
@@ -159,7 +163,7 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Ungültiges Theme.")
             validated[k] = str(v)
 
-        elif k == "dynamic_bg_enabled" or k == "weather_enabled":
+        elif k in {"dynamic_bg_enabled", "weather_enabled", "greeting_enabled"}:
             if not isinstance(v, bool):
                 raise ValueError(f"{k} muss ein Boolean sein.")
             validated[k] = v
@@ -201,6 +205,12 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
             if not (0.0 < val <= 1000.0):
                 raise ValueError("pv_installed_kwp muss zwischen 0 und 1000 kWp liegen.")
             validated[k] = val
+
+        elif k == "preferred_name":
+            val_str = " ".join(str(v).split())
+            if len(val_str) > 80:
+                raise ValueError("preferred_name darf höchstens 80 Zeichen enthalten.")
+            validated[k] = val_str if val_str else None
 
         elif k in {"location_query", "export_directory", "mt175_address", "fronius_address"}:
             val_str = str(v).strip()
