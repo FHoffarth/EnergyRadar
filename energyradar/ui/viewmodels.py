@@ -664,6 +664,8 @@ def build_devices_vm(
 
 
 def build_settings_vm() -> SettingsViewModel:
+    from pathlib import Path
+
     from energyradar import config
     from energyradar.ui import settings as ui_settings
     from energyradar.services import data_source as ds
@@ -682,12 +684,21 @@ def build_settings_vm() -> SettingsViewModel:
             fronius_addr = ds.display_address(src["url"])
             fronius_editable = False
 
+    storage_info = _build_storage_status(
+        config.DB_PATH,
+        refresh_seconds=int(effective_dict.get("refresh_seconds", 5)),
+    )
+    export_directory = effective_dict.get("export_directory") or str(
+        Path.home() / "Documents"
+    )
     system_info = {
         "app_version": config.APP_VERSION,
         "build": config.APP_BUILD,
         "database_schema_version": config.SCHEMA_VERSION,
         "database_path": str(config.DB_PATH),
         "log_path": str(config.DATA_DIR / "energyradar.log"),
+        "export_directory": export_directory,
+        **storage_info,
     }
 
     return SettingsViewModel(
@@ -701,3 +712,60 @@ def build_settings_vm() -> SettingsViewModel:
         timezone=config.MT175_TIMEZONE,
         theme=effective_dict.get("theme", "dark"),
     )
+
+
+def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
+    """Read human-facing storage health without creating or mutating a database."""
+    import sqlite3
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    path = Path(database_path)
+    result = {
+        "database_healthy": False,
+        "recording_active": False,
+        "recording_since": None,
+        "stored_samples": 0,
+        "database_size_bytes": path.stat().st_size if path.exists() else 0,
+        "last_recorded_sample_at": None,
+    }
+    if not path.is_file():
+        return result
+
+    try:
+        uri = f"{path.resolve().as_uri()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as con:
+            result["database_healthy"] = (
+                con.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            )
+            table_exists = con.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'energy_samples_v1'
+                """
+            ).fetchone()
+            if table_exists is None:
+                return result
+            count, first, last = con.execute(
+                """
+                SELECT COUNT(*), MIN(received_at), MAX(received_at)
+                FROM energy_samples_v1
+                """
+            ).fetchone()
+        result["stored_samples"] = int(count)
+        result["recording_since"] = first
+        result["last_recorded_sample_at"] = last
+        if last:
+            parsed = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            age_seconds = max(
+                0.0,
+                (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds(),
+            )
+            result["recording_active"] = age_seconds <= max(
+                30, refresh_seconds * 3
+            )
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return result
+    return result

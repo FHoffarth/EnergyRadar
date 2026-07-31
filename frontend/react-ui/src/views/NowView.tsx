@@ -5,6 +5,7 @@ import { useApp, useNumberLocale } from '../context/AppContext';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
 import { WeatherIntelligence } from '../components/WeatherIntelligence';
 import { UNKNOWN_VALUE, formatKw, formatNumber } from '../lib/format';
+import { greetingTitle, trustworthyEnergySummary } from '../lib/greeting';
 
 /**
  * Colour for a channel the devices have not delivered. Legible enough to read
@@ -20,6 +21,8 @@ export function NowView() {
 
   const motionMode = settingsPayload?.effective_settings?.motion_mode ?? 'full';
   const animateCharts = motionMode === 'full';
+  const greetingEnabled = Boolean(settingsPayload) && (settingsPayload?.effective_settings?.greeting_enabled ?? true);
+  const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
 
   // A value counts as present only when the device actually measured it.
   const hasSolar = snapshot.solar.valueKw !== null && snapshot.solar.origin === 'observed';
@@ -59,6 +62,10 @@ export function NowView() {
     // freshness_label already reads like "Aktuell · 19:17" — do not prefix it again.
     return snapshot.timestamp;
   })();
+  const greeting = greetingEnabled ? {
+    title: greetingTitle(new Date().getHours(), preferredName),
+    summary: trustworthyEnergySummary(snapshot, locale),
+  } : null;
 
   // ── 2. PV / home / grid ──────────────────────────────────────────────
   const gridKw = snapshot.grid.valueKw;
@@ -124,10 +131,15 @@ export function NowView() {
       {/* 1 — current assessment */}
       <header>
         <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl">
-          {headline}
+          {greeting?.title ?? headline}
         </h1>
+        {greeting && (
+          <p className="mt-2 text-base text-slate-700 dark:text-slate-300 max-w-2xl">
+            {greeting.summary}
+          </p>
+        )}
         {subline && (
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{subline}</p>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{subline}</p>
         )}
       </header>
 

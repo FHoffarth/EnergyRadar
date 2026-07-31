@@ -8,10 +8,19 @@ export type SearchState = 'idle' | 'loading' | 'results' | 'empty' | 'error' | '
 export type SavedLocationState = 'absent' | 'saved';
 export type WeatherTestStatus = 'idle' | 'loading' | 'success' | 'error' | 'timeout';
 export type SettingsSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type SystemActionName = 'chooseExportDirectory' | 'openExportDirectory' | 'openDiagnosticLog' | 'openLogDirectory';
+export type SystemActionStatus = 'idle' | 'loading' | 'success' | 'cancelled' | 'error';
 
 export interface SettingsSaveState {
   status: SettingsSaveStatus;
   message?: string;
+}
+
+export interface SystemActionState {
+  status: SystemActionStatus;
+  action?: SystemActionName;
+  message?: string;
+  path?: string;
 }
 
 export interface WeatherSearchState {
@@ -51,6 +60,7 @@ interface AppContextType {
   weatherReport: WeatherReportData | null;
   weatherTestState: WeatherTestState;
   settingsSaveState: SettingsSaveState;
+  systemActionState: SystemActionState;
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -62,6 +72,7 @@ interface AppContextType {
   saveFroniusAddress: (address: string) => void;
   testConnection: (deviceId: string) => void;
   chooseExportDirectory: () => void;
+  consumeSystemActionPath: () => void;
   openExportDirectory: () => void;
   validateWeatherConfiguration: () => void;
   openDiagnosticLog: () => void;
@@ -93,6 +104,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [exportStatus, setExportStatus] = useState<{ id: string, status: 'idle'|'running'|'done'|'error', msg?: string }>({ id: '', status: 'idle' });
   const [devices, setDevices] = useState<DeviceCardData[]>([]);
   const [testConnectionStatus, setTestConnectionStatus] = useState<Record<string, { testing: boolean; result?: any }>>({});
+  const connectionTestsInFlightRef = useRef(new Set<string>());
+  const connectionTestTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null);
   const [weatherValidationState, setWeatherValidationState] = useState<{ checking: boolean; result?: any }>({ checking: false });
   const [weatherSearchState, setWeatherSearchState] = useState<WeatherSearchState>({
@@ -112,6 +125,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const weatherTestSequenceRef = useRef(0);
   const weatherTestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settingsSaveState, setSettingsSaveState] = useState<SettingsSaveState>({ status: 'idle' });
+  const [systemActionState, setSystemActionState] = useState<SystemActionState>({ status: 'idle' });
+  const systemActionsInFlightRef = useRef(new Set<SystemActionName>());
   const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Subscribe to energyService ────────────────────────────────────
@@ -150,6 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       parseDevices();
 
       b.connectionTestStarted.connect((devId) => {
+        connectionTestsInFlightRef.current.add(devId);
         setTestConnectionStatus(prev => ({
           ...prev,
           [devId]: { testing: true }
@@ -157,6 +173,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       b.connectionTestResult.connect((devId, _, resJson) => {
+        connectionTestsInFlightRef.current.delete(devId);
+        const timeout = connectionTestTimeoutsRef.current.get(devId);
+        if (timeout) clearTimeout(timeout);
+        connectionTestTimeoutsRef.current.delete(devId);
         try {
           const res = JSON.parse(resJson);
           setTestConnectionStatus(prev => ({
@@ -168,6 +188,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             [devId]: { testing: false }
           }));
+        }
+      });
+
+      b.systemActionResult.connect((resultJson) => {
+        try {
+          const result = JSON.parse(resultJson);
+          const action = result.action as SystemActionName | undefined;
+          if (action) systemActionsInFlightRef.current.delete(action);
+          const status: SystemActionStatus = result.ok
+            ? (result.status === 'cancelled' ? 'cancelled' : 'success')
+            : 'error';
+          setSystemActionState({
+            status,
+            action,
+            message: typeof result.message === 'string'
+              ? result.message
+              : (result.ok ? 'Aktion ausgeführt.' : 'Aktion konnte nicht ausgeführt werden.'),
+            path: typeof result.path === 'string' ? result.path : undefined,
+          });
+        } catch {
+          systemActionsInFlightRef.current.clear();
+          setSystemActionState({ status: 'error', message: 'Systemantwort konnte nicht gelesen werden.' });
         }
       });
 
@@ -208,7 +250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let message = 'Einstellungen konnten nicht gespeichert werden.';
         try {
           const parsed = JSON.parse(errorJson);
-          if (typeof parsed?.error === 'string' && parsed.error) message = parsed.error;
+          if (typeof parsed?.message === 'string' && parsed.message) message = parsed.message;
         } catch {}
         setSettingsSaveState({ status: 'error', message });
       });
@@ -303,13 +345,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       b.directorySelected.connect((dirPath) => {
-        setSettingsPayload(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            effective_settings: { ...prev.effective_settings, export_directory: dirPath },
-            settings: { ...prev.settings, export_directory: dirPath }
-          };
+        setSystemActionState({
+          status: 'success',
+          action: 'chooseExportDirectory',
+          message: 'Exportordner ausgewählt. Noch nicht gespeichert.',
+          path: dirPath,
         });
       });
     });
@@ -319,6 +359,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (weatherTestTimeoutRef.current) clearTimeout(weatherTestTimeoutRef.current);
     if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
+    connectionTestTimeoutsRef.current.forEach(clearTimeout);
+    connectionTestTimeoutsRef.current.clear();
   }, []);
 
   // ── Apply theme & global styling attributes to DOM ───────────────────────
@@ -479,12 +521,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (bridge) bridge.saveFroniusAddress(address);
   };
 
+  const runSystemAction = (action: SystemActionName, invoke: (desktopBridge: QtBridge) => void) => {
+    if (systemActionsInFlightRef.current.has(action)) return;
+    if (!bridge) {
+      setSystemActionState({ status: 'error', action, message: 'Desktop-Verbindung ist nicht verfügbar.' });
+      return;
+    }
+    systemActionsInFlightRef.current.add(action);
+    setSystemActionState({ status: 'loading', action, message: 'Aktion wird ausgeführt …' });
+    try {
+      invoke(bridge);
+    } catch {
+      systemActionsInFlightRef.current.delete(action);
+      setSystemActionState({ status: 'error', action, message: 'Aktion konnte nicht ausgeführt werden.' });
+    }
+  };
+
   const chooseExportDirectory = () => {
-    if (bridge) bridge.chooseExportDirectory();
+    runSystemAction('chooseExportDirectory', desktopBridge => desktopBridge.chooseExportDirectory());
+  };
+
+  const consumeSystemActionPath = () => {
+    setSystemActionState(previous => previous.path ? { ...previous, path: undefined } : previous);
   };
 
   const openExportDirectory = () => {
-    if (bridge) bridge.openExportDirectory();
+    runSystemAction('openExportDirectory', desktopBridge => desktopBridge.openExportDirectory());
   };
 
   const validateWeatherConfiguration = () => {
@@ -500,17 +562,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const openDiagnosticLog = () => {
-    if (bridge) bridge.openDiagnosticLog();
+    runSystemAction('openDiagnosticLog', desktopBridge => desktopBridge.openDiagnosticLog());
   };
 
   const openLogDirectory = () => {
-    if (bridge) bridge.openLogDirectory();
+    runSystemAction('openLogDirectory', desktopBridge => desktopBridge.openLogDirectory());
   };
 
   const testConnection = (deviceId: string) => {
+    if (connectionTestsInFlightRef.current.has(deviceId)) return;
+    connectionTestsInFlightRef.current.add(deviceId);
     if (bridge) {
       bridge.testConnection(deviceId);
+      const timeout = setTimeout(() => {
+        connectionTestsInFlightRef.current.delete(deviceId);
+        connectionTestTimeoutsRef.current.delete(deviceId);
+        setTestConnectionStatus(previous => ({
+          ...previous,
+          [deviceId]: {
+            testing: false,
+            result: { ok: false, status: 'failure', message: 'Verbindungsprüfung hat zu lange gedauert.' },
+          },
+        }));
+      }, 15000);
+      connectionTestTimeoutsRef.current.set(deviceId, timeout);
     } else {
+      connectionTestsInFlightRef.current.delete(deviceId);
       setTestConnectionStatus(prev => ({
         ...prev,
         [deviceId]: {
@@ -558,7 +635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) ? 'saved' : 'absent',
       weatherReport,
       weatherTestState,
-      settingsSaveState,
+      settingsSaveState, systemActionState,
       searchWeatherLocations,
       confirmWeatherLocation,
       removeResolvedLocation,
@@ -568,6 +645,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveFroniusAddress,
       testConnection,
       chooseExportDirectory,
+      consumeSystemActionPath,
       openExportDirectory,
       validateWeatherConfiguration,
       openDiagnosticLog,
