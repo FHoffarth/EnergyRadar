@@ -86,7 +86,7 @@ class TodayViewModel:
 class DeviceCardViewModel:
     device_id: str               # "fronius_primary" | "mt175_primary"
     device_type: str             # "inverter" | "smart_meter"
-    display_name: str            # "Fronius Wechselrichter" | "ISKRA MT175"
+    display_name: str            # "Fronius Wechselrichter" | smart-meter label
     connection_status: str       # "connected" | "stale" | "offline" | "error" | "unconfigured" | "testing"
     data_status: str             # "complete" | "partial" | "unavailable" | "error" | "unconfigured"
     configuration_status: str    # "configured" | "unconfigured"
@@ -116,6 +116,16 @@ class SettingsViewModel:
     refresh_seconds: int
     timezone: str
     theme: str              # "dark" | "light" | "system"
+
+
+@dataclass(frozen=True)
+class SmartMeterAvailability:
+    """User-facing availability derived from actual smart-meter values."""
+
+    data_status: str
+    capabilities: List[str]
+    message: str
+    pin_locked: bool
 
 
 # ------------------------------------------------------------------ #
@@ -149,6 +159,90 @@ def _time_str(dt: Optional[datetime]) -> str:
     return local.strftime("%H:%M")
 
 
+def describe_smart_meter_availability(reading) -> SmartMeterAvailability:
+    """Describe only measurements the smart meter actually supplied.
+
+    Explicit ``None`` checks are intentional: zero watts and zero cumulative
+    energy are valid measurements and therefore real capabilities.
+    """
+    has_import = reading.grid_import_total_kwh is not None
+    has_export = reading.grid_export_total_kwh is not None
+    has_power = reading.current_power_w is not None
+
+    capabilities = []
+    if has_import:
+        capabilities.append("grid_import_total")
+    if has_export:
+        capabilities.append("grid_export_total")
+    if has_power:
+        capabilities.append("current_power")
+
+    available_count = sum((has_import, has_export, has_power))
+    data_status = (
+        "complete"
+        if available_count == 3
+        else "partial"
+        if available_count > 0
+        else "unavailable"
+    )
+
+    explicit_pin_state = getattr(reading, "pin_locked", None)
+    pin_locked = (
+        reading.current_power_w is None
+        if explicit_pin_state is None
+        else explicit_pin_state
+    )
+    power_unavailable = (
+        "Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
+        if pin_locked
+        else "Die aktuelle Netzleistung ist nicht verfügbar."
+    )
+
+    if available_count == 3:
+        message = "Der Smart Meter liefert Zählerstände und aktuelle Netzleistung."
+    elif has_power and not has_import and not has_export:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung. "
+            "Zählerstände sind nicht verfügbar."
+        )
+    elif has_power and has_import and not has_export:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung und den "
+            "Bezugszählerstand. Der Einspeisezählerstand ist nicht verfügbar."
+        )
+    elif has_power and has_export and not has_import:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung und den "
+            "Einspeisezählerstand. Der Bezugszählerstand ist nicht verfügbar."
+        )
+    elif has_import and has_export:
+        message = f"Der Smart Meter liefert Zählerstände. {power_unavailable}"
+    elif has_import:
+        message = (
+            "Der Smart Meter liefert den Bezugszählerstand. "
+            f"Der Einspeisezählerstand ist nicht verfügbar. {power_unavailable}"
+        )
+    elif has_export:
+        message = (
+            "Der Smart Meter liefert den Einspeisezählerstand. "
+            f"Der Bezugszählerstand ist nicht verfügbar. {power_unavailable}"
+        )
+    elif pin_locked:
+        message = (
+            "Der Smart Meter liefert noch keine gültigen Messwerte. "
+            "Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
+        )
+    else:
+        message = "Der Smart Meter liefert derzeit keine gültigen Messwerte."
+
+    return SmartMeterAvailability(
+        data_status=data_status,
+        capabilities=capabilities,
+        message=message,
+        pin_locked=pin_locked,
+    )
+
+
 # ------------------------------------------------------------------ #
 # Builder-Funktionen
 # ------------------------------------------------------------------ #
@@ -178,17 +272,43 @@ def build_now_vm(
     pin_locked = False
     mt175_age: Optional[float] = None
     if mt175 is not None:
-        pin_locked = mt175.current_power_w is None
+        explicit_pin_state = getattr(mt175, "pin_locked", None)
+        # Compatibility for readings instantiated before explicit PIN metadata.
+        pin_locked = (
+            mt175.current_power_w is None
+            if explicit_pin_state is None
+            else explicit_pin_state
+        )
         mt175_age = _age_s(mt175.received_at)
         if not pin_locked and mt175_age is not None and mt175_age < stale_threshold_s:
             grid_power_w = mt175.current_power_w
 
     # --- Verbrauch ---
     consumption_w: Optional[float] = None
-    if pv_power_w is not None and grid_power_w is not None:
-        consumption_w = pv_power_w + grid_power_w
-        if consumption_w < 0:
-            consumption_w = 0.0   # kein negativer Verbrauch
+    sources_aligned = False
+    if (
+        pv_power_w is not None
+        and grid_power_w is not None
+        and fronius.timestamp is not None
+        and mt175.received_at is not None
+    ):
+        source_skew_s = abs(
+            (
+                fronius.timestamp.astimezone(timezone.utc)
+                - mt175.received_at.astimezone(timezone.utc)
+            ).total_seconds()
+        )
+        sources_aligned = source_skew_s < stale_threshold_s
+
+    if sources_aligned:
+        candidate_consumption = pv_power_w + grid_power_w
+        # Collection skew and meter rounding can produce tiny negative values.
+        # Up to 50 W is treated as a balanced boundary; larger contradictions
+        # remain unavailable because they cannot represent house consumption.
+        if candidate_consumption >= 0:
+            consumption_w = candidate_consumption
+        elif candidate_consumption >= -50.0:
+            consumption_w = 0.0
 
     # --- Datenqualität ---
     no_source = not fronius_configured and not mt175_configured
@@ -462,7 +582,7 @@ def build_devices_vm(
         technical_error=fronius_error[:120] if fronius_error else None,
     ))
 
-    # --- ISKRA MT175 Smart Meter ---
+    # --- Tasmota SmartMeterReader ---
     m_addr_display = ds.mask_address_credentials(mt175_address)
     m_firmware = getattr(mt175, "firmware", None) if mt175 else None
 
@@ -476,19 +596,23 @@ def build_devices_vm(
         m_instructions = None
     elif mt175 is not None:
         m_conn = "connected"
-        if mt175.current_power_w is None:
-            m_data = "partial"
+        availability = describe_smart_meter_availability(mt175)
+        m_data = availability.data_status
+        m_msg = availability.message
+        m_caps = availability.capabilities
+        m_quality = {
+            "complete": "Vollständig",
+            "partial": "Teilweise verfügbar",
+            "unavailable": "Nicht verfügbar",
+        }[m_data]
+        if availability.pin_locked:
             m_pin = "locked"
-            m_msg = "Zählerstände sind verfügbar. Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
-            m_quality = "Teilweise verfügbar"
-            m_caps = ["grid_import_total", "grid_export_total"]
             m_instructions = "Am Zähler ist die PIN-Freigabe erforderlich. Die Eingabe erfolgt je nach Zählermodell über die optische Taste beziehungsweise eine Lichtquelle. Bitte beachte die Anleitung deines Messstellenbetreibers."
+        elif mt175.current_power_w is None:
+            m_pin = "not_applicable"
+            m_instructions = None
         else:
-            m_data = "complete"
             m_pin = "unlocked"
-            m_msg = "Der Smart Meter liefert Zählerstände und aktuelle Netzleistung."
-            m_quality = "Vollständig"
-            m_caps = ["grid_import_total", "grid_export_total", "current_power"]
             m_instructions = None
     elif mt175_error:
         m_conn = "error"
@@ -517,7 +641,7 @@ def build_devices_vm(
     cards.append(DeviceCardViewModel(
         device_id="mt175_primary",
         device_type="smart_meter",
-        display_name="ISKRA MT175",
+        display_name="Tasmota SmartMeterReader",
         connection_status=m_conn,
         data_status=m_data,
         configuration_status="configured" if mt175_configured else "unconfigured",

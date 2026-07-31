@@ -32,6 +32,26 @@ log = logging.getLogger(__name__)
 _STALE_MULTIPLIER = 3   # Wert gilt als veraltet nach 3× refresh_seconds
 
 
+def _smart_meter_connection_result(reading, latency_ms: int) -> dict:
+    """Build a connection-test result from measurements actually available."""
+    from energyradar.ui.viewmodels import describe_smart_meter_availability
+
+    availability = describe_smart_meter_availability(reading)
+    connection_status = {
+        "complete": "connected",
+        "partial": "partial",
+        "unavailable": "unavailable",
+    }[availability.data_status]
+    return {
+        "ok": True,
+        "status": connection_status,
+        "data_status": availability.data_status,
+        "latency_ms": latency_ms,
+        "message": availability.message,
+        "capabilities": availability.capabilities,
+    }
+
+
 class EnergyBridge(QObject):
     """Zentraler Bridge zwischen Python-Backend und QML-Frontend."""
 
@@ -211,7 +231,7 @@ class EnergyBridge(QObject):
                     )
                 except Exception as exc:
                     mt175_error = str(exc)
-                    log.warning("MT175-Collector Fehler: %s", exc)
+                    log.warning("Tasmota-Smart-Meter-Collector Fehler: %s", exc)
 
             mt175_thread = threading.Thread(
                 target=_read_mt175, name="mt175-reader", daemon=True
@@ -229,13 +249,19 @@ class EnergyBridge(QObject):
 
         pv_q = QualityStatus.VALID if fronius_reading else (QualityStatus.OFFLINE if fronius_configured else QualityStatus.UNKNOWN)
         grid_q = QualityStatus.VALID if mt175_reading else (QualityStatus.OFFLINE if mt175_configured else QualityStatus.UNKNOWN)
-        if mt175_reading and getattr(mt175_reading, "error", "") == "PIN required":
+        if mt175_reading and mt175_reading.pin_locked:
             grid_q = QualityStatus.LOCKED
+        elif mt175_reading and mt175_reading.current_power_w is None:
+            grid_q = QualityStatus.PARTIAL
         elif mt175_error:
             grid_q = QualityStatus.INVALID
 
         sample_q = QualityStatus.VALID
-        if not fronius_reading or not mt175_reading:
+        if (
+            not fronius_reading
+            or not mt175_reading
+            or mt175_reading.current_power_w is None
+        ):
             sample_q = QualityStatus.PARTIAL
 
         if fronius_configured or mt175_configured:
@@ -359,15 +385,12 @@ class EnergyBridge(QObject):
                     raw_s = ui_settings.load_raw_dict()
                     addr = str(raw_s.get("mt175_address") or self._settings.mt175_address or "").strip()
                     if not addr:
-                        res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "MT175 ist nicht konfiguriert", "capabilities": []}
+                        res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "Smart Meter ist nicht konfiguriert", "capabilities": []}
                     else:
                         from energyradar.collectors import mt175 as mc
                         reading = mc.read_url(addr)
                         latency = int((time.time() - start_time) * 1000)
-                        if reading.current_power_w is None:
-                            res = {"ok": True, "status": "partial", "latency_ms": latency, "message": "Gerät antwortet. PIN-Freigabe erforderlich.", "capabilities": ["grid_import_total", "grid_export_total"]}
-                        else:
-                            res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet vollständig", "capabilities": ["grid_import_total", "grid_export_total", "current_power"]}
+                        res = _smart_meter_connection_result(reading, latency)
                 else:
                     res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Unbekanntes Gerät: {target_id}", "capabilities": []}
             except mt175_coll.MT175AddressError as exc:
