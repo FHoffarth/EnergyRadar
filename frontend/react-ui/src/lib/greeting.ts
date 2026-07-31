@@ -1,14 +1,16 @@
 import { EnergySnapshot } from '../types';
 
-export type GreetingPeriod = 'morning' | 'afternoon' | 'evening';
+export type GreetingPeriod = 'night' | 'morning' | 'afternoon' | 'evening';
 
 export function greetingPeriod(hour: number): GreetingPeriod {
+  if (hour < 5) return 'night';
   if (hour >= 5 && hour < 12) return 'morning';
   if (hour >= 12 && hour < 18) return 'afternoon';
   return 'evening';
 }
 export function greetingTitle(hour: number, preferredName?: string | null): string {
   const salutation = {
+    night: 'Gute Nacht',
     morning: 'Guten Morgen',
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',

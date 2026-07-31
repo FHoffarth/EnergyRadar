@@ -294,4 +294,12 @@ describe('SettingsView - persisted dirty state', () => {
     fireEvent.click(check);
     expect(mockAppContext.testConnection).not.toHaveBeenCalled();
   });
+
+  it('programmatically labels both device address fields', () => {
+    render(<SettingsView />);
+    expect(screen.getByLabelText('Fronius Wechselrichter')).toHaveValue('192.0.2.1');
+
+    fireEvent.click(screen.getByRole('button', { name: /Iskra MT631/ }));
+    expect(screen.getByLabelText('IP oder Hostname des SmartMeterReaders')).toBeInTheDocument();
+  });
 });

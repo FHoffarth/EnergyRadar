@@ -368,6 +368,10 @@ def test_settings_save_reports_device_address_persistence_failure(tmp_path, monk
     from energyradar.ui import settings as ui_settings
 
     bridge = _make_bridge(tmp_path, monkeypatch)
+    data_source.save("192.168.1.5")
+    ui_settings.save_patch({"preferred_name": "Existing"})
+    previous_source = data_source.load_saved()
+    previous_settings = ui_settings.load_raw_dict()
     succeeded = []
     failed = []
     bridge.settingsSaveSucceeded.connect(lambda payload: succeeded.append(json.loads(payload)))
@@ -383,4 +387,85 @@ def test_settings_save_reports_device_address_persistence_failure(tmp_path, monk
     assert succeeded == []
     assert failed and failed[0]["ok"] is False
     assert "read-only" in failed[0]["error"]
-    assert ui_settings.load_raw_dict() == {}
+    assert data_source.load_saved() == previous_source
+    assert ui_settings.load_raw_dict() == previous_settings
+
+
+def test_settings_save_validates_full_patch_before_any_store_write(tmp_path, monkeypatch):
+    from energyradar.services import data_source
+    from energyradar.ui import settings as ui_settings
+
+    bridge = _make_bridge(tmp_path, monkeypatch)
+    data_source.save("192.168.1.5")
+    ui_settings.save_patch({"preferred_name": "Existing", "theme": "dark"})
+    previous_source = data_source.load_saved()
+    previous_settings = ui_settings.load_raw_dict()
+    succeeded = []
+    failed = []
+    bridge.settingsSaveSucceeded.connect(lambda payload: succeeded.append(json.loads(payload)))
+    bridge.settingsSaveFailed.connect(lambda payload: failed.append(json.loads(payload)))
+
+    bridge.updateSettings(json.dumps({
+        "fronius_address": "192.168.1.10",
+        "preferred_name": "Changed",
+        "theme": "not-a-theme",
+    }))
+    bridge.shutdown()
+
+    assert data_source.load_saved() == previous_source
+    assert ui_settings.load_raw_dict() == previous_settings
+    assert succeeded == []
+    assert failed and failed[0]["ok"] is False
+
+
+def test_settings_save_valid_full_patch_persists_every_value(tmp_path, monkeypatch):
+    from energyradar.services import data_source
+    from energyradar.ui import settings as ui_settings
+
+    bridge = _make_bridge(tmp_path, monkeypatch)
+    succeeded = []
+    failed = []
+    bridge.settingsSaveSucceeded.connect(lambda payload: succeeded.append(json.loads(payload)))
+    bridge.settingsSaveFailed.connect(lambda payload: failed.append(json.loads(payload)))
+
+    bridge.updateSettings(json.dumps({
+        "fronius_address": "192.168.1.10",
+        "preferred_name": "  New Name  ",
+        "theme": "light",
+    }))
+    bridge.shutdown()
+
+    assert data_source.load_saved() is not None
+    assert "192.168.1.10" in data_source.load_saved()["url"]
+    assert ui_settings.load_raw_dict() == {
+        "fronius_address": "192.168.1.10",
+        "preferred_name": "New Name",
+        "theme": "light",
+    }
+    assert len(succeeded) == 1 and succeeded[0]["ok"] is True
+    assert failed == []
+
+
+def test_settings_store_failure_restores_previous_data_source(tmp_path, monkeypatch):
+    from energyradar.services import data_source
+    from energyradar.ui import settings as ui_settings
+
+    bridge = _make_bridge(tmp_path, monkeypatch)
+    data_source.save("192.168.1.5")
+    previous_source = data_source.load_saved()
+    succeeded = []
+    failed = []
+    bridge.settingsSaveSucceeded.connect(lambda payload: succeeded.append(json.loads(payload)))
+    bridge.settingsSaveFailed.connect(lambda payload: failed.append(json.loads(payload)))
+
+    def fail_settings_save(_patch):
+        raise OSError("settings read-only")
+
+    monkeypatch.setattr(ui_settings, "save_patch", fail_settings_save)
+
+    bridge.updateSettings(json.dumps({"fronius_address": "192.168.1.10"}))
+    bridge.shutdown()
+
+    assert data_source.load_saved() == previous_source
+    assert succeeded == []
+    assert failed and "read-only" in failed[0]["error"]

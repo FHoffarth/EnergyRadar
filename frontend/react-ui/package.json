@@ -1,7 +1,7 @@
 {
   "name": "energyradar-ui",
   "private": true,
-  "version": "0.5.0-rc.1",
+  "version": "0.5.0-rc1",
   "author": "Florian Hoffarth",
   "type": "module",
   "scripts": {

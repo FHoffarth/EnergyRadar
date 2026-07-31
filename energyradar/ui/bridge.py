@@ -437,17 +437,38 @@ class EnergyBridge(QObject):
             patch = json.loads(patch_json)
             if not isinstance(patch, dict):
                 raise ValueError("Patch muss ein JSON-Objekt sein.")
+            validated_patch = ui_settings.validate_patch(patch)
+
             # Fronius has a dedicated data-source store. Persist it before the
-            # UI settings file so a failed device-address write can never be
-            # acknowledged to the form as a successful save.
-            if "fronius_address" in patch:
-                addr = str(patch["fronius_address"]).strip() if patch["fronius_address"] else ""
+            # UI settings file so a failed device-address write cannot change
+            # the general settings. Keep its previous state for rollback if
+            # the later atomic UI-settings write fails.
+            previous_source = None
+            source_changed = False
+            if "fronius_address" in validated_patch:
+                previous_source = ds.load_saved()
+                addr = validated_patch["fronius_address"] or ""
                 if addr:
                     ds.save(addr)
                 else:
                     ds.remove_saved()
+                source_changed = True
 
-            updated_raw = ui_settings.save_patch(patch)
+            try:
+                updated_raw = ui_settings.save_patch(validated_patch)
+            except Exception as settings_exc:
+                if source_changed:
+                    try:
+                        if previous_source:
+                            ds.save(previous_source["url"])
+                        else:
+                            ds.remove_saved()
+                    except Exception as rollback_exc:
+                        raise RuntimeError(
+                            f"Settings konnten nicht gespeichert und die Fronius-Konfiguration "
+                            f"nicht wiederhergestellt werden: {rollback_exc}"
+                        ) from settings_exc
+                raise
             self._settings = ui_settings.load()
 
             # Timer-Intervall anpassen, falls refresh_seconds im Patch

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import pytest
 from energyradar.ui import settings as ui_settings
 from energyradar.ui import viewmodels
@@ -138,3 +139,9 @@ def test_legacy_footer_uses_authoritative_version():
         html = client.get("/").get_data(as_text=True)
     assert f"EnergyRadar {config.APP_VERSION}" in html
     assert "EnergyRadar v1.0" not in html
+
+
+def test_frontend_package_version_matches_authoritative_version():
+    package_path = Path(__file__).parents[1] / "frontend" / "react-ui" / "package.json"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    assert package["version"] == config.APP_VERSION

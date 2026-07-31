@@ -10,10 +10,15 @@ const snapshot = (grid: number | null, solar: number | null, quality: EnergySnap
 });
 
 describe('personalized greeting trust rules', () => {
-  it('selects morning, afternoon and evening by local hour', () => {
-    expect(greetingPeriod(7)).toBe('morning');
-    expect(greetingPeriod(14)).toBe('afternoon');
-    expect(greetingPeriod(21)).toBe('evening');
+  it.each([
+    [4 + 59 / 60, 'night'],
+    [5, 'morning'],
+    [11 + 59 / 60, 'morning'],
+    [12, 'afternoon'],
+    [17 + 59 / 60, 'afternoon'],
+    [18, 'evening'],
+  ] as const)('selects the local-time boundary at %s', (hour, expected) => {
+    expect(greetingPeriod(hour)).toBe(expected);
   });
 
   it('uses a name only when one is configured', () => {
@@ -30,5 +35,11 @@ describe('personalized greeting trust rules', () => {
   it('uses neutral copy for partial, stale or unavailable live data', () => {
     expect(trustworthyEnergySummary(snapshot(null, null), 'de-DE')).toContain('nicht verfügbar');
     expect(trustworthyEnergySummary(snapshot(-0.88, 1.1, 'stale'), 'de-DE')).toContain('nicht verfügbar');
+  });
+
+  it('may report fresh observed solar when grid power is unavailable', () => {
+    const summary = trustworthyEnergySummary(snapshot(null, 2.4), 'de-DE');
+    expect(summary).toContain('Solaranlage erzeugt gerade 2,4 kW');
+    expect(summary).not.toMatch(/Netz|bezieht|speist/);
   });
 });

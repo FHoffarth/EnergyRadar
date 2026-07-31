@@ -598,11 +598,11 @@ export function SettingsView() {
           {/* Fronius — Primary */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Fronius Wechselrichter</label>
+              <label htmlFor="fronius-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">Fronius Wechselrichter</label>
               <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Hauptgerät</span>
             </div>
             <div className="flex gap-2">
-              <input type="text" placeholder="IP oder Hostname"
+              <input id="fronius-address" type="text" placeholder="IP oder Hostname"
                 value={froniusAddr}
                 onChange={(e) => {
                   const value = normalizeHost(e.target.value);
@@ -648,9 +648,9 @@ export function SettingsView() {
 
             {mt175Expanded && (
               <div className="mt-3 space-y-2">
-                <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">IP oder Hostname</label>
+                <label htmlFor="smart-meter-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">IP oder Hostname des SmartMeterReaders</label>
                 <div className="flex gap-2">
-                  <input type="text" placeholder="z.B. 192.168.178.83"
+                  <input id="smart-meter-address" type="text" placeholder="z.B. 192.168.178.83"
                     value={mt175Addr}
                     onChange={(e) => {
                       const value = normalizeHost(e.target.value);
