@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Callable
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from energyradar.models.energy import QualityStatus
 log = logging.getLogger(__name__)
 
 BUSY_TIMEOUT_MS = 5_000
+_MIGRATION_LOCK = threading.RLock()
 
 
 class MigrationError(RuntimeError):
@@ -56,6 +58,10 @@ def _utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
+
+
+def _backup_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def _open_connection(path: Path) -> sqlite3.Connection:
@@ -90,21 +96,47 @@ def _foreign_key_check(con: sqlite3.Connection) -> None:
         raise MigrationError(f"Database foreign-key check failed: {row}")
 
 
-def _create_consistent_backup(con: sqlite3.Connection, database_path: Path) -> Path:
+def _next_backup_path(database_path: Path, from_version: int, to_version: int) -> Path:
+    """Reserve a collision-safe backup path beside the live database."""
+    stamp = _backup_stamp()
+    base_name = (
+        f"{database_path.stem}.pre-v{from_version}-to-v{to_version}-{stamp}"
+    )
+    suffix = 0
+    while True:
+        discriminator = f"-{suffix}" if suffix else ""
+        candidate = database_path.with_name(
+            f"{base_name}{discriminator}.db.bak"
+        )
+        try:
+            candidate.touch(exist_ok=False)
+        except FileExistsError:
+            suffix += 1
+            continue
+        return candidate
+
+
+def _create_consistent_backup(
+    database_path: Path, from_version: int, to_version: int
+) -> Path:
     """Create and integrity-check an atomic pre-migration backup."""
-    backup_path = database_path.with_suffix(".db.bak")
-    temporary = backup_path.with_suffix(backup_path.suffix + ".tmp")
+    backup_path = _next_backup_path(database_path, from_version, to_version)
+    temporary = database_path.with_name(
+        f".{backup_path.name}.{uuid4().hex}.tmp"
+    )
     try:
-        temporary.unlink(missing_ok=True)
+        source = _open_connection(database_path)
         destination = _open_connection(temporary)
         try:
-            con.backup(destination)
+            source.backup(destination)
             _integrity_check(destination)
         finally:
             destination.close()
+            source.close()
         os.replace(temporary, backup_path)
     except Exception:
         temporary.unlink(missing_ok=True)
+        backup_path.unlink(missing_ok=True)
         raise
     log.info("Database backed up to %s", backup_path)
     return backup_path
@@ -776,49 +808,66 @@ def run_migrations() -> None:
     pre-migration backup. Each migration is idempotently selected by version,
     executes in its own transaction, and rolls back fully on failure.
     """
-    database_path = Path(config.DB_PATH)
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-    existed_before = database_path.exists()
+    with _MIGRATION_LOCK:
+        database_path = Path(config.DB_PATH)
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        existed_before = database_path.exists()
+        backup_path: Path | None = None
 
-    con = _open_connection(database_path)
-    try:
-        current = _detect_current_version(con)
-        if current == config.SCHEMA_VERSION:
-            _integrity_check(con)
-            _foreign_key_check(con)
-            return
-
-        _integrity_check(con)
-        if existed_before:
-            _create_consistent_backup(con, database_path)
-
-        for migration in MIGRATIONS:
-            if migration.version <= current:
-                continue
-            log.info(
-                "Migrating database from v%s to v%s (%s)",
-                current,
-                migration.version,
-                migration.name,
-            )
-            try:
-                con.execute("BEGIN IMMEDIATE")
-                migration.apply(con)
-                _record_migration(con, migration)
+        con = _open_connection(database_path)
+        try:
+            current = _detect_current_version(con)
+            if current == config.SCHEMA_VERSION:
+                _integrity_check(con)
                 _foreign_key_check(con)
-                con.commit()
-            except Exception:
-                con.rollback()
-                log.exception(
-                    "Migration v%s (%s) failed and was rolled back",
-                    migration.version,
-                    migration.name,
-                )
-                raise
-            current = migration.version
+                return
 
-        _integrity_check(con)
-        _validate_migration_ledger(con, current)
-        log.info("Database migration completed at schema v%s", current)
-    finally:
-        con.close()
+            _integrity_check(con)
+            for migration in MIGRATIONS:
+                if migration.version <= current:
+                    continue
+                try:
+                    # Re-read the authoritative version while holding SQLite's
+                    # write reservation. Another process may have completed the
+                    # same migration since our initial inspection.
+                    con.execute("BEGIN IMMEDIATE")
+                    current = _detect_current_version(con)
+                    if migration.version <= current:
+                        con.rollback()
+                        continue
+                    if migration.version != current + 1:
+                        raise MigrationMetadataError(
+                            "Pending migrations are not contiguous"
+                        )
+                    if existed_before and backup_path is None:
+                        backup_path = _create_consistent_backup(
+                            database_path, current, config.SCHEMA_VERSION
+                        )
+                    log.info(
+                        "Migrating database from v%s to v%s (%s)",
+                        current,
+                        migration.version,
+                        migration.name,
+                    )
+                    migration.apply(con)
+                    _record_migration(con, migration)
+                    _foreign_key_check(con)
+                    con.commit()
+                except Exception:
+                    con.rollback()
+                    log.exception(
+                        "Migration v%s (%s) failed and was rolled back",
+                        migration.version,
+                        migration.name,
+                    )
+                    raise
+                current = migration.version
+
+            _integrity_check(con)
+            _validate_migration_ledger(con, current)
+            log.info("Database migration completed at schema v%s", current)
+        except Exception:
+            log.exception("Database migration startup check failed")
+            raise
+        finally:
+            con.close()

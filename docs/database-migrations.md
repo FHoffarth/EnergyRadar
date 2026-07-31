@@ -15,7 +15,9 @@ Migrations run automatically in two places:
 - explicitly during React desktop startup in `desktop_web.main()`;
 - defensively before the first SQLite storage connection in `storage._connect()`.
 
-Repeated calls are idempotent. Foreign keys and a bounded busy timeout are enabled on migration and storage connections. Before changing an existing older database, the runner creates an integrity-checked SQLite backup at `energy.db.bak`. Fresh empty databases do not need a pre-migration backup.
+Repeated calls are idempotent. An in-process lock plus SQLite's bounded `BEGIN IMMEDIATE` write reservation serializes desktop startup and defensive storage initialization; the authoritative version is re-read after the reservation so a second process cannot apply a migration twice. Foreign keys and a 5-second busy timeout are enabled on migration and storage connections.
+
+Before changing an existing older database, the runner creates an integrity-checked SQLite backup beside the live database. Its collision-safe name records the version range and UTC creation time, for example `energy.pre-v2-to-v3-20260731T153012123456Z.db.bak`. Existing backups are never silently overwritten. Fresh empty databases do not need a pre-migration backup.
 
 Each pending migration executes in its own `BEGIN IMMEDIATE` transaction. Its schema/data changes, compatibility version, migration record, and `PRAGMA user_version` commit together. An exception rolls back that migration. Previously completed versions remain valid and the pre-migration backup remains available.
 
@@ -33,7 +35,7 @@ Do not edit the name or checksum basis of an applied migration. A correction is 
 
 ## Downgrade and recovery policy
 
-Automatic downgrade is unsupported. A newer database is left untouched and produces `UnsupportedSchemaVersion`. Recovery uses the pre-migration `.db.bak` copy or a user-created ZIP backup after its manifest, hashes, SQLite integrity, foreign keys, and compatible schema have been validated. The application currently creates ZIP backups but does not yet expose restore; Phase 0 does not add restore behavior.
+Automatic downgrade is unsupported. A newer database is left untouched and produces `UnsupportedSchemaVersion`. Recovery uses the pre-migration `.db.bak` copy or a user-created ZIP backup after its manifest, hashes, SQLite integrity, foreign keys, and compatible schema have been validated. The migration backup is a complete SQLite database and can be restored manually while EnergyRadar is stopped by first preserving the failed live database, then copying the validated backup to the configured `energy.db` path. The application does not yet expose restore; Phase 0 does not add restore behavior.
 
 The v3 migration preserves `energy_samples_v1` unchanged and copies existing values additively into source-specific `raw_samples` rows with deterministic deduplication keys. Signed grid power and valid zero values are retained. Existing Wh counters are explicitly represented as kWh in the new canonical columns while the original Wh values remain untouched in `energy_samples_v1`. Because current live writes intentionally remain on `energy_samples_v1`, the later Phase 1 writer migration must idempotently catch up rows created after v3 before switching any reads.
 

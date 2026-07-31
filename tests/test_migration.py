@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -124,6 +125,10 @@ def _phase0_shapes(path: Path) -> dict[str, list[tuple]]:
         }
 
 
+def _migration_backups(path: Path) -> list[Path]:
+    return sorted(path.parent.glob(f"{path.stem}.pre-v*-to-v*.db.bak"))
+
+
 def test_fresh_database_creation_has_complete_versioned_schema(database_path):
     migration.run_migrations()
 
@@ -184,8 +189,9 @@ def test_upgrade_from_v2_is_additive_and_preserves_live_samples(database_path):
             ("tasmota", None, 0.0, 9798.031, 12480.63, None),
         ]
 
-    backup_path = database_path.with_suffix(".db.bak")
-    assert backup_path.exists()
+    backups = _migration_backups(database_path)
+    assert len(backups) == 1
+    backup_path = backups[0]
     with sqlite3.connect(backup_path) as backup:
         assert backup.execute("SELECT version FROM schema_info").fetchone()[0] == 2
         assert backup.execute("SELECT * FROM energy_samples_v1 ORDER BY id").fetchall() == before
@@ -293,7 +299,7 @@ def test_unsupported_newer_schema_fails_before_mutation_or_backup(database_path)
     with pytest.raises(migration.UnsupportedSchemaVersion, match="newer than supported"):
         migration.run_migrations()
 
-    assert not database_path.with_suffix(".db.bak").exists()
+    assert _migration_backups(database_path) == []
     with sqlite3.connect(database_path) as con:
         assert con.execute("SELECT value FROM sentinel").fetchone()[0] == "unchanged"
 
@@ -381,3 +387,213 @@ def test_today_storage_rows_remain_readable_after_restart(database_path):
 
     assert second == first
     assert [row["grid_power_w"] for row in second] == [-789.0, 0.0]
+
+
+def test_backup_names_are_collision_safe_and_do_not_overwrite(
+    database_path, monkeypatch
+):
+    database_path.touch()
+    monkeypatch.setattr(migration, "_backup_stamp", lambda: "20260731T120000000000Z")
+
+    first = migration._next_backup_path(database_path, 2, 3)
+    first.write_text("preserve me", encoding="utf-8")
+    second = migration._next_backup_path(database_path, 2, 3)
+
+    assert first.name == "energy.pre-v2-to-v3-20260731T120000000000Z.db.bak"
+    assert second.name == "energy.pre-v2-to-v3-20260731T120000000000Z-1.db.bak"
+    assert first.read_text(encoding="utf-8") == "preserve me"
+
+
+def test_backup_failure_prevents_migration(database_path, monkeypatch):
+    _create_v2(database_path)
+
+    def fail_backup(*_args, **_kwargs):
+        raise OSError("backup destination unavailable")
+
+    monkeypatch.setattr(migration, "_create_consistent_backup", fail_backup)
+    with pytest.raises(OSError, match="backup destination unavailable"):
+        migration.run_migrations()
+
+    with sqlite3.connect(database_path) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert con.execute("SELECT version FROM schema_info").fetchone()[0] == 2
+        sample_count = con.execute(
+            "SELECT COUNT(*) FROM energy_samples_v1"
+        ).fetchone()[0]
+        assert sample_count == 2
+        assert not migration._table_exists(con, "raw_samples")
+
+
+def test_failed_migration_leaves_valid_pre_migration_backup(
+    database_path, monkeypatch
+):
+    _create_v2(database_path)
+
+    def fail_after_write(con):
+        con.execute("CREATE TABLE interrupted_write(value TEXT)")
+        con.execute("INSERT INTO interrupted_write VALUES ('not committed')")
+        raise RuntimeError("simulated interruption")
+
+    failing = migration.Migration(3, "interrupted", "test", fail_after_write)
+    monkeypatch.setattr(
+        migration,
+        "MIGRATIONS",
+        (migration.MIGRATIONS[0], migration.MIGRATIONS[1], failing),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        migration.run_migrations()
+
+    backups = _migration_backups(database_path)
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as backup:
+        assert backup.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert backup.execute("SELECT version FROM schema_info").fetchone()[0] == 2
+        sample_count = backup.execute(
+            "SELECT COUNT(*) FROM energy_samples_v1"
+        ).fetchone()[0]
+        assert sample_count == 2
+
+
+def test_concurrent_startup_applies_pending_migration_once(database_path):
+    _create_v2(database_path)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: migration.run_migrations(), range(2)))
+
+    assert results == [None, None]
+    with sqlite3.connect(database_path) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert con.execute(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = 3"
+        ).fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM raw_samples").fetchone()[0] == 4
+    assert len(_migration_backups(database_path)) == 1
+
+
+def test_realistic_existing_rows_preserve_signed_zero_null_and_duplicates(
+    database_path
+):
+    _create_v2(database_path, with_samples=False)
+    rows = [
+        (
+            f"2026-07-31 10:{index // 60:02d}:{index % 60:02d}",
+            f"2026-07-31 10:{index // 60:02d}:{index % 60:02d}",
+            None,
+            None,
+            1000.0 if index != 3 else None,
+            [3557.0, -789.0, 0.0, None, 3557.0][index],
+            2500.0 if index != 3 else None,
+            9798031.0 if index != 3 else None,
+            12480630.0 if index != 3 else None,
+            "valid" if index != 3 else "unavailable",
+            "valid" if index != 3 else "unavailable",
+            "valid" if index != 3 else "partial",
+        )
+        for index in range(5)
+    ]
+    with sqlite3.connect(database_path) as con:
+        con.execute("CREATE TABLE user_metadata(key TEXT PRIMARY KEY, value TEXT)")
+        con.execute("INSERT INTO user_metadata VALUES ('installation', 'existing')")
+        con.executemany(
+            """
+            INSERT INTO energy_samples_v1 (
+                measured_at, received_at, pv_measured_at, grid_measured_at,
+                pv_power_w, grid_power_w, pv_energy_today_wh,
+                grid_import_total_wh, grid_export_total_wh,
+                pv_quality_status, grid_quality_status, sample_quality_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        before = con.execute("SELECT * FROM energy_samples_v1 ORDER BY id").fetchall()
+
+    migration.run_migrations()
+    migration.run_migrations()
+
+    with sqlite3.connect(database_path) as con:
+        after = con.execute(
+            "SELECT * FROM energy_samples_v1 ORDER BY id"
+        ).fetchall()
+        assert after == before
+        assert con.execute(
+            "SELECT value FROM user_metadata WHERE key = 'installation'"
+        ).fetchone()[0] == "existing"
+        grid_values = [
+            row[0]
+            for row in con.execute(
+                """
+                SELECT grid_power_w FROM raw_samples
+                JOIN device_sources USING(source_id)
+                WHERE provider = 'tasmota' ORDER BY sample_id
+                """
+            )
+        ]
+        assert grid_values == [3557.0, -789.0, 0.0, 3557.0]
+        assert con.execute(
+            "SELECT COUNT(*) FROM raw_samples WHERE dedupe_key LIKE '%:4'"
+        ).fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM device_sources").fetchone()[0] == 2
+
+
+def test_large_existing_database_migrates_without_loss_or_duplicates(database_path):
+    _create_v2(database_path, with_samples=False)
+    count = 1_000
+    with sqlite3.connect(database_path) as con:
+        con.executemany(
+            """
+            INSERT INTO energy_samples_v1 (
+                measured_at, received_at, pv_power_w, grid_power_w,
+                pv_energy_today_wh, grid_import_total_wh, grid_export_total_wh,
+                pv_quality_status, grid_quality_status, sample_quality_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'valid', 'valid', 'valid')
+            """,
+            (
+                (
+                    f"2026-07-31 12:{index // 60:02d}:{index % 60:02d}",
+                    f"2026-07-31 12:{index // 60:02d}:{index % 60:02d}",
+                    float(index),
+                    float((index % 21) - 10),
+                    2500.0,
+                    9798031.0,
+                    12480630.0,
+                )
+                for index in range(count)
+            ),
+        )
+
+    migration.run_migrations()
+    migration.run_migrations()
+
+    with sqlite3.connect(database_path) as con:
+        legacy_count = con.execute(
+            "SELECT COUNT(*) FROM energy_samples_v1"
+        ).fetchone()[0]
+        raw_count = con.execute("SELECT COUNT(*) FROM raw_samples").fetchone()[0]
+        grid_range = con.execute(
+            "SELECT MIN(grid_power_w), MAX(grid_power_w) FROM raw_samples"
+        ).fetchone()
+        assert legacy_count == count
+        assert raw_count == count * 2
+        assert grid_range == (-10.0, 10.0)
+
+
+def test_packaged_windows_data_path_supports_spaces_and_non_ascii(
+    tmp_path, monkeypatch
+):
+    local_app_data = tmp_path / "Benutzer Änne" / "Local App Data"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(config.os, "name", "nt")
+    monkeypatch.setattr(config.sys, "platform", "win32")
+    monkeypatch.setattr(config.sys, "frozen", True, raising=False)
+
+    user_data_dir = config._user_data_dir()
+    database = user_data_dir / "database" / "energy.db"
+    monkeypatch.setattr(config, "DB_PATH", database)
+    migration.run_migrations()
+
+    assert user_data_dir == local_app_data / "EnergyRadar"
+    assert database.exists()
+    assert not database.is_relative_to(config.BASE_DIR)
+    with sqlite3.connect(database) as con:
+        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
