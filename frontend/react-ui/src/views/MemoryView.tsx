@@ -1,21 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive, CheckCircle, AlertCircle, Loader2, Brain, Info } from 'lucide-react';
+import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive, CheckCircle, AlertCircle, Loader2, History } from 'lucide-react';
+import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { HistoryData, HistoryRangeKey } from '../types';
+import { historyData$, requestHistoryRange } from '../lib/energyService';
+import { useNumberLocale } from '../context/AppContext';
+import { formatNumber } from '../lib/format';
 
 export function MemoryView() {
   const { requestExport, requestMailShare, exportStatus } = useApp();
-  const { timeline } = useEnergyProvider();
+  const locale = useNumberLocale();
 
   const [exportType, setExportType] = useState<'pdf' | 'csv' | 'json' | 'zip'>('pdf');
-  const [range, setRange] = useState<'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year'>('7days');
+  const [exportRange, setExportRange] = useState<'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year'>('7days');
+  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>('today');
+  const [history, setHistory] = useState<HistoryData>(historyData$.get());
+
+  useEffect(() => historyData$.subscribe(setHistory), []);
+  useEffect(() => {
+    requestHistoryRange(historyRange);
+  }, [historyRange]);
 
   const getRangeDates = () => {
     const end = new Date();
     const start = new Date();
     start.setHours(0,0,0,0);
 
-    switch (range) {
+    switch (exportRange) {
       case 'today': break;
       case 'yesterday':
         start.setDate(start.getDate() - 1);
@@ -32,15 +43,31 @@ export function MemoryView() {
 
   const handleExport = () => {
     const { start, end } = getRangeDates();
-    requestExport(exportType, range, start, end);
+    requestExport(exportType, exportRange, start, end);
   };
 
   const handleMailShare = () => {
     const { start, end } = getRangeDates();
-    requestMailShare(range, start, end);
+    requestMailShare(exportRange, start, end);
   };
 
   const isZip = exportType === 'zip';
+  const recordingSince = history.recordingSince
+    ? new Intl.DateTimeFormat('de-DE', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      }).format(new Date(history.recordingSince))
+    : null;
+  const historyMessage = history.status === 'loading'
+    ? 'Gespeicherte Energiedaten werden geladen.'
+    : history.status === 'no_history'
+    ? 'Für diesen Zeitraum wurden noch keine Energiedaten aufgezeichnet.'
+    : history.status === 'partial'
+    ? `${recordingSince ? `Aufzeichnung aktiv seit ${recordingSince} Uhr. ` : ''}Für diesen Zeitraum liegen teilweise keine Messdaten vor.`
+    : recordingSince
+    ? `Aufzeichnung aktiv seit ${recordingSince} Uhr.`
+    : 'Gespeicherte Energiedaten sind verfügbar.';
+  const chartPoints = history.points;
 
   return (
     <div className="flex-1 flex flex-col p-8 pt-12 overflow-y-auto">
@@ -49,16 +76,83 @@ export function MemoryView() {
         <p className="text-[#6E6E6E] dark:text-slate-400 mt-2 text-lg">Exportiere Berichte oder erstelle Sicherungen.</p>
       </div>
 
-      <div className="mb-8 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 flex items-start gap-3 text-sky-800 dark:text-sky-300 text-sm">
-        <Brain className="w-5 h-5 shrink-0 mt-0.5" />
-        <div>
-          <strong className="font-semibold">Gedächtnisfunktion — in Entwicklung</strong>
-          <p className="text-xs mt-1 leading-relaxed">
-            EnergyRadar wird zukünftig wiederkehrende Verbrauchsmuster erkennen und Gedächtnis-Einträge aus Ihren Tagesdaten ableiten.
-            Im aktuellen Sprint steht die Export-Funktion zur Verfügung.
-          </p>
+      <section className="mb-8 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-5">
+          <div>
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <History className="w-5 h-5 text-indigo-500" /> Energieverlauf
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1" aria-live="polite">
+              {historyMessage}
+            </p>
+          </div>
+          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-1" aria-label="Historischer Zeitraum">
+            {([
+              ['today', 'Heute'],
+              ['7days', '7 Tage'],
+              ['30days', '30 Tage'],
+            ] as Array<[HistoryRangeKey, string]>).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setHistoryRange(key)}
+                aria-pressed={historyRange === key}
+                className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                  historyRange === key
+                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+
+        {history.status === 'loading' ? (
+          <div className="h-72 flex items-center justify-center text-slate-500 gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" /> Historie wird geladen
+          </div>
+        ) : chartPoints.length === 0 ? (
+          <div className="h-72 flex items-center justify-center rounded-xl bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-sm">
+            Keine gespeicherten Messwerte in diesem Zeitraum.
+          </div>
+        ) : (
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartPoints} margin={{ top: 8, right: 18, left: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.25} vertical={false} />
+                <XAxis dataKey="time" minTickGap={48} tickLine={false} axisLine={false} fontSize={10} stroke="#94A3B8" />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  fontSize={10}
+                  stroke="#94A3B8"
+                  unit=" kW"
+                  tickFormatter={(value: number) => formatNumber(value, locale, { maximumFractionDigits: 1 })}
+                />
+                <ReferenceLine y={0} stroke="#64748B" strokeWidth={1.5} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [
+                    `${formatNumber(value, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW`,
+                    name,
+                  ]}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.timestamp
+                    ? new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(payload[0].payload.timestamp))
+                    : ''}
+                />
+                <Legend />
+                <Line type="linear" dataKey="solarKw" name="Solar" stroke="#D97706" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                <Line type="linear" dataKey="consumptionKw" name="Verbrauch" stroke="#4F46E5" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+                <Line type="linear" dataKey="gridKw" name="Netzfluss" stroke="#0284C7" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Netzfluss über null bedeutet Bezug, unter null Einspeisung. Fehlende Zeiträume bleiben als Lücken sichtbar.
+        </p>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="col-span-1 lg:col-span-2 space-y-8">
@@ -97,9 +191,9 @@ export function MemoryView() {
                   { id: 'month', label: 'Aktueller Monat' },
                   { id: 'year', label: 'Dieses Jahr' },
                 ].map(r => (
-                  <button key={r.id} onClick={() => setRange(r.id as any)}
+                  <button key={r.id} onClick={() => setExportRange(r.id as any)}
                     className={`p-3 rounded-lg border text-center transition-colors ${
-                      range === r.id
+                      exportRange === r.id
                         ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
                         : 'border-[#E5E5E3] dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}>

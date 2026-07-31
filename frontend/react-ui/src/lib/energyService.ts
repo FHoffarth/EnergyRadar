@@ -1,4 +1,4 @@
-import { PowerData, SystemStatus, DataState, TodayData } from '../types';
+import { PowerData, SystemStatus, DataState, TodayData, HistoryData, HistoryRangeKey } from '../types';
 import { getBridge, initBridge } from './bridge';
 
 // Helper to wrap raw values in DataState
@@ -58,6 +58,16 @@ export const todayData$ = new Observable<TodayData>({
   history: []
 });
 
+export const historyData$ = new Observable<HistoryData>({
+  range: 'today',
+  status: 'loading',
+  recordingSince: null,
+  lastRecordedAt: null,
+  totalSamples: 0,
+  points: [],
+});
+let requestedHistoryRange: HistoryRangeKey | null = null;
+
 // ── Service Logic ────────────────────────────────────────────────────────
 
 function processNowViewModel(raw: Record<string, any>) {
@@ -113,6 +123,7 @@ function processTodayViewModel(raw: Record<string, any>) {
       home: typeof pt.home_power_w === 'number' ? pt.home_power_w : null,
       gridImport: typeof pt.grid_import_w === 'number' ? pt.grid_import_w : null,
       gridExport: typeof pt.grid_export_w === 'number' ? pt.grid_export_w : null,
+      quality: typeof pt.quality_status === 'string' ? pt.quality_status : 'unknown',
     };
   });
 
@@ -125,6 +136,49 @@ function processTodayViewModel(raw: Record<string, any>) {
     selfSufficiency: toDataState(raw.autarky_pct),
     history
   });
+}
+
+export function processHistoryViewModel(raw: Record<string, any>) {
+  const range = (['today', '7days', '30days'].includes(raw.range)
+    ? raw.range
+    : 'today') as HistoryRangeKey;
+  if (requestedHistoryRange !== null && range !== requestedHistoryRange) {
+    return;
+  }
+  const formatter = new Intl.DateTimeFormat('de-DE', {
+    day: range === 'today' ? undefined : '2-digit',
+    month: range === 'today' ? undefined : '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const points = Array.isArray(raw.points) ? raw.points.map((point: any) => ({
+    timestamp: String(point.timestamp_utc || ''),
+    time: point.timestamp_utc ? formatter.format(new Date(point.timestamp_utc)) : '',
+    solarKw: typeof point.pv_power_w === 'number' ? point.pv_power_w / 1000 : null,
+    consumptionKw: typeof point.house_power_w === 'number' ? point.house_power_w / 1000 : null,
+    gridKw: typeof point.grid_power_w === 'number' ? point.grid_power_w / 1000 : null,
+    quality: String(point.quality_state || 'missing'),
+    source: String(point.source_name || 'EnergyRadar'),
+    gap: point.gap === true,
+  })) : [];
+
+  historyData$.set({
+    range,
+    status: ['available', 'partial', 'no_history'].includes(raw.status)
+      ? raw.status
+      : 'no_history',
+    recordingSince: raw.recording_since_utc || null,
+    lastRecordedAt: raw.last_recorded_at_utc || null,
+    totalSamples: Number.isFinite(raw.total_samples) ? raw.total_samples : 0,
+    points,
+  });
+}
+
+export async function requestHistoryRange(range: HistoryRangeKey) {
+  requestedHistoryRange = range;
+  historyData$.set({ ...historyData$.get(), range, status: 'loading' });
+  const bridge = getBridge() || await initBridge();
+  bridge?.requestHistory(range);
 }
 
 export function startEnergyService() {
@@ -179,6 +233,24 @@ export function startEnergyService() {
         }
       } catch (e) {
         console.error('[energyService] live parse error today', e);
+      }
+    });
+
+    try {
+      if (bridge.historyData) {
+        processHistoryViewModel(JSON.parse(bridge.historyData));
+      }
+    } catch (e) {
+      console.error('[energyService] initial parse error history', e);
+    }
+
+    bridge.historyDataChanged.connect(() => {
+      try {
+        if (bridge.historyData) {
+          processHistoryViewModel(JSON.parse(bridge.historyData));
+        }
+      } catch (e) {
+        console.error('[energyService] live parse error history', e);
       }
     });
   });

@@ -49,3 +49,15 @@ Schema v3 introduces only foundations:
 - `raw_samples`, without changing the live writer or frontend readers.
 
 It does not add historical UI, aggregation, retention cleanup, exports, greetings, Fronius detail/archive behavior, polling changes, or calculation changes. The existing Today history continues to read `energy_samples_v1`.
+
+## Phase 1 persistence contract
+
+Phase 1 keeps schema version 3 because the existing `raw_samples`, `device_sources`, constraints, and indexes already cover its write and bounded-read requirements. Each configured collection cycle transactionally keeps the compatibility write in `energy_samples_v1` and adds:
+
+- a Fronius source row containing directly reported finite values and source/receive timestamp evidence;
+- a Tasmota MT631/MT175 source row preserving signed grid power, cumulative measured totals, device time text/timezone, and receive time;
+- an EnergyRadar derived-cycle row used by Today/7-day/30-day history queries.
+
+The canonical chart timestamp is the collection cycle's UTC receive timestamp. Tasmota observations retain device and receive timestamps separately. The Fronius live endpoint has no device timestamp, so its naive host-local model timestamp is retained only as source text and the aware cycle receipt is authoritative; it is never mislabeled as UTC. Stable source UUIDs and cycle-based deduplication keys make repeated writes and restarts idempotent.
+
+The `provenance` column continues to describe acquisition (`measured` or future `backfilled`), while `quality_state` distinguishes `measured`, `derived`, `partial`, and `missing`. A derived-cycle row contains `house_power_w` only when the unchanged live freshness/alignment calculation accepted both inputs. It may contain nullable source values and measured counters, but it never converts unavailable values to zero. Existing v2 rows are caught up into a stable legacy derived source only when no Phase 1 live derived row already represents that cycle; their PV and signed-grid evidence remains readable, but house power stays null because v2 did not persist alignment evidence. The v2 table remains untouched.

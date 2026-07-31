@@ -26,6 +26,7 @@ export interface TodayHistoryPoint {
   home: number | null;
   gridImport: number | null;
   gridExport: number | null;
+  quality?: string;
 }
 
 export interface TodayData {
@@ -37,6 +38,28 @@ export interface TodayData {
   selfConsumption: DataState<number>;
   history: TodayHistoryPoint[];
   solar_forecast?: SolarForecastReportData | null;
+}
+
+export type HistoryRangeKey = 'today' | '7days' | '30days';
+
+export interface HistoryPoint {
+  timestamp: string;
+  time: string;
+  solarKw: number | null;
+  consumptionKw: number | null;
+  gridKw: number | null;
+  quality: 'measured' | 'derived' | 'partial' | 'missing' | string;
+  source: string;
+  gap: boolean;
+}
+
+export interface HistoryData {
+  range: HistoryRangeKey;
+  status: 'loading' | 'available' | 'partial' | 'no_history';
+  recordingSince: string | null;
+  lastRecordedAt: string | null;
+  totalSamples: number;
+  points: HistoryPoint[];
 }
 
 export interface DeviceCardData {

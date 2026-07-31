@@ -6,23 +6,37 @@ Einzige Verantwortung: SQLite. Anlegen, Schreiben (gedrosselt), Lesen.
 import sqlite3
 from datetime import datetime, timezone
 import logging
+import threading
 
 from energyradar import config
 from energyradar.models.energy import EnergyReading, QualityStatus
 from energyradar.models.mt175 import MT175Reading
-from energyradar.services import migration
+from energyradar.services import history_store, migration
 
 log = logging.getLogger(__name__)
 
 _TS_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _MIGRATED = False
+_INITIALIZE_LOCK = threading.RLock()
 
 def _connect() -> sqlite3.Connection:
     global _MIGRATED
     if not _MIGRATED:
-        migration.run_migrations()
-        _MIGRATED = True
+        with _INITIALIZE_LOCK:
+            if not _MIGRATED:
+                migration.run_migrations()
+                initialization = sqlite3.connect(config.DB_PATH)
+                initialization.execute("PRAGMA foreign_keys = ON")
+                initialization.execute(
+                    f"PRAGMA busy_timeout = {migration.BUSY_TIMEOUT_MS}"
+                )
+                try:
+                    with initialization:
+                        history_store.catch_up_v2_cycles(initialization)
+                finally:
+                    initialization.close()
+                _MIGRATED = True
 
     con = sqlite3.connect(config.DB_PATH)
     con.execute("PRAGMA foreign_keys = ON")
@@ -34,6 +48,9 @@ def save_sample(
     received_at: datetime,
     pv: EnergyReading | None = None,
     mt175: MT175Reading | None = None,
+    house_power_w: float | None = None,
+    trusted_pv_power_w: float | None = None,
+    trusted_grid_power_w: float | None = None,
     sample_quality: QualityStatus = QualityStatus.VALID,
     pv_quality: QualityStatus = QualityStatus.VALID,
     grid_quality: QualityStatus = QualityStatus.VALID
@@ -75,6 +92,20 @@ def save_sample(
                 pv_quality.value, grid_quality.value, sample_quality.value
             )
         )
+
+        history_store.persist_cycle(
+            con,
+            measured_at=measured_at,
+            received_at=received_at,
+            pv=pv,
+            meter=mt175,
+            house_power_w=house_power_w,
+            trusted_pv_power_w=trusted_pv_power_w,
+            trusted_grid_power_w=trusted_grid_power_w,
+            pv_quality=pv_quality,
+            grid_quality=grid_quality,
+        )
+        history_store.mark_current_v2_rows_represented(con)
 
         # Sicheres Ergänzen (kein NULL darf echten Wert überschreiben)
         con.execute(
@@ -133,3 +164,25 @@ def get_samples_in_range(start_dt: datetime, end_dt: datetime) -> list[dict]:
             (start_dt.strftime(_TS_FORMAT), end_dt.strftime(_TS_FORMAT))
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_persisted_history_rows(
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    max_points: int | None = None,
+) -> tuple[list[dict], int]:
+    """Return bounded Phase 1 cycle rows from the raw history foundation."""
+    with _connect() as con:
+        rows, total = history_store.read_derived_rows(
+            con,
+            start_utc=history_store._utc_text(start_dt),
+            end_utc=history_store._utc_text(end_dt),
+            max_points=max_points,
+        )
+    return rows, total
+
+
+def get_history_recording_bounds() -> tuple[str | None, str | None]:
+    with _connect() as con:
+        return history_store.recording_bounds(con)
