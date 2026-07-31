@@ -39,6 +39,23 @@ DEFAULTS: dict[str, Any] = {
     "pv_installed_kwp": None,
 }
 
+# Live power is a current-state feature, not a background history job.  Older
+# UI versions allowed persisting a 60-second cadence; the React UI no longer
+# exposes that control, so such profiles silently made both cards and charts
+# look about one minute late.  Ten seconds remains gentler than the established
+# five-second default while keeping the live view meaningfully current.
+MIN_REFRESH_SECONDS = 3
+MAX_LIVE_REFRESH_SECONDS = 10
+
+
+def _effective_refresh_seconds(value: Any) -> int:
+    """Return a safe live polling cadence for defaults and persisted values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return int(DEFAULTS["refresh_seconds"])
+    if not math.isfinite(value):
+        return int(DEFAULTS["refresh_seconds"])
+    return max(MIN_REFRESH_SECONDS, min(MAX_LIVE_REFRESH_SECONDS, int(value)))
+
 
 def _settings_path() -> Path:
     """Lazy Import um zirkuläre Imports mit config zu vermeiden."""
@@ -115,6 +132,9 @@ def resolve_effective(raw_dict: Optional[dict[str, Any]] = None) -> dict[str, An
     for k, v in raw_dict.items():
         if k in DEFAULTS and v is not None:
             effective[k] = v
+    effective["refresh_seconds"] = _effective_refresh_seconds(
+        effective["refresh_seconds"]
+    )
     return effective
 
 
@@ -130,7 +150,9 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
         if k == "refresh_seconds":
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError("refresh_seconds muss eine Zahl sein.")
-            validated[k] = max(3, min(60, int(v)))
+            if not math.isfinite(v):
+                raise ValueError("refresh_seconds muss eine gültige Zahl sein.")
+            validated[k] = _effective_refresh_seconds(v)
 
         elif k == "theme":
             if str(v) not in {"dark", "light", "system"}:

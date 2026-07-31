@@ -84,6 +84,15 @@ def test_coordinate_validation():
         ui_settings.validate_patch({"latitude": float('nan')})
 
 
+def test_refresh_interval_stays_within_live_cadence():
+    assert ui_settings.validate_patch({"refresh_seconds": 3})["refresh_seconds"] == 3
+    assert ui_settings.validate_patch({"refresh_seconds": 7})["refresh_seconds"] == 7
+    assert ui_settings.validate_patch({"refresh_seconds": 60})["refresh_seconds"] == 10
+
+    with pytest.raises(ValueError):
+        ui_settings.validate_patch({"refresh_seconds": float("inf")})
+
+
 def test_viewmodel_separation(tmp_path, monkeypatch):
     settings_file = tmp_path / "ui-settings.json"
     monkeypatch.setattr(ui_settings, "_settings_path", lambda: settings_file)
