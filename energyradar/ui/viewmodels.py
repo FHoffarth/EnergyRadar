@@ -118,6 +118,16 @@ class SettingsViewModel:
     theme: str              # "dark" | "light" | "system"
 
 
+@dataclass(frozen=True)
+class SmartMeterAvailability:
+    """User-facing availability derived from actual smart-meter values."""
+
+    data_status: str
+    capabilities: List[str]
+    message: str
+    pin_locked: bool
+
+
 # ------------------------------------------------------------------ #
 # Hilfsfunktionen
 # ------------------------------------------------------------------ #
@@ -147,6 +157,90 @@ def _time_str(dt: Optional[datetime]) -> str:
         return "–"
     local = dt.astimezone()   # Systemzone
     return local.strftime("%H:%M")
+
+
+def describe_smart_meter_availability(reading) -> SmartMeterAvailability:
+    """Describe only measurements the smart meter actually supplied.
+
+    Explicit ``None`` checks are intentional: zero watts and zero cumulative
+    energy are valid measurements and therefore real capabilities.
+    """
+    has_import = reading.grid_import_total_kwh is not None
+    has_export = reading.grid_export_total_kwh is not None
+    has_power = reading.current_power_w is not None
+
+    capabilities = []
+    if has_import:
+        capabilities.append("grid_import_total")
+    if has_export:
+        capabilities.append("grid_export_total")
+    if has_power:
+        capabilities.append("current_power")
+
+    available_count = sum((has_import, has_export, has_power))
+    data_status = (
+        "complete"
+        if available_count == 3
+        else "partial"
+        if available_count > 0
+        else "unavailable"
+    )
+
+    explicit_pin_state = getattr(reading, "pin_locked", None)
+    pin_locked = (
+        reading.current_power_w is None
+        if explicit_pin_state is None
+        else explicit_pin_state
+    )
+    power_unavailable = (
+        "Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
+        if pin_locked
+        else "Die aktuelle Netzleistung ist nicht verfügbar."
+    )
+
+    if available_count == 3:
+        message = "Der Smart Meter liefert Zählerstände und aktuelle Netzleistung."
+    elif has_power and not has_import and not has_export:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung. "
+            "Zählerstände sind nicht verfügbar."
+        )
+    elif has_power and has_import and not has_export:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung und den "
+            "Bezugszählerstand. Der Einspeisezählerstand ist nicht verfügbar."
+        )
+    elif has_power and has_export and not has_import:
+        message = (
+            "Der Smart Meter liefert aktuelle Netzleistung und den "
+            "Einspeisezählerstand. Der Bezugszählerstand ist nicht verfügbar."
+        )
+    elif has_import and has_export:
+        message = f"Der Smart Meter liefert Zählerstände. {power_unavailable}"
+    elif has_import:
+        message = (
+            "Der Smart Meter liefert den Bezugszählerstand. "
+            f"Der Einspeisezählerstand ist nicht verfügbar. {power_unavailable}"
+        )
+    elif has_export:
+        message = (
+            "Der Smart Meter liefert den Einspeisezählerstand. "
+            f"Der Bezugszählerstand ist nicht verfügbar. {power_unavailable}"
+        )
+    elif pin_locked:
+        message = (
+            "Der Smart Meter liefert noch keine gültigen Messwerte. "
+            "Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
+        )
+    else:
+        message = "Der Smart Meter liefert derzeit keine gültigen Messwerte."
+
+    return SmartMeterAvailability(
+        data_status=data_status,
+        capabilities=capabilities,
+        message=message,
+        pin_locked=pin_locked,
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -502,39 +596,23 @@ def build_devices_vm(
         m_instructions = None
     elif mt175 is not None:
         m_conn = "connected"
-        explicit_pin_state = getattr(mt175, "pin_locked", None)
-        is_pin_locked = (
-            mt175.current_power_w is None
-            if explicit_pin_state is None
-            else explicit_pin_state
-        )
-        if is_pin_locked:
-            m_data = "partial"
+        availability = describe_smart_meter_availability(mt175)
+        m_data = availability.data_status
+        m_msg = availability.message
+        m_caps = availability.capabilities
+        m_quality = {
+            "complete": "Vollständig",
+            "partial": "Teilweise verfügbar",
+            "unavailable": "Nicht verfügbar",
+        }[m_data]
+        if availability.pin_locked:
             m_pin = "locked"
-            m_msg = "Zählerstände sind verfügbar. Für die aktuelle Netzleistung ist die PIN-Freigabe erforderlich."
-            m_quality = "Teilweise verfügbar"
-            m_caps = ["grid_import_total", "grid_export_total"]
             m_instructions = "Am Zähler ist die PIN-Freigabe erforderlich. Die Eingabe erfolgt je nach Zählermodell über die optische Taste beziehungsweise eine Lichtquelle. Bitte beachte die Anleitung deines Messstellenbetreibers."
         elif mt175.current_power_w is None:
-            m_data = "partial"
             m_pin = "not_applicable"
-            m_msg = "Der Smart Meter liefert derzeit keine gültige Netzleistung."
-            m_quality = "Teilweise verfügbar"
-            m_caps = [
-                capability
-                for capability, value in (
-                    ("grid_import_total", mt175.grid_import_total_kwh),
-                    ("grid_export_total", mt175.grid_export_total_kwh),
-                )
-                if value is not None
-            ]
             m_instructions = None
         else:
-            m_data = "complete"
             m_pin = "unlocked"
-            m_msg = "Der Smart Meter liefert Zählerstände und aktuelle Netzleistung."
-            m_quality = "Vollständig"
-            m_caps = ["grid_import_total", "grid_export_total", "current_power"]
             m_instructions = None
     elif mt175_error:
         m_conn = "error"

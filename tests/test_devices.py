@@ -1,8 +1,130 @@
 from datetime import datetime, timezone, timedelta
+import pytest
 from energyradar.models.energy import EnergyReading
 from energyradar.models.mt175 import MT175Reading
 from energyradar.ui.viewmodels import build_devices_vm
+from energyradar.ui.bridge import _smart_meter_connection_result
 from energyradar.services import data_source as ds
+
+
+def _meter(*, power, import_total, export_total):
+    now = datetime.now(timezone.utc)
+    return MT175Reading(
+        received_at=now,
+        timestamp=now,
+        grid_import_total_kwh=import_total,
+        grid_export_total_kwh=export_total,
+        current_power_w=power,
+        phase_l1_w=None,
+        phase_l2_w=None,
+        phase_l3_w=None,
+        meter_id=None,
+        meter_type="MT631",
+        pin_locked=False,
+    )
+
+
+def _smart_meter_card(reading):
+    cards = build_devices_vm(
+        fronius=None,
+        mt175=reading,
+        fronius_configured=False,
+        mt175_configured=True,
+        fronius_error=None,
+        mt175_error=None,
+    )
+    return next(card for card in cards if card.device_id == "mt175_primary")
+
+
+@pytest.mark.parametrize(
+    (
+        "power",
+        "import_total",
+        "export_total",
+        "expected_status",
+        "expected_capabilities",
+        "message_fragment",
+    ),
+    [
+        (
+            3557.0,
+            None,
+            None,
+            "partial",
+            ["current_power"],
+            "Zählerstände sind nicht verfügbar",
+        ),
+        (0.0, None, None, "partial", ["current_power"], "aktuelle Netzleistung"),
+        (
+            0.0,
+            0.0,
+            0.0,
+            "complete",
+            ["grid_import_total", "grid_export_total", "current_power"],
+            "Zählerstände und aktuelle Netzleistung",
+        ),
+        (
+            3557.0,
+            100.0,
+            None,
+            "partial",
+            ["grid_import_total", "current_power"],
+            "Einspeisezählerstand ist nicht verfügbar",
+        ),
+        (
+            None,
+            100.0,
+            200.0,
+            "partial",
+            ["grid_import_total", "grid_export_total"],
+            "aktuelle Netzleistung ist nicht verfügbar",
+        ),
+        (None, None, None, "unavailable", [], "keine gültigen Messwerte"),
+    ],
+    ids=[
+        "power-only",
+        "zero-power-only",
+        "all-values-including-zero",
+        "one-total-missing",
+        "totals-only",
+        "no-measurements",
+    ],
+)
+def test_smart_meter_availability_is_consistent_across_ui_paths(
+    power,
+    import_total,
+    export_total,
+    expected_status,
+    expected_capabilities,
+    message_fragment,
+):
+    reading = _meter(
+        power=power,
+        import_total=import_total,
+        export_total=export_total,
+    )
+
+    card = _smart_meter_card(reading)
+    assert card.data_status == expected_status
+    assert card.capabilities == expected_capabilities
+    assert message_fragment in card.user_message
+
+    connection = _smart_meter_connection_result(reading, latency_ms=12)
+    assert connection["data_status"] == expected_status
+    assert connection["capabilities"] == expected_capabilities
+    assert connection["message"] == card.user_message
+    assert connection["status"] == {
+        "complete": "connected",
+        "partial": "partial",
+        "unavailable": "unavailable",
+    }[expected_status]
+
+
+def test_power_only_message_does_not_claim_totals_are_available():
+    reading = _meter(power=3557.0, import_total=None, export_total=None)
+    message = _smart_meter_card(reading).user_message
+    assert "Zählerstände sind nicht verfügbar" in message
+    assert "liefert Zählerstände" not in message
 
 def test_devices_vm_pin_locked():
     mt175 = MT175Reading(
@@ -65,7 +187,7 @@ def test_mt631_unavailable_power_is_not_reported_as_pin_locked():
     assert card.data_status == "partial"
     assert card.pin_status == "not_applicable"
     assert card.pin_instructions is None
-    assert "keine gültige Netzleistung" in card.user_message
+    assert "aktuelle Netzleistung ist nicht verfügbar" in card.user_message
 
 
 def test_devices_vm_firmware_missing():

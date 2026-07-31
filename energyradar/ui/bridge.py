@@ -32,6 +32,26 @@ log = logging.getLogger(__name__)
 _STALE_MULTIPLIER = 3   # Wert gilt als veraltet nach 3× refresh_seconds
 
 
+def _smart_meter_connection_result(reading, latency_ms: int) -> dict:
+    """Build a connection-test result from measurements actually available."""
+    from energyradar.ui.viewmodels import describe_smart_meter_availability
+
+    availability = describe_smart_meter_availability(reading)
+    connection_status = {
+        "complete": "connected",
+        "partial": "partial",
+        "unavailable": "unavailable",
+    }[availability.data_status]
+    return {
+        "ok": True,
+        "status": connection_status,
+        "data_status": availability.data_status,
+        "latency_ms": latency_ms,
+        "message": availability.message,
+        "capabilities": availability.capabilities,
+    }
+
+
 class EnergyBridge(QObject):
     """Zentraler Bridge zwischen Python-Backend und QML-Frontend."""
 
@@ -370,12 +390,7 @@ class EnergyBridge(QObject):
                         from energyradar.collectors import mt175 as mc
                         reading = mc.read_url(addr)
                         latency = int((time.time() - start_time) * 1000)
-                        if reading.pin_locked:
-                            res = {"ok": True, "status": "partial", "latency_ms": latency, "message": "Gerät antwortet. PIN-Freigabe erforderlich.", "capabilities": ["grid_import_total", "grid_export_total"]}
-                        elif reading.current_power_w is None:
-                            res = {"ok": True, "status": "partial", "latency_ms": latency, "message": "Gerät antwortet, Netzleistung ist nicht verfügbar.", "capabilities": ["grid_import_total", "grid_export_total"]}
-                        else:
-                            res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet vollständig", "capabilities": ["grid_import_total", "grid_export_total", "current_power"]}
+                        res = _smart_meter_connection_result(reading, latency)
                 else:
                     res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Unbekanntes Gerät: {target_id}", "capabilities": []}
             except mt175_coll.MT175AddressError as exc:
