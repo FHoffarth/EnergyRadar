@@ -183,7 +183,7 @@ class MacOSWorkflowContractTests(unittest.TestCase):
             root = Path(directory)
             build_info = root / "BUILDINFO.json"
             commit = "a" * 40
-            with mock.patch.dict(os.environ, {"GITHUB_SHA": commit}), mock.patch.object(
+            with mock.patch.dict(os.environ, {"ENERGYRADAR_SOURCE_COMMIT": commit}), mock.patch.object(
                 build_tool.platform, "machine", return_value="arm64"
             ):
                 result = build_tool._write_build_info(build_info, root, config.APP_VERSION, config.APP_BUILD)
@@ -208,6 +208,9 @@ class MacOSWorkflowContractTests(unittest.TestCase):
         self.assertIn("ARCHITECTURE-AUDIT.txt", workflow)
         self.assertIn("MACOS-SMOKE-CHECKLIST.txt", workflow)
         self.assertIn("KNOWN-LIMITATIONS.txt", workflow)
+        self.assertIn("ref: ${{ env.ENERGYRADAR_SOURCE_COMMIT }}", workflow)
+        self.assertIn("${ENERGYRADAR_SOURCE_COMMIT:0:7}", workflow)
+        self.assertNotIn("${GITHUB_SHA:0:7}", workflow)
         self.assertNotIn("universal2", workflow.lower())
 
     def test_release_workflow_accepts_only_commit_specific_dual_architecture_assets(self):

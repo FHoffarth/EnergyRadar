@@ -21,6 +21,9 @@ env:
   NODE_VERSION: "22"
   WINDOWS_PYTHON_VERSION: "3.14"
   MACOS_PYTHON_VERSION: "3.12"
+  # Pull requests normally expose an ephemeral merge SHA. Artifacts must use
+  # and build the immutable pull-request head itself.
+  ENERGYRADAR_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   windows:
@@ -30,6 +33,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ENERGYRADAR_SOURCE_COMMIT }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -310,6 +315,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ENERGYRADAR_SOURCE_COMMIT }}
 
       - name: Verify native runner architecture
         shell: bash
@@ -381,7 +388,7 @@ jobs:
           python3 tools/validate_macos_bundle.py \
             "dist/EnergyRadar.app" \
             --arch "${{ matrix.architecture }}" \
-            --expected-source-commit "$GITHUB_SHA" \
+            --expected-source-commit "$ENERGYRADAR_SOURCE_COMMIT" \
             --report "dist/ARCHITECTURE-AUDIT.txt"
           plutil -lint "dist/EnergyRadar.app/Contents/Info.plist"
 
@@ -443,7 +450,7 @@ jobs:
         id: artifact
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA:0:7}"
+          short_sha="${ENERGYRADAR_SOURCE_COMMIT:0:7}"
           architecture="${{ matrix.architecture }}"
           filename="EnergyRadar-macOS-${{ matrix.architecture }}-${short_sha}.zip"
           staging="$RUNNER_TEMP/energyradar-${architecture}-artifact"
@@ -539,7 +546,7 @@ jobs:
       - name: Resolve commit-specific artifact names
         id: artifact
         shell: bash
-        run: echo "short_sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+        run: echo "short_sha=${ENERGYRADAR_SOURCE_COMMIT:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Download macOS Apple Silicon artifact
         uses: actions/download-artifact@v4
@@ -557,7 +564,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA:0:7}"
+          short_sha="${ENERGYRADAR_SOURCE_COMMIT:0:7}"
           arm_zip="EnergyRadar-macOS-arm64-${short_sha}.zip"
           intel_zip="EnergyRadar-macOS-x86_64-${short_sha}.zip"
           test -f "package-input/EnergyRadar-Windows-x64/EnergyRadar.exe"
@@ -588,7 +595,7 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          short_sha="${GITHUB_SHA:0:7}"
+          short_sha="${ENERGYRADAR_SOURCE_COMMIT:0:7}"
           arm_zip="EnergyRadar-macOS-arm64-${short_sha}.zip"
           intel_zip="EnergyRadar-macOS-x86_64-${short_sha}.zip"
           expected_files="$(printf '%s\n' EnergyRadar-Windows-x64.zip "$arm_zip" "$arm_zip.sha256" "$intel_zip" "$intel_zip.sha256" SHA256SUMS.txt | sort)"

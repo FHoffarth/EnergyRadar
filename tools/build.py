@@ -9,6 +9,9 @@ from pathlib import Path
 
 
 def _source_commit(base_dir: Path) -> str:
+    explicit_source_commit = os.environ.get("ENERGYRADAR_SOURCE_COMMIT")
+    if explicit_source_commit:
+        return explicit_source_commit
     github_sha = os.environ.get("GITHUB_SHA")
     if github_sha:
         return github_sha
