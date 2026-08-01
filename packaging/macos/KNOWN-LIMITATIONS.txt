@@ -1,0 +1,10 @@
+EnergyRadar macOS beta limitations
+
+- This artifact is not notarized and is not stapled.
+- Unless ARCHITECTURE-AUDIT.txt says Developer ID signed, normal double-click may be blocked by Gatekeeper.
+- Control-click -> Open may be required for an unsigned or ad-hoc signed beta.
+- Removing quarantine attributes is a last-resort diagnostic step, not the normal installation path.
+- CI performs a non-interactive packaged process smoke; it does not prove complete GUI behavior.
+- Physical Apple Silicon and Intel Mac results must be recorded independently.
+- No Universal 2 bundle is included.
+- A stable public release still requires Developer ID Application signing, hardened runtime, notarization, and stapling.

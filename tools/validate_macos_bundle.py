@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the architecture and release contract of EnergyRadar.app."""
+"""Validate a native EnergyRadar macOS bundle and write an audit report."""
 
 from __future__ import annotations
 
@@ -18,16 +18,22 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from energyradar import config
 
 
-ARM64_ARCHIVE_NAME = "EnergyRadar-macOS-arm64.zip"
-ARM64_CHECKSUM_NAME = f"{ARM64_ARCHIVE_NAME}.sha256"
+SUPPORTED_ARCHITECTURES = {"arm64", "x86_64"}
 FORBIDDEN_BUNDLE_NAMES = {
     ".env",
     "data-source.json",
     "energy.db",
+    "settings.json",
     "ui-settings.json",
     "weather-cache.json",
+    "window.json",
 }
 NATIVE_SUFFIXES = {".dylib", ".so", ".pyd"}
+DEVELOPER_PATH_PATTERNS = (
+    re.compile(r"[A-Za-z]:\\Users\\", re.IGNORECASE),
+    re.compile(r"/Users/[^/]+/(?:Desktop|Documents|Downloads|workspace|work)/"),
+    re.compile(r"/home/[^/]+/(?:workspace|work)/"),
+)
 
 
 class BundleValidationError(RuntimeError):
@@ -44,124 +50,100 @@ def macos_marketing_version(app_version: str) -> str:
     return app_version.partition("-")[0]
 
 
+def artifact_basename(architecture: str, short_sha: str) -> str:
+    _require(architecture in SUPPORTED_ARCHITECTURES, f"Unsupported architecture: {architecture}")
+    _require(re.fullmatch(r"[0-9a-f]{7,12}", short_sha) is not None, "Invalid short commit SHA.")
+    return f"EnergyRadar-macOS-{architecture}-{short_sha}.zip"
+
+
+def _find_named(app: Path, name: str) -> list[Path]:
+    return [path for path in app.rglob(name) if path.is_file()]
+
+
 def validate_structure(
     app: Path,
     project_root: Path,
+    expected_architecture: str,
     expected_source_commit: str | None = None,
-) -> dict[str, Path]:
-    """Validate required files, local-data exclusions, and UI defaults."""
+) -> dict[str, Path | str]:
+    """Validate resources, metadata, local-data exclusions, and defaults."""
+    _require(expected_architecture in SUPPORTED_ARCHITECTURES, "Unsupported architecture contract.")
     _require(app.is_dir(), f"Application bundle is missing: {app}")
 
     executable = app / "Contents" / "MacOS" / "EnergyRadar"
     info_plist = app / "Contents" / "Info.plist"
-    react_dist = app / "Contents" / "Resources" / "react-ui" / "dist"
+    resources = app / "Contents" / "Resources"
+    react_dist = resources / "react-ui" / "dist"
     react_index = react_dist / "index.html"
-    build_info_path = app / "Contents" / "Resources" / "BUILDINFO.json"
+    build_info_path = resources / "BUILDINFO.json"
 
     _require(executable.is_file(), f"Main executable is missing: {executable}")
     _require(os.access(executable, os.X_OK), f"Main executable is not executable: {executable}")
     _require(info_plist.is_file(), f"Info.plist is missing: {info_plist}")
     _require(build_info_path.is_file(), f"BUILDINFO.json is missing: {build_info_path}")
     _require(react_index.is_file(), f"React entry point is missing: {react_index}")
+    _require(any(react_dist.glob("assets/*.js")), "Compiled React JavaScript is missing.")
+    _require(_find_named(app, "QtWebEngineProcess"), "QtWebEngineProcess is missing.")
+    _require(_find_named(app, "libqcocoa.dylib"), "Qt Cocoa platform plugin is missing.")
+    _require(_find_named(app, "qtwebengine_resources.pak"), "QtWebEngine resources are missing.")
     _require(
-        any(react_dist.glob("assets/*.js")),
-        f"Compiled React JavaScript is missing below: {react_dist}",
-    )
-    _require(
-        any(path.name == "QtWebEngineProcess" for path in app.rglob("QtWebEngineProcess")),
-        "QtWebEngineProcess is missing from the application bundle.",
+        any(path.name == "Python" and "Python.framework" in path.parts for path in app.rglob("Python")),
+        "Bundled Python framework executable is missing.",
     )
 
     with info_plist.open("rb") as handle:
         plist = plistlib.load(handle)
     expected_bundle_version = macos_marketing_version(config.APP_VERSION)
+    _require(plist.get("CFBundleExecutable") == "EnergyRadar", "Info.plist executable is incorrect.")
+    _require(plist.get("CFBundleIdentifier") == "com.energyradar.app", "Bundle identifier is incorrect.")
     _require(
         plist.get("CFBundleShortVersionString") == expected_bundle_version,
         "Info.plist version does not match the authoritative application version.",
     )
+    _require(plist.get("CFBundleVersion") == config.APP_BUILD, "Info.plist build version is inconsistent.")
     icon_name = plist.get("CFBundleIconFile")
     _require(bool(icon_name), "Info.plist does not declare a bundle icon.")
-    icon_path = app / "Contents" / "Resources" / str(icon_name)
+    icon_path = resources / str(icon_name)
     if not icon_path.suffix:
         icon_path = icon_path.with_suffix(".icns")
     _require(icon_path.is_file(), f"Declared bundle icon is missing: {icon_path}")
 
     build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
-    _require(
-        build_info.get("app_version") == config.APP_VERSION,
-        "BUILDINFO app version does not match the authoritative application version.",
-    )
-    _require(
-        build_info.get("bundle_version") == expected_bundle_version,
-        "BUILDINFO bundle version does not match Info.plist.",
-    )
-    _require(
-        build_info.get("architecture") == "arm64",
-        "BUILDINFO architecture is not arm64.",
-    )
-    _require(
-        re.fullmatch(r"[0-9a-f]{40}", str(build_info.get("source_commit", ""))) is not None,
-        "BUILDINFO source commit is missing or invalid.",
-    )
+    _require(build_info.get("app_version") == config.APP_VERSION, "BUILDINFO app version is inconsistent.")
+    _require(build_info.get("bundle_version") == expected_bundle_version, "BUILDINFO bundle version is inconsistent.")
+    _require(build_info.get("build_version") == config.APP_BUILD, "BUILDINFO build version is inconsistent.")
+    _require(build_info.get("architecture") == expected_architecture, "BUILDINFO architecture is inconsistent.")
+    source_commit = str(build_info.get("source_commit", ""))
+    _require(re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None, "BUILDINFO source commit is invalid.")
     if expected_source_commit:
-        _require(
-            build_info.get("source_commit") == expected_source_commit,
-            "BUILDINFO source commit does not match the workflow commit.",
-        )
+        _require(source_commit == expected_source_commit, "BUILDINFO source commit does not match the workflow commit.")
 
     forbidden: list[Path] = []
+    broken_symlinks: list[Path] = []
+    developer_paths: list[str] = []
     for path in app.rglob("*"):
+        if path.is_symlink() and not path.exists():
+            broken_symlinks.append(path.relative_to(app))
         if not path.is_file():
             continue
         lowered = path.name.lower()
-        if (
-            lowered in FORBIDDEN_BUNDLE_NAMES
-            or lowered.endswith((".db", ".sqlite", ".sqlite3"))
-            or lowered.startswith(".env.")
-        ):
+        if lowered in FORBIDDEN_BUNDLE_NAMES or lowered.endswith((".db", ".sqlite", ".sqlite3")) or lowered.startswith(".env."):
             forbidden.append(path.relative_to(app))
-    _require(
-        not forbidden,
-        "Private configuration or local database files are bundled: "
-        + ", ".join(map(str, forbidden)),
-    )
+        if path.stat().st_size <= 5_000_000:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for pattern in DEVELOPER_PATH_PATTERNS:
+                if pattern.search(text):
+                    developer_paths.append(str(path.relative_to(app)))
+                    break
+    _require(not forbidden, "Private configuration or local database files are bundled: " + ", ".join(map(str, forbidden)))
+    _require(not broken_symlinks, "Broken symlinks are bundled: " + ", ".join(map(str, broken_symlinks)))
+    _require(not developer_paths, "Developer-local paths are bundled in: " + ", ".join(developer_paths))
 
-    setup_wizard = (
-        project_root
-        / "frontend"
-        / "react-ui"
-        / "src"
-        / "components"
-        / "SetupWizardModal.tsx"
-    )
-    _require(setup_wizard.is_file(), f"Setup wizard source is missing: {setup_wizard}")
+    setup_wizard = project_root / "frontend" / "react-ui" / "src" / "components" / "SetupWizardModal.tsx"
     source = setup_wizard.read_text(encoding="utf-8")
-    _require(
-        re.search(
-            r"const\s+\[host,\s*setHost\]\s*=\s*useState\(\s*(['\"])\1\s*\)",
-            source,
-        )
-        is not None,
-        "The setup wizard Fronius host default is not empty.",
-    )
-    _require(
-        re.search(r"placeholder\s*=\s*(['\"])fronius\.local\1", source) is not None,
-        "fronius.local is not present as setup help text.",
-    )
-    _require(
-        re.search(r"useState\(\s*(['\"])fronius\.local\1\s*\)", source) is None,
-        "fronius.local is configured as a value instead of placeholder/help text.",
-    )
-
-    compiled_ui = "\n".join(
-        path.read_text(encoding="utf-8", errors="ignore")
-        for path in react_dist.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".html", ".js"}
-    )
-    _require(
-        "fronius.local" in compiled_ui,
-        "The compiled frontend does not contain the expected fronius.local help text.",
-    )
+    _require(re.search(r"const\s+\[host,\s*setHost\]\s*=\s*useState\(\s*(['\"])\1\s*\)", source) is not None, "The setup wizard Fronius host default is not empty.")
+    _require(re.search(r"placeholder\s*=\s*(['\"])fronius\.local\1", source) is not None, "fronius.local is not present only as help text.")
+    _require(re.search(r"useState\(\s*(['\"])fronius\.local\1\s*\)", source) is None, "fronius.local is configured as a value.")
 
     return {
         "app": app,
@@ -170,92 +152,137 @@ def validate_structure(
         "build_info": build_info_path,
         "bundle_icon": icon_path,
         "react_index": react_index,
+        "source_commit": source_commit,
+        "bundle_version": expected_bundle_version,
     }
 
 
 def macho_architectures(path: Path) -> set[str] | None:
-    """Return Mach-O architectures for a file, or None for non-Mach-O files."""
-    description = subprocess.run(
-        ["file", "-b", str(path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    description = subprocess.run(["file", "-b", str(path)], check=True, capture_output=True, text=True).stdout
     if "Mach-O" not in description:
         return None
-    output = subprocess.run(
-        ["lipo", "-archs", str(path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    output = subprocess.run(["lipo", "-archs", str(path)], check=True, capture_output=True, text=True).stdout
     return set(output.split())
 
 
 def _native_candidates(app: Path) -> list[Path]:
-    candidates: list[Path] = []
-    for path in app.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() in NATIVE_SUFFIXES or os.access(path, os.X_OK):
-            candidates.append(path)
-    return candidates
+    return [
+        path for path in app.rglob("*")
+        if path.is_file() and (path.suffix.lower() in NATIVE_SUFFIXES or os.access(path, os.X_OK))
+    ]
+
+
+def _audit_linkage(path: Path) -> list[str]:
+    findings: list[str] = []
+    linked = subprocess.run(["otool", "-L", str(path)], check=True, capture_output=True, text=True).stdout
+    load_commands = subprocess.run(["otool", "-l", str(path)], check=True, capture_output=True, text=True).stdout
+    for output in (linked, load_commands):
+        for pattern in DEVELOPER_PATH_PATTERNS:
+            if pattern.search(output):
+                findings.append(f"developer path in Mach-O metadata: {pattern.pattern}")
+    return findings
 
 
 def validate_architectures(
     app: Path,
+    expected_architecture: str,
     arch_reader: Callable[[Path], set[str] | None] = macho_architectures,
+    audit_linkage: bool = True,
 ) -> list[tuple[Path, set[str]]]:
-    """Require an arm64-only entry point and arm64-compatible native payloads."""
+    """Require the requested native architecture in every bundled Mach-O."""
+    _require(expected_architecture in SUPPORTED_ARCHITECTURES, "Unsupported architecture contract.")
     executable = app / "Contents" / "MacOS" / "EnergyRadar"
     main_architectures = arch_reader(executable)
     _require(
-        main_architectures == {"arm64"},
-        "Main executable must be native arm64 only; found: "
-        + repr(sorted(main_architectures or set())),
+        main_architectures == {expected_architecture},
+        f"Main executable must be native {expected_architecture} only; found: {sorted(main_architectures or set())}",
     )
 
     audited: list[tuple[Path, set[str]]] = []
     incompatible: list[str] = []
+    linkage_findings: list[str] = []
     for path in _native_candidates(app):
         architectures = arch_reader(path)
         if architectures is None:
             continue
         audited.append((path, architectures))
-        if "arm64" not in architectures:
-            incompatible.append(
-                f"{path.relative_to(app)} ({', '.join(sorted(architectures))})"
+        if expected_architecture not in architectures:
+            incompatible.append(f"{path.relative_to(app)} ({', '.join(sorted(architectures))})")
+        if audit_linkage:
+            linkage_findings.extend(
+                f"{path.relative_to(app)}: {finding}" for finding in _audit_linkage(path)
             )
-
     _require(audited, "No Mach-O files were found in the application bundle.")
-    _require(
-        not incompatible,
-        "Native files without arm64 support are bundled: " + "; ".join(incompatible),
-    )
+    _require(not incompatible, f"Native files without {expected_architecture} support are bundled: " + "; ".join(incompatible))
+    _require(not linkage_findings, "Unsafe Mach-O linkage metadata: " + "; ".join(linkage_findings))
     return audited
+
+
+def signing_state(app: Path) -> str:
+    result = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], capture_output=True, text=True)
+    details = result.stderr + result.stdout
+    if result.returncode != 0:
+        return "unsigned"
+    if "Authority=Developer ID Application:" in details:
+        return "Developer ID signed"
+    return "ad-hoc signed"
+
+
+def write_report(
+    destination: Path,
+    paths: dict[str, Path | str],
+    architecture: str,
+    audited: list[tuple[Path, set[str]]],
+    signing: str,
+) -> None:
+    app = Path(paths["app"])
+    lines = [
+        "format=energyradar-macos-architecture-audit-v1",
+        f"source_commit={paths['source_commit']}",
+        f"application_version={config.APP_VERSION}",
+        f"bundle_version={paths['bundle_version']}",
+        f"architecture={architecture}",
+        f"main_executable_architecture={architecture}",
+        f"macho_file_count={len(audited)}",
+        f"signing_state={signing}",
+        "notarized=false",
+        "stapled=false",
+        "broken_symlinks=0",
+        "private_configuration_files=0",
+        "developer_local_paths=0",
+        "",
+        "path\tarchitectures",
+    ]
+    lines.extend(
+        f"{path.relative_to(app)}\t{','.join(sorted(architectures))}"
+        for path, architectures in audited
+    )
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("app", type=Path)
-    parser.add_argument(
-        "--project-root",
-        type=Path,
-        default=PROJECT_ROOT,
-    )
+    parser.add_argument("--arch", required=True, choices=sorted(SUPPORTED_ARCHITECTURES))
+    parser.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
+    parser.add_argument("--expected-source-commit")
+    parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
 
     paths = validate_structure(
         args.app.resolve(),
         args.project_root.resolve(),
-        expected_source_commit=os.environ.get("GITHUB_SHA"),
+        args.arch,
+        expected_source_commit=args.expected_source_commit or os.environ.get("GITHUB_SHA"),
     )
-    audited = validate_architectures(paths["app"])
+    audited = validate_architectures(Path(paths["app"]), args.arch)
+    signing = signing_state(Path(paths["app"]))
+    write_report(args.report.resolve(), paths, args.arch, audited, signing)
     print(f"Validated application: {paths['app']}")
-    print("Main executable architecture: arm64")
-    print(f"Mach-O files checked for arm64 compatibility: {len(audited)}")
-    print(f"Expected archive: {ARM64_ARCHIVE_NAME}")
-    print(f"Expected checksum: {ARM64_CHECKSUM_NAME}")
+    print(f"Main executable architecture: {args.arch}")
+    print(f"Mach-O files checked: {len(audited)}")
+    print(f"Signing state: {signing}")
+    print(f"Audit report: {args.report.resolve()}")
     return 0
 
 

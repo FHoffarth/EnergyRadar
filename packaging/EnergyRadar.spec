@@ -15,7 +15,7 @@ APP_VERSION = app_config.APP_VERSION
 MACOS_MARKETING_VERSION = os.environ.get(
     "ENERGYRADAR_MACOS_VERSION", APP_VERSION.partition("-")[0]
 )
-MACOS_BUILD_VERSION = os.environ.get("ENERGYRADAR_MACOS_BUILD", "1")
+MACOS_BUILD_VERSION = os.environ.get("ENERGYRADAR_MACOS_BUILD", app_config.APP_BUILD)
 ENTRY_POINT = PROJECT_ROOT / "desktop_web.py"
 REACT_DIST = PROJECT_ROOT / "frontend" / "react-ui" / "dist"
 UI_ASSETS = PROJECT_ROOT / "energyradar" / "ui" / "assets"

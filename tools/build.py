@@ -22,14 +22,21 @@ def _source_commit(base_dir: Path) -> str:
     return result.stdout.strip()
 
 
-def _write_build_info(destination: Path, base_dir: Path, app_version: str) -> Path:
+def _write_build_info(
+    destination: Path,
+    base_dir: Path,
+    app_version: str,
+    app_build: str = "1",
+) -> Path:
     build_info = {
         "app_version": app_version,
         "bundle_version": app_version.partition("-")[0],
+        "build_version": app_build,
         "source_commit": _source_commit(base_dir),
         "architecture": platform.machine(),
-        "signing": "ad-hoc",
+        "signing": "verified after bundle creation",
         "notarized": False,
+        "stapled": False,
     }
     destination.write_text(
         json.dumps(build_info, indent=2, sort_keys=True) + "\n",
@@ -75,7 +82,10 @@ def main():
     os.environ["PYTHONPATH"] = str(base_dir)
     with tempfile.TemporaryDirectory(prefix="energyradar-buildinfo-") as directory:
         build_info = _write_build_info(
-            Path(directory) / "BUILDINFO.json", base_dir, config.APP_VERSION
+            Path(directory) / "BUILDINFO.json",
+            base_dir,
+            config.APP_VERSION,
+            config.APP_BUILD,
         )
         build_environment = os.environ.copy()
         build_environment["ENERGYRADAR_BUILDINFO_PATH"] = str(build_info)

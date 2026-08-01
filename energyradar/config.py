@@ -37,7 +37,14 @@ def _user_data_dir() -> Path:
 # gehören Datenbank und Log in ein beschreibbares Benutzerverzeichnis. In der
 # Entwicklung bleibt alles wie bisher im Projektordner.
 USER_DATA_DIR = _user_data_dir()
-DATA_DIR = USER_DATA_DIR if getattr(sys, "frozen", False) else BASE_DIR
+
+
+def _runtime_data_dir() -> Path:
+    """Select a writable data root for packaged applications."""
+    return USER_DATA_DIR if getattr(sys, "frozen", False) else BASE_DIR
+
+
+DATA_DIR = _runtime_data_dir()
 
 # Die lokale Geräteadresse ist immer benutzerspezifisch. Sie darf auch im
 # Entwicklungsmodus niemals versehentlich im Repository landen.

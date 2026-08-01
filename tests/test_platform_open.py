@@ -67,6 +67,62 @@ def test_linux_open_path_uses_xdg_open(monkeypatch, tmp_path):
     assert calls == [(["xdg-open", str(target)], {"check": True})]
 
 
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [
+        ("win32", ["explorer", "/select,"]),
+        ("linux", ["xdg-open"]),
+    ],
+)
+def test_reveal_path_uses_native_file_manager(monkeypatch, tmp_path, platform, expected):
+    target = tmp_path / "Export mit Leerzeichen" / "Größe.csv"
+    target.parent.mkdir()
+    target.write_text("x", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(platform_open.sys, "platform", platform)
+    monkeypatch.setattr(
+        platform_open.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+
+    platform_open.reveal_path(target)
+
+    suffix = str(target.resolve()) if platform == "win32" else str(target.resolve().parent)
+    assert calls == [(expected + [suffix], {"check": True})]
+
+
+@pytest.mark.parametrize(
+    ("platform", "command"),
+    [
+        ("darwin", ["open", "mailto:?subject=Grüße%20aus%20Köln"]),
+        ("linux", ["xdg-open", "mailto:?subject=Grüße%20aus%20Köln"]),
+    ],
+)
+def test_url_opener_uses_argument_array_without_shell(monkeypatch, platform, command):
+    calls = []
+    monkeypatch.setattr(platform_open.sys, "platform", platform)
+    monkeypatch.setattr(
+        platform_open.subprocess,
+        "run",
+        lambda actual, **kwargs: calls.append((actual, kwargs)),
+    )
+
+    platform_open.open_url("mailto:?subject=Grüße%20aus%20Köln")
+
+    assert calls == [(command, {"check": True})]
+
+
+def test_windows_url_opener_preserves_startfile(monkeypatch):
+    opened = []
+    monkeypatch.setattr(platform_open.sys, "platform", "win32")
+    monkeypatch.setattr(platform_open.os, "startfile", opened.append, raising=False)
+
+    platform_open.open_url("https://example.invalid/a%20b")
+
+    assert opened == ["https://example.invalid/a%20b"]
+
+
 def test_missing_path_is_rejected_before_dispatch(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(platform_open.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
