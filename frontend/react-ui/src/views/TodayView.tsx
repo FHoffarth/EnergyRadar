@@ -2,13 +2,17 @@ import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line } from 'recharts';
 import { Info } from 'lucide-react';
-import { TimelineEntry } from '../types';
+import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
-import { HourlyWeatherForecast, MultiDayWeatherForecast } from '../components/WeatherIntelligence';
+import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
 import { useEffectiveMotionMode } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
+import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
+import { DailyInterpretation } from '../components/DailyInterpretation';
+import { DataCoverageStatus } from '../components/DataCoverageStatus';
+import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 3;
@@ -27,14 +31,22 @@ function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
 }
 
 export function TodayView() {
-  const { timeline, sourceType } = useEnergyProvider();
-  const { settingsPayload, weatherReport } = useApp();
+  const { timeline, sourceType, snapshot } = useEnergyProvider();
+  const { settingsPayload, weatherReport, todayData } = useApp();
   const locale = useNumberLocale();
   const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
   const animate = useEffectiveMotionMode(requestedMotion) === 'full';
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';
+  const fallbackToday: TodayData = {
+    solarTotal: { state: 'unknown' }, homeTotal: { state: 'unknown' },
+    gridFeedInTotal: { state: 'unknown' }, gridDrawTotal: { state: 'unknown' },
+    selfSufficiency: { state: 'unknown' }, selfConsumption: { state: 'unknown' }, history: [],
+  };
+  const currentMinute = new Date().getHours() * 60 + new Date().getMinutes();
+  const coverage = evaluateCoverage(timeline, 0, currentMinute);
+  const statements = dailyStatements(timeline, coverage, snapshot);
 
   // Per-series evidence thresholds: a series that the devices never
   // delivered must not appear as a flat line or an empty legend entry.
@@ -68,18 +80,8 @@ export function TodayView() {
       </h1>
       </header>
 
-      {!noData && (
-        <section aria-label="Tagesübersicht" className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-xl">
-          <div className="cockpit-surface-muted px-4 py-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400">Gespeicherte Messpunkte</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums">{formatNumber(timeline.length, locale)}</p>
-          </div>
-          <div className="cockpit-surface-muted px-4 py-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400">Darstellbare Messreihen</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums">{formatNumber(series.length, locale)}</p>
-          </div>
-        </section>
-      )}
+      <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
+      <DailyInterpretation statements={statements} />
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">
@@ -126,11 +128,11 @@ export function TodayView() {
                 <ComposedChart data={timeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.4} />
+                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.16} />
                       <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="homeGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3} />
+                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.1} />
                       <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
@@ -158,11 +160,11 @@ export function TodayView() {
                     }} />
                   {series.map(entry => (
                     entry.key === 'batteryPct' ? (
-                      <Line key={entry.key} yAxisId="right" type="monotone" dataKey={entry.key} name={entry.name}
+                      <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
                         stroke={entry.color} strokeWidth={2} dot={false} connectNulls={false}
                         isAnimationActive={animate} />
                     ) : (
-                      <Area key={entry.key} yAxisId="left" type="monotone" dataKey={entry.key} name={entry.name}
+                      <Area key={entry.key} yAxisId="left" type="linear" dataKey={entry.key} name={entry.name}
                         stroke={entry.color} strokeWidth={2} fillOpacity={1} connectNulls={false}
                         fill={entry.key === 'solarKw' ? 'url(#solarGradT)' : 'url(#homeGradT)'}
                         isAnimationActive={animate} />
@@ -185,9 +187,20 @@ export function TodayView() {
         </section>
       )}
       <div className="mt-6 grid gap-4" aria-label="Wettervorschau">
-        <HourlyWeatherForecast report={weatherReport} locale={locale} />
+        <WeatherIntelligence report={weatherReport} locale={locale} compact snapshot={snapshot} />
+        <CompactHourlyForecast report={weatherReport} locale={locale} />
         <MultiDayWeatherForecast report={weatherReport} locale={locale} />
       </div>
+      <details className="mt-6 text-sm text-slate-600 dark:text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Datendetails</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
+          <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
+          <div className="cockpit-surface-muted px-4 py-3 text-xs">
+            <p>Gespeicherte Messpunkte: <strong>{formatNumber(timeline.length, locale)}</strong></p>
+            <p className="mt-1">Darstellbare Messreihen: <strong>{formatNumber(series.length, locale)}</strong></p>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

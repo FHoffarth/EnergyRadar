@@ -142,28 +142,38 @@ function ForecastItem({
   );
 }
 
-export function HourlyWeatherForecast({ report, locale }: { report: WeatherReportData | null; locale: NumberLocale }) {
+export function CompactHourlyForecast({ report, locale }: { report: WeatherReportData | null; locale: NumberLocale }) {
+  const [expanded, setExpanded] = React.useState(false);
   if (!report || report.status !== 'available') return null;
   const forecast = (report.hourly ?? []).filter(point => (
     typeof point?.time === 'string'
     && formatLocalTime(point.time, locale, report.location?.timezone) !== null
     && isFiniteNumber(point.temperature_c)
-  )).slice(0, 12);
+  )).slice(0, 24);
   if (!forecast.length) return null;
+  const visible = expanded ? forecast : forecast.slice(0, 6);
   return (
     <section aria-label="Stündliche Wettervorhersage" className="cockpit-surface-muted px-5 py-4 sm:px-6">
       <p className="cockpit-eyebrow">Wetter heute</p>
       <h2 className="cockpit-section-title mt-1">Stündliche Vorhersage</h2>
       <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">
-        {forecast.map(point => (
+        {visible.map(point => (
           <React.Fragment key={point.time}>
             <ForecastItem point={point} locale={locale} timezone={report.location?.timezone} />
           </React.Fragment>
         ))}
       </ul>
+      {forecast.length > 6 && (
+        <button type="button" className="mt-3 text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+          aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+          {expanded ? 'Weniger Stunden anzeigen' : `${forecast.length - 6} weitere Stunden anzeigen`}
+        </button>
+      )}
     </section>
   );
 }
+
+export const HourlyWeatherForecast = CompactHourlyForecast;
 
 function DailyForecastItem({ point, locale }: { point: DailyWeatherData; locale: NumberLocale }) {
   const day = formatForecastDay(point.date, locale);
@@ -258,7 +268,7 @@ export function WeatherIntelligence({
         {context && <p className="mt-4 border-l-2 border-amber-500 pl-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{context}</p>}
       </div>
 
-      {!compact && <div className="border-t border-sky-200/70 dark:border-sky-900/70"><HourlyWeatherForecast report={report} locale={locale} /></div>}
+      {!compact && <div className="border-t border-sky-200/70 dark:border-sky-900/70"><CompactHourlyForecast report={report} locale={locale} /></div>}
     </section>
   );
 }

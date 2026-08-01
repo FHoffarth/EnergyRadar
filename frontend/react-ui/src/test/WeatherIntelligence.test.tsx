@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
 import { EnergySnapshot, WeatherReportData } from '../types';
@@ -82,7 +82,7 @@ describe('WeatherIntelligence', () => {
     expect(within(section).getByText(/Sonnenaufgang:/)).toBeTruthy();
     expect(within(section).getByText(/Sonnenuntergang:/)).toBeTruthy();
     expect(within(section).getByText('Die aktuellen Bedingungen für Solarstrom sind günstig.')).toBeTruthy();
-    expect(within(section).getAllByRole('listitem')).toHaveLength(7);
+    expect(within(section).getAllByRole('listitem')).toHaveLength(6);
   });
 
   it('renders partial weather without raw null-like values', () => {
@@ -212,6 +212,8 @@ describe('WeatherIntelligence', () => {
     rerender(<><HourlyWeatherForecast report={report} locale="de-DE" /><MultiDayWeatherForecast report={report} locale="de-DE" /></>);
     expect(screen.getByRole('region', { name: 'Stündliche Wettervorhersage' })).toBeTruthy();
     expect(screen.getByText('5–7-Tage-Ausblick')).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(13);
+    fireEvent.click(screen.getByRole('button', { name: '1 weitere Stunden anzeigen' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(14);
   });
 });
