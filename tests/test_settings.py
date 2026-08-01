@@ -125,6 +125,7 @@ def test_viewmodel_separation(tmp_path, monkeypatch):
     assert "dynamic_bg_enabled" not in vm.effective_settings
     assert "app_version" in vm.system
     assert "database_schema_version" in vm.system
+    assert vm.system["recording_interval_seconds"] == config.STORE_INTERVAL_SECONDS
     assert "database_path" in vm.system
 
 

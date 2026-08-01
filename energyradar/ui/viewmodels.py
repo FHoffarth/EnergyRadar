@@ -698,6 +698,7 @@ def build_settings_vm() -> SettingsViewModel:
         "app_version": config.APP_VERSION,
         "build": config.APP_BUILD,
         "database_schema_version": config.SCHEMA_VERSION,
+        "recording_interval_seconds": config.STORE_INTERVAL_SECONDS,
         "database_path": str(config.DB_PATH),
         "log_path": str(config.DATA_DIR / "energyradar.log"),
         "export_directory": export_directory,

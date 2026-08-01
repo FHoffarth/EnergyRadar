@@ -6,6 +6,7 @@ import { TimelineEntry } from '../types';
  * is continuous; anything beyond it is an explicit gap.
  */
 export const CADENCE_JITTER_RATIO = 0.5;
+export const DEFAULT_RECORDING_CADENCE_SECONDS = 60;
 
 export interface TimelineGap {
   /** Last observed sample before the missing interval. */

@@ -84,6 +84,7 @@ describe('TodayView - per-series evidence thresholds', () => {
   });
 
   it('announces the same visible timestamp gap used by the shared chart adapter', () => {
+    appState.settingsPayload = { system: { recording_interval_seconds: 5 } };
     providerState.timeline = [
       { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
       { time: '12:00:20', timestampMs: 20_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
@@ -92,5 +93,19 @@ describe('TodayView - per-series evidence thresholds', () => {
     expect(screen.getByRole('img', { name: /1 sichtbaren Datenlücke/ })).toBeTruthy();
     expect(screen.getByText(/Datenlücke \(keine Messwerte\)/)).toBeTruthy();
     expect(screen.getByText(/nicht gemessene Orientierungshilfe/)).toBeTruthy();
+  });
+
+  it('uses persisted recording cadence instead of the faster live polling cadence', () => {
+    appState.settingsPayload = {
+      effective_settings: { refresh_seconds: 5 },
+      system: { recording_interval_seconds: 60 },
+    };
+    providerState.timeline = [
+      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+      { time: '12:01:00', timestampMs: 60_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+    ];
+    render(<TodayView />);
+    expect(screen.getByRole('img', { name: /0 sichtbaren Datenlücken/ })).toBeTruthy();
+    expect(screen.queryByText(/Datenlücke \(keine Messwerte\)/)).toBeNull();
   });
 });

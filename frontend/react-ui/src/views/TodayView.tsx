@@ -12,7 +12,7 @@ import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
-import { formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
+import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 2;
@@ -42,7 +42,7 @@ export function TodayView() {
   const animate = useEffectiveMotionMode(requestedMotion) === 'full';
   const expectedCadenceSeconds = isDemoSource(sourceType)
     ? 2 * 60 * 60
-    : settingsPayload?.effective_settings?.refresh_seconds ?? 5;
+    : settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';

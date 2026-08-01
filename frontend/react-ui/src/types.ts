@@ -105,6 +105,8 @@ export interface SystemInfo {
   app_version: string;
   build: string;
   database_schema_version: number;
+  /** Expected cadence of persisted history, distinct from live polling. */
+  recording_interval_seconds: number;
   database_path: string;
   log_path: string;
   export_directory: string;

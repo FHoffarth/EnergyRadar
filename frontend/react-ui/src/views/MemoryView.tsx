@@ -6,7 +6,7 @@ import { HistoryAvailabilitySummary } from '../components/HistoryAvailabilitySum
 import { HistoryOverviewChart } from '../components/HistoryOverviewChart';
 import { evaluateCoverage } from '../lib/storytelling';
 import { useEffectiveMotionMode } from '../lib/motion';
-import { todayCoverageBoundaries } from '../lib/timelineIntegrity';
+import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -29,7 +29,7 @@ export function MemoryView() {
   const [range, setRange] = useState<Range>('today');
   const rangeLabel = ranges.find(candidate => candidate.id === range)?.label ?? range;
   const visibleTimeline = range === 'today' ? timeline : [];
-  const expectedCadenceSeconds = settingsPayload?.effective_settings?.refresh_seconds ?? 5;
+  const expectedCadenceSeconds = settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
   const coverage = evaluateCoverage(visibleTimeline, {
     expectedCadenceSeconds,
     ...todayCoverageBoundaries(visibleTimeline),

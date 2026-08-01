@@ -12,7 +12,7 @@ export interface CoverageResult {
 }
 
 export interface CoverageOptions {
-  /** Configured collector cadence. Never inferred from observed samples. */
+  /** Configured recording cadence. Never inferred from observed samples. */
   expectedCadenceSeconds?: number;
   expectedStartMs?: number;
   expectedEndMs?: number;
