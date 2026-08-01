@@ -5,6 +5,12 @@ import { NumberLocale, formatNumber } from '../lib/format';
 import { EnergyChartTooltip } from './EnergyChartTooltip';
 import { formatTimelineTime, hasFiniteTimelineValue, timelineGaps, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
+// Recharts 3 omits standard SVG fill props from this generic component's
+// public TypeScript surface even though the runtime component supports them.
+const GapReferenceArea = ReferenceArea as React.ComponentType<React.ComponentProps<'rect'> & {
+  x1: number; x2: number; ifOverflow?: 'hidden';
+}>;
+
 export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenceSeconds }: {
   timeline: TimelineEntry[]; locale: NumberLocale; animate: boolean; expectedCadenceSeconds: number;
 }) {
@@ -37,12 +43,8 @@ export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenc
           <Tooltip content={<EnergyChartTooltip locale={locale} />} isAnimationActive={animate} />
           <ReferenceLine y={0} stroke="#94A3B8" strokeDasharray="3 3" />
           {gaps.map((gap, index) => (
-            <React.Fragment key={`gap-area-${index}`}>
-              <ReferenceArea x1={gap.before.timestampMs} x2={gap.after.timestampMs}
-                ifOverflow="hidden" shape={({ x, y, width, height }) => (
-                  <rect x={x} y={y} width={width} height={height} fill="#64748B" fillOpacity={0.09} />
-                )} />
-            </React.Fragment>
+            <GapReferenceArea key={`gap-area-${index}`} x1={gap.before.timestampMs} x2={gap.after.timestampMs}
+              fill="#64748B" fillOpacity={0.09} stroke="none" ifOverflow="hidden" />
           ))}
           {gaps.flatMap((gap, gapIndex) => ([
             ['solarKw', '#D97706'], ['homeLoadKw', '#4F46E5'], ['gridKw', '#EA580C'],
