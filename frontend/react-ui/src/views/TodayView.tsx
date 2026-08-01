@@ -1,14 +1,31 @@
 import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line } from 'recharts';
+import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea, ReferenceLine } from 'recharts';
 import { Info } from 'lucide-react';
-import { TimelineEntry } from '../types';
+import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
-import { dedupeTickFormatter } from '../lib/chartAxis';
+import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
+import { useEffectiveMotionMode } from '../lib/motion';
+import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
+import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
+import { DailyInterpretation } from '../components/DailyInterpretation';
+import { DataCoverageStatus } from '../components/DataCoverageStatus';
+import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
+import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
+
+// Recharts 3 omits standard SVG fill props from this generic component's
+// public TypeScript surface even though the runtime component supports them.
+const GapReferenceArea = ReferenceArea as React.ComponentType<React.ComponentProps<'rect'> & {
+  x1: number; x2: number; yAxisId?: 'left' | 'right'; ifOverflow?: 'hidden';
+}>;
 
 /** A series needs this many measured points before it is charted or listed. */
-const MIN_SERIES_POINTS = 3;
+const MIN_SERIES_POINTS = 2;
+
+function isDemoSource(sourceType: string): boolean {
+  return sourceType === 'demo';
+}
 
 type SeriesKey = 'solarKw' | 'homeLoadKw' | 'batteryPct';
 
@@ -24,20 +41,37 @@ function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
 }
 
 export function TodayView() {
-  const { timeline, sourceType } = useEnergyProvider();
-  const { settingsPayload } = useApp();
+  const { timeline, sourceType, snapshot } = useEnergyProvider();
+  const { settingsPayload, weatherReport, todayData } = useApp();
   const locale = useNumberLocale();
-  const animate = (settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
+  const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
+  const animate = useEffectiveMotionMode(requestedMotion) === 'full';
+  const expectedCadenceSeconds = isDemoSource(sourceType)
+    ? 2 * 60 * 60
+    : settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';
+  const fallbackToday: TodayData = {
+    solarTotal: { state: 'unknown' }, homeTotal: { state: 'unknown' },
+    gridFeedInTotal: { state: 'unknown' }, gridDrawTotal: { state: 'unknown' },
+    selfSufficiency: { state: 'unknown' }, selfConsumption: { state: 'unknown' }, history: [],
+  };
+  const coverage = evaluateCoverage(timeline, {
+    expectedCadenceSeconds,
+    ...todayCoverageBoundaries(timeline),
+  });
+  const statements = dailyStatements(timeline, coverage, snapshot);
+  const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
+  const gaps = timelineGaps(timeline, expectedCadenceSeconds);
+  const chartGapCount = gaps.length;
 
   // Per-series evidence thresholds: a series that the devices never
   // delivered must not appear as a flat line or an empty legend entry.
   const series = [
-    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', dot: 'bg-amber-500/80', axis: 'left' as const },
-    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', dot: 'bg-indigo-500', axis: 'left' as const },
-    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', dot: 'bg-emerald-500', axis: 'right' as const },
+    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', legendDot: 'bg-amber-500/80', axis: 'left' as const },
+    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', legendDot: 'bg-indigo-500', axis: 'left' as const },
+    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', legendDot: 'bg-emerald-500', axis: 'right' as const },
   ].filter(entry => evidenceCount(timeline, entry.key) >= MIN_SERIES_POINTS);
 
   // Axis and tooltip use up to two decimals so low-power days do not
@@ -45,21 +79,25 @@ export function TodayView() {
   const formatAxisKw = (value: number) =>
     formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
-  const formatTimeTick = dedupeTickFormatter(timeline, 'time');
-
   const hasLeftAxis = series.some(entry => entry.axis === 'left');
   const hasRightAxis = series.some(entry => entry.axis === 'right');
   const hasChartableSeries = series.length > 0;
 
   return (
-    <div className="px-8 pt-10 pb-6 h-full flex flex-col overflow-y-auto">
-      <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl mb-6">
+    <div className="cockpit-page h-full flex flex-col overflow-y-auto" data-testid="today-workspace">
+      <header className="mb-6 max-w-3xl">
+      <p className="cockpit-eyebrow">Tagesanalyse</p>
+      <h1 className="cockpit-title mt-2 text-slate-900 dark:text-white">
         {isDemo
           ? 'Heutiger Energieverlauf (Demo)'
           : noData
           ? 'Tagesverlauf noch nicht verfügbar'
           : 'Heutiger Energieverlauf'}
       </h1>
+      </header>
+
+      <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
+      <DailyInterpretation statements={statements} />
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">
@@ -85,38 +123,47 @@ export function TodayView() {
       )}
 
       {!noData && (
-        <section className="border-t border-slate-200/70 dark:border-slate-800 pt-5 space-y-3">
+        <section className="cockpit-surface space-y-4 p-5 lg:p-6">
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <h2 className="cockpit-section-title">
               {isDemo ? '24-Stunden-Chronik (Demo)' : '24-Stunden-Chronik'}
             </h2>
             <div className="flex items-center gap-3 text-xs">
               {series.map(entry => (
                 <div className="flex items-center gap-1.5" key={entry.key}>
-                  <span className={`w-2 h-2 rounded-full ${entry.dot} inline-block`} />
+                  <span className={`w-2 h-2 rounded-full ${entry.legendDot} inline-block`} />
                   <span className="text-slate-500 dark:text-slate-400">{entry.name}</span>
                 </div>
               ))}
+              {chartGapCount > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t border-dashed border-slate-500" />
+                  <span className="text-slate-500 dark:text-slate-400">Datenlücke (keine Messwerte)</span>
+                </div>
+              )}
             </div>
           </div>
 
           {hasChartableSeries ? (
-            <div className="h-64 w-full">
+            <div className="h-[clamp(20rem,48vh,34rem)] w-full" role="img"
+              aria-label={`Energieverlauf mit ${chartGapCount} sichtbaren ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Solar und Verbrauch in Kilowatt.`}>
+              <p className="sr-only">Fehlende Messperioden sind schattiert und nur durch eine gestrichelte, nicht gemessene Orientierungshilfe überbrückt. Gültige Nullwerte bleiben Teil der Kurve.</p>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={timeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                <ComposedChart data={chartTimeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.4} />
+                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.16} />
                       <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="homeGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3} />
+                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.1} />
                       <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.3} vertical={false} />
-                  <XAxis dataKey="time" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
-                    minTickGap={48} tickFormatter={formatTimeTick} />
+                  <XAxis dataKey="timestampMs" type="number" scale="time" domain={['dataMin', 'dataMax']}
+                    stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
+                    minTickGap={48} tickFormatter={value => formatTimelineTime(value, locale)} />
                   {hasLeftAxis && (
                     <YAxis yAxisId="left" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} unit="kW"
                       tickFormatter={formatAxisKw} />
@@ -128,10 +175,7 @@ export function TodayView() {
                   )}
                   <Tooltip
                     isAnimationActive={animate}
-                    formatter={(value: number, name: string) => [
-                      name === 'Speicher %' ? formatNumber(value, locale) : formatAxisKw(value),
-                      name,
-                    ]}
+                    content={<EnergyChartTooltip locale={locale} />}
                     cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
                     contentStyle={{
                       borderRadius: '0.625rem',
@@ -139,14 +183,31 @@ export function TodayView() {
                       fontSize: '12px',
                       padding: '4px 8px',
                     }} />
+                  {gaps.map((gap, index) => (
+                    <GapReferenceArea key={`gap-area-${index}`} x1={gap.before.timestampMs} x2={gap.after.timestampMs}
+                      yAxisId={hasLeftAxis ? 'left' : 'right'} fill="#64748B" fillOpacity={0.09}
+                      stroke="none" ifOverflow="hidden" />
+                  ))}
+                  {gaps.flatMap((gap, gapIndex) => series.map(entry => {
+                    const before = gap.before[entry.key];
+                    const after = gap.after[entry.key];
+                    if (typeof before !== 'number' || !Number.isFinite(before) || typeof after !== 'number' || !Number.isFinite(after)) return null;
+                    return <ReferenceLine key={`gap-bridge-${gapIndex}-${entry.key}`} yAxisId={entry.axis}
+                      segment={[{ x: gap.before.timestampMs, y: before }, { x: gap.after.timestampMs, y: after }]}
+                      stroke={entry.color} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="hidden" />;
+                  }))}
                   {series.map(entry => (
                     entry.key === 'batteryPct' ? (
-                      <Line key={entry.key} yAxisId="right" type="monotone" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2} dot={false} connectNulls={false}
+                      <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
+                        stroke={entry.color} strokeWidth={2}
+                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
+                        connectNulls={false}
                         isAnimationActive={animate} />
                     ) : (
-                      <Area key={entry.key} yAxisId="left" type="monotone" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2} fillOpacity={1} connectNulls={false}
+                      <Area key={entry.key} yAxisId="left" type="linear" dataKey={entry.key} name={entry.name}
+                        stroke={entry.color} strokeWidth={2} fillOpacity={1}
+                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
+                        connectNulls={false}
                         fill={entry.key === 'solarKw' ? 'url(#solarGradT)' : 'url(#homeGradT)'}
                         isAnimationActive={animate} />
                     )
@@ -167,6 +228,21 @@ export function TodayView() {
           )}
         </section>
       )}
+      <div className="mt-6 grid gap-4" aria-label="Wettervorschau">
+        <WeatherIntelligence report={weatherReport} locale={locale} compact snapshot={snapshot} />
+        <CompactHourlyForecast report={weatherReport} locale={locale} />
+        <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+      </div>
+      <details className="mt-6 text-sm text-slate-600 dark:text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Datendetails</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
+          <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
+          <div className="cockpit-surface-muted px-4 py-3 text-xs">
+            <p>Gespeicherte Messpunkte: <strong>{formatNumber(timeline.length, locale)}</strong></p>
+            <p className="mt-1">Darstellbare Messreihen: <strong>{formatNumber(series.length, locale)}</strong></p>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

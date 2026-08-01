@@ -67,6 +67,12 @@ describe('TodayView - per-series evidence thresholds', () => {
     render(<TodayView />);
     expect(screen.getByText('Solar')).toBeTruthy();
     expect(screen.getByText('Verbrauch')).toBeTruthy();
+    expect(screen.getByTestId('today-workspace').className).toContain('cockpit-page');
+    const chartFrame = screen.getByText('24-Stunden-Chronik')
+      .closest('section')
+      ?.querySelector('.recharts-responsive-container')
+      ?.parentElement;
+    expect(chartFrame?.className).toContain('h-[clamp(20rem,48vh,34rem)]');
   });
 
   it('replaces the chart with an explanation when no series qualifies', () => {
@@ -75,5 +81,31 @@ describe('TodayView - per-series evidence thresholds', () => {
     expect(
       screen.getByText('Für heute liegen noch nicht genug Messwerte für eine Verlaufskurve vor.'),
     ).toBeTruthy();
+  });
+
+  it('announces the same visible timestamp gap used by the shared chart adapter', () => {
+    appState.settingsPayload = { system: { recording_interval_seconds: 5 } };
+    providerState.timeline = [
+      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+      { time: '12:00:20', timestampMs: 20_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+    ];
+    render(<TodayView />);
+    expect(screen.getByRole('img', { name: /1 sichtbaren Datenlücke/ })).toBeTruthy();
+    expect(screen.getByText(/Datenlücke \(keine Messwerte\)/)).toBeTruthy();
+    expect(screen.getByText(/nicht gemessene Orientierungshilfe/)).toBeTruthy();
+  });
+
+  it('uses persisted recording cadence instead of the faster live polling cadence', () => {
+    appState.settingsPayload = {
+      effective_settings: { refresh_seconds: 5 },
+      system: { recording_interval_seconds: 60 },
+    };
+    providerState.timeline = [
+      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+      { time: '12:01:00', timestampMs: 60_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+    ];
+    render(<TodayView />);
+    expect(screen.getByRole('img', { name: /0 sichtbaren Datenlücken/ })).toBeTruthy();
+    expect(screen.queryByText(/Datenlücke \(keine Messwerte\)/)).toBeNull();
   });
 });

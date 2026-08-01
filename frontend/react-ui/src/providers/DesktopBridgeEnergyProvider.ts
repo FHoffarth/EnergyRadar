@@ -6,7 +6,7 @@ import { nowData$, todayData$ } from '../lib/energyService';
 type Subscriber = (snapshot: EnergySnapshot) => void;
 type DeviceSubscriber = (devices: DemoDeviceSummary[]) => void;
 
-function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
+export function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
   const { power, status } = data;
 
   const dataStateToValue = (state: PowerData['solar']): number | null => {
@@ -48,12 +48,14 @@ function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): 
   const hasLiveData = solarOrigin === 'observed' || homeOrigin === 'observed' || gridOrigin === 'observed';
 
   let quality: DataQuality;
-  if (hasLiveData) {
-    quality = 'live';
-  } else if (status === 'stale') {
+  if (status === 'stale') {
     quality = 'stale';
   } else if (status === 'error') {
     quality = 'error';
+  } else if (status === 'live' && hasLiveData) {
+    quality = 'live';
+  } else if (hasLiveData) {
+    quality = 'partial';
   } else {
     quality = 'unavailable';
   }
@@ -111,6 +113,7 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
   private listenersBound = false;
   private boundDevicesHandler: (() => void) | null = null;
   private boundSettingsHandler: (() => void) | null = null;
+  private pendingConnectionTests = new Map<string, Promise<ConnectionTestResult>>();
 
   async init() {
     if (this.destroyed) return;
@@ -161,6 +164,7 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
       if (this.destroyed) return;
       this.currentSnapshot = powerDataToSnapshot(state);
       this.notify();
+      if (this.applyLiveMeasurements()) this.notifyDevices();
     });
   }
 
@@ -183,18 +187,50 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
             id: d.device_id || 'unknown',
             name: d.display_name || 'Unbekannt',
             category: d.device_type || 'unknown',
-            status: (d.connection_status === 'connected' ? 'active' : d.connection_status === 'stale' ? 'last_known' : d.connection_status === 'error' ? 'unknown' : 'idle') as DemoDeviceSummary['status'],
+            status: this.deviceState(d.connection_status, d.data_status),
             powerWatts: null,
             origin: 'calculated' as DataOrigin,
             lastSeen: d.last_measurement_at || 'Unbekannt',
             smartShedEnabled: false,
             notes: d.user_message || '',
-            iconName: d.device_type === 'inverter' ? 'Sun' : 'Server'
+            iconName: d.device_type === 'inverter' ? 'Sun' : 'Server',
+            connectionStatus: d.connection_status,
+            dataStatus: d.data_status,
+            capabilities: Array.isArray(d.capabilities) ? d.capabilities : []
           }));
+          this.applyLiveMeasurements();
           this.notifyDevices();
         }
       }
     } catch {}
+  }
+
+  private deviceState(connectionStatus: string, dataStatus: string): DemoDeviceSummary['status'] {
+    if (connectionStatus === 'unconfigured') return 'unconfigured';
+    if (connectionStatus === 'stale') return 'last_known';
+    if (connectionStatus === 'offline' || connectionStatus === 'error') return 'offline';
+    if (connectionStatus === 'connected') {
+      return dataStatus === 'complete' ? 'active' : 'partial';
+    }
+    return 'idle';
+  }
+
+  private applyLiveMeasurements(): boolean {
+    let changed = false;
+    this.deviceCache = this.deviceCache.map(device => {
+      const value = device.category === 'inverter'
+        ? this.currentSnapshot.solar
+        : this.currentSnapshot.grid;
+      const powerWatts = value.origin === 'observed' && value.valueKw !== null
+        ? Math.round(value.valueKw * 1000)
+        : null;
+      let status = device.status;
+      if (status === 'active' && powerWatts === null) status = 'partial';
+      if (device.powerWatts === powerWatts && device.status === status) return device;
+      changed = true;
+      return { ...device, powerWatts, origin: value.origin, status };
+    });
+    return changed;
   }
 
   private notifyDevices() {
@@ -233,11 +269,15 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
 
     return td.history.map(pt => ({
       time: pt.time,
+      timestampMs: pt.timestampMs,
       solarKw: pt.solar !== null ? pt.solar / 1000 : null,
       homeLoadKw: pt.home !== null ? pt.home / 1000 : null,
       gridKw: pt.gridImport !== null ? pt.gridImport / 1000 : pt.gridExport !== null ? -(pt.gridExport / 1000) : null,
       batteryPct: null,
-      origin: 'estimated' as DataOrigin
+      origin: 'calculated' as DataOrigin,
+      solarOrigin: pt.solar !== null ? 'observed' as DataOrigin : 'unavailable' as DataOrigin,
+      homeLoadOrigin: pt.home !== null ? 'calculated' as DataOrigin : 'unavailable' as DataOrigin,
+      gridOrigin: pt.gridImport !== null || pt.gridExport !== null ? 'observed' as DataOrigin : 'unavailable' as DataOrigin,
     }));
   }
 
@@ -268,7 +308,10 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
       return { ok: false, message: 'Desktop-Bridge nicht verbunden.', latencyMs: null };
     }
 
-    return new Promise((resolve) => {
+    const pending = this.pendingConnectionTests.get(deviceId);
+    if (pending) return pending;
+
+    const request = new Promise<ConnectionTestResult>((resolve) => {
       const timeout = setTimeout(() => {
         resolve({ ok: false, message: 'Verbindungstest zeitlich ausgelaufen.', latencyMs: null });
       }, 15000);
@@ -278,7 +321,14 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
           clearTimeout(timeout);
           try {
             const res = JSON.parse(resJson);
-            resolve({ ok: res.ok || false, message: res.message || '', latencyMs: res.latency_ms ?? null });
+            resolve({
+              ok: res.ok || false,
+              message: res.message || '',
+              latencyMs: res.latency_ms ?? null,
+              status: res.status,
+              testedAt: res.tested_at ?? null,
+              capabilities: Array.isArray(res.capabilities) ? res.capabilities : [],
+            });
           } catch {
             resolve({ ok: false, message: 'Ungültige Antwort vom Bridge.', latencyMs: null });
           }
@@ -287,6 +337,12 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
 
       this.bridge!.testConnection(deviceId);
     });
+    this.pendingConnectionTests.set(deviceId, request);
+    void request.then(
+      () => this.pendingConnectionTests.delete(deviceId),
+      () => this.pendingConnectionTests.delete(deviceId),
+    );
+    return request;
   }
 
   destroy() {

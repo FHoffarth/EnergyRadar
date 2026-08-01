@@ -200,15 +200,15 @@ class OpenMeteoProvider:
         return candidates
 
     def fetch_weather(self, location: ResolvedLocation) -> ProviderWeatherPayload:
-        from energyradar.services.weather.models import HourlyWeatherPoint
+        from energyradar.services.weather.models import DailyWeatherPoint, HourlyWeatherPoint
 
         params = urllib.parse.urlencode({
             "latitude": location.latitude,
             "longitude": location.longitude,
             "current": "temperature_2m,apparent_temperature,precipitation,weather_code,cloud_cover,is_day,wind_speed_10m",
             "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code,cloud_cover",
-            "daily": "sunrise,sunset",
-            "forecast_days": 2,
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset",
+            "forecast_days": 7,
             "timezone": location.timezone or "auto",
             "wind_speed_unit": "kmh",
         })
@@ -340,6 +340,37 @@ class OpenMeteoProvider:
 
         sun = SunData(sunrise=sunrise_iso, sunset=sunset_iso)
 
+        daily_points: List[DailyWeatherPoint] = []
+        dates = daily_raw.get("time", []) if isinstance(daily_raw.get("time", []), list) else []
+        daily_codes = daily_raw.get("weather_code", []) if isinstance(daily_raw.get("weather_code", []), list) else []
+        daily_mins = daily_raw.get("temperature_2m_min", []) if isinstance(daily_raw.get("temperature_2m_min", []), list) else []
+        daily_maxes = daily_raw.get("temperature_2m_max", []) if isinstance(daily_raw.get("temperature_2m_max", []), list) else []
+        daily_precip = daily_raw.get("precipitation_probability_max", []) if isinstance(daily_raw.get("precipitation_probability_max", []), list) else []
+        for idx, date_value in enumerate(dates):
+            if not date_value:
+                continue
+            code_value = daily_codes[idx] if idx < len(daily_codes) else None
+            code = (
+                int(code_value)
+                if isinstance(code_value, (int, float))
+                and not isinstance(code_value, bool)
+                and math.isfinite(code_value)
+                else None
+            )
+            daily_points.append(DailyWeatherPoint(
+                date=str(date_value),
+                condition=map_wmo_code(code),
+                weather_code=code,
+                temperature_min_c=_validate_float(daily_mins[idx]) if idx < len(daily_mins) else None,
+                temperature_max_c=_validate_float(daily_maxes[idx]) if idx < len(daily_maxes) else None,
+                precipitation_probability_percent=(
+                    _validate_float(daily_precip[idx], min_val=0.0, max_val=100.0)
+                    if idx < len(daily_precip) else None
+                ),
+                sunrise=str(sunrises[idx]) if isinstance(sunrises, list) and idx < len(sunrises) and sunrises[idx] else None,
+                sunset=str(sunsets[idx]) if isinstance(sunsets, list) and idx < len(sunsets) and sunsets[idx] else None,
+            ))
+
         utc_offset_raw = raw_data.get("utc_offset_seconds", 0)
         utc_offset = (
             int(utc_offset_raw)
@@ -365,4 +396,5 @@ class OpenMeteoProvider:
             sun=sun,
             current=current,
             hourly=hourly_points,
+            daily=daily_points,
         )

@@ -94,7 +94,18 @@ export class DemoEnergyProviderImpl implements DemoEnergyProviderInterface {
   }
 
   getTimeline(): TimelineEntry[] {
-    return DEMO_TIMELINE;
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    return DEMO_TIMELINE.map(point => {
+      const [hours, minutes] = point.time.split(':').map(Number);
+      return {
+        ...point,
+        timestampMs: dayStart.getTime() + ((hours * 60 + minutes) * 60 * 1000),
+        solarOrigin: point.solarKw !== null ? 'simulated' : 'unavailable',
+        homeLoadOrigin: point.homeLoadKw !== null ? 'simulated' : 'unavailable',
+        gridOrigin: point.gridKw !== null ? 'simulated' : 'unavailable',
+      };
+    });
   }
 
   getDevices(): DemoDeviceSummary[] {

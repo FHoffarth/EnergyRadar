@@ -1,14 +1,17 @@
 import React from 'react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { TimelineEntry } from '../types';
-import { NumberLocale, formatKw } from '../lib/format';
+import { NumberLocale } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
+import { EnergyChartTooltip } from './EnergyChartTooltip';
 
 interface DayTrendChartProps {
   timeline: TimelineEntry[];
   locale: NumberLocale;
   /** Disable chart animation for reduced/no-motion users. */
   animate: boolean;
+  /** Presentation size only; the measured series and evidence rules stay identical. */
+  size?: 'compact' | 'workspace';
 }
 
 /** A series needs at least this many measured points before it is drawn. */
@@ -30,12 +33,12 @@ export function hasEnoughEvidence(timeline: TimelineEntry[]): boolean {
  * deliberately absent here — the Now view must not imply data the meter
  * has not delivered.
  */
-export function DayTrendChart({ timeline, locale, animate }: DayTrendChartProps) {
+export function DayTrendChart({ timeline, locale, animate, size = 'compact' }: DayTrendChartProps) {
   const points = measuredPoints(timeline);
   const formatTick = dedupeTickFormatter(points, 'time');
 
   return (
-    <div className="h-24 w-full" aria-label="Gemessener PV-Tagesverlauf">
+    <div className={`${size === 'workspace' ? 'h-[clamp(17rem,34vh,24rem)]' : 'h-24'} w-full`} aria-label="Gemessener PV-Tagesverlauf">
       <ResponsiveContainer width="100%" height="100%">
         {/* Right margin leaves room for the final time tick's caption. */}
         <AreaChart data={points} margin={{ top: 4, right: 18, left: 0, bottom: -4 }}>
@@ -59,8 +62,7 @@ export function DayTrendChart({ timeline, locale, animate }: DayTrendChartProps)
           <Tooltip
             cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
             isAnimationActive={animate}
-            labelFormatter={(label) => String(label)}
-            formatter={(value: number) => [`${formatKw(value, locale)} kW`, 'PV']}
+            content={<EnergyChartTooltip locale={locale} />}
             contentStyle={{
               borderRadius: '0.625rem',
               border: '1px solid rgba(148,163,184,0.35)',

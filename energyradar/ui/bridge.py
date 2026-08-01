@@ -16,6 +16,10 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import os
+from pathlib import Path
+import subprocess
+import sys
 import threading
 from typing import Optional
 
@@ -29,7 +33,37 @@ from energyradar.ui.settings import UISettings
 
 log = logging.getLogger(__name__)
 
+
+def _open_path(path: Path) -> None:
+    """Open an existing file or directory with the platform default app."""
+    if sys.platform == "win32":
+        os.startfile(str(path))
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=True)
+    else:
+        subprocess.run(["xdg-open", str(path)], check=True)
+
 _STALE_MULTIPLIER = 3   # Wert gilt als veraltet nach 3× refresh_seconds
+
+
+def _smart_meter_connection_result(reading, latency_ms: int) -> dict:
+    """Build a connection-test result from measurements actually available."""
+    from energyradar.ui.viewmodels import describe_smart_meter_availability
+
+    availability = describe_smart_meter_availability(reading)
+    connection_status = {
+        "complete": "connected",
+        "partial": "partial",
+        "unavailable": "unavailable",
+    }[availability.data_status]
+    return {
+        "ok": True,
+        "status": connection_status,
+        "data_status": availability.data_status,
+        "latency_ms": latency_ms,
+        "message": availability.message,
+        "capabilities": availability.capabilities,
+    }
 
 
 class EnergyBridge(QObject):
@@ -118,8 +152,9 @@ class EnergyBridge(QObject):
         effective_settings = ui_settings.resolve_effective()
         self._timer.start(int(effective_settings["refresh_seconds"]) * 1000)
 
-        # Ersten Refresh kurz nach Start anstoßen
-        QTimer.singleShot(400, self._on_timer)
+        # Beim nächsten Event-Loop-Tick sofort abrufen. Der Live-Zustand darf
+        # nicht erst ein vollständiges Timer-Intervall nach dem Start erscheinen.
+        QTimer.singleShot(0, self._on_timer)
 
     # ---------------------------------------------------------------- #
     # Q_PROPERTY – nur auf Main-Thread schreiben
@@ -211,7 +246,7 @@ class EnergyBridge(QObject):
                     )
                 except Exception as exc:
                     mt175_error = str(exc)
-                    log.warning("MT175-Collector Fehler: %s", exc)
+                    log.warning("Tasmota-Smart-Meter-Collector Fehler: %s", exc)
 
             mt175_thread = threading.Thread(
                 target=_read_mt175, name="mt175-reader", daemon=True
@@ -229,13 +264,19 @@ class EnergyBridge(QObject):
 
         pv_q = QualityStatus.VALID if fronius_reading else (QualityStatus.OFFLINE if fronius_configured else QualityStatus.UNKNOWN)
         grid_q = QualityStatus.VALID if mt175_reading else (QualityStatus.OFFLINE if mt175_configured else QualityStatus.UNKNOWN)
-        if mt175_reading and getattr(mt175_reading, "error", "") == "PIN required":
+        if mt175_reading and mt175_reading.pin_locked:
             grid_q = QualityStatus.LOCKED
+        elif mt175_reading and mt175_reading.current_power_w is None:
+            grid_q = QualityStatus.PARTIAL
         elif mt175_error:
             grid_q = QualityStatus.INVALID
 
         sample_q = QualityStatus.VALID
-        if not fronius_reading or not mt175_reading:
+        if (
+            not fronius_reading
+            or not mt175_reading
+            or mt175_reading.current_power_w is None
+        ):
             sample_q = QualityStatus.PARTIAL
 
         if fronius_configured or mt175_configured:
@@ -359,15 +400,12 @@ class EnergyBridge(QObject):
                     raw_s = ui_settings.load_raw_dict()
                     addr = str(raw_s.get("mt175_address") or self._settings.mt175_address or "").strip()
                     if not addr:
-                        res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "MT175 ist nicht konfiguriert", "capabilities": []}
+                        res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "Smart Meter ist nicht konfiguriert", "capabilities": []}
                     else:
                         from energyradar.collectors import mt175 as mc
                         reading = mc.read_url(addr)
                         latency = int((time.time() - start_time) * 1000)
-                        if reading.current_power_w is None:
-                            res = {"ok": True, "status": "partial", "latency_ms": latency, "message": "Gerät antwortet. PIN-Freigabe erforderlich.", "capabilities": ["grid_import_total", "grid_export_total"]}
-                        else:
-                            res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet vollständig", "capabilities": ["grid_import_total", "grid_export_total", "current_power"]}
+                        res = _smart_meter_connection_result(reading, latency)
                 else:
                     res = {"ok": False, "status": "error", "latency_ms": 0, "message": f"Unbekanntes Gerät: {target_id}", "capabilities": []}
             except mt175_coll.MT175AddressError as exc:
@@ -413,19 +451,39 @@ class EnergyBridge(QObject):
             patch = json.loads(patch_json)
             if not isinstance(patch, dict):
                 raise ValueError("Patch muss ein JSON-Objekt sein.")
-            updated_raw = ui_settings.save_patch(patch)
-            self._settings = ui_settings.load()
+            validated_patch = ui_settings.validate_patch(patch)
 
-            # Sync fronius_address mit data_source if present
-            if "fronius_address" in patch:
-                addr = str(patch["fronius_address"]).strip() if patch["fronius_address"] else ""
+            # Fronius has a dedicated data-source store. Persist it before the
+            # UI settings file so a failed device-address write cannot change
+            # the general settings. Keep its previous state for rollback if
+            # the later atomic UI-settings write fails.
+            previous_source = None
+            source_changed = False
+            if "fronius_address" in validated_patch:
+                previous_source = ds.load_saved()
+                addr = validated_patch["fronius_address"] or ""
                 if addr:
-                    try:
-                        ds.save(addr)
-                    except Exception as exc:
-                        log.warning("Fronius-Adresse konnte nicht in data_source gespeichert werden: %s", exc)
+                    ds.save(addr)
                 else:
                     ds.remove_saved()
+                source_changed = True
+
+            try:
+                updated_raw = ui_settings.save_patch(validated_patch)
+            except Exception as settings_exc:
+                if source_changed:
+                    try:
+                        if previous_source:
+                            ds.save(previous_source["url"])
+                        else:
+                            ds.remove_saved()
+                    except Exception as rollback_exc:
+                        raise RuntimeError(
+                            f"Settings konnten nicht gespeichert und die Fronius-Konfiguration "
+                            f"nicht wiederhergestellt werden: {rollback_exc}"
+                        ) from settings_exc
+                raise
+            self._settings = ui_settings.load()
 
             # Timer-Intervall anpassen, falls refresh_seconds im Patch
             effective = ui_settings.resolve_effective(updated_raw)
@@ -436,9 +494,12 @@ class EnergyBridge(QObject):
             self.settingsSaveSucceeded.emit(json.dumps({"ok": True}, ensure_ascii=False))
             # Sofortigen Refresh anstoßen
             QTimer.singleShot(100, self._on_timer)
-        except Exception as exc:
-            log.warning("Einstellungen konnten nicht aktualisiert werden: %s", exc)
-            self.settingsSaveFailed.emit(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        except Exception:
+            log.exception("Einstellungen konnten nicht aktualisiert werden")
+            self.settingsSaveFailed.emit(json.dumps({
+                "ok": False,
+                "message": "Einstellungen konnten nicht gespeichert werden.",
+            }, ensure_ascii=False))
 
     @Slot(str)
     def saveSettings(self, settings_json: str) -> None:
@@ -447,37 +508,63 @@ class EnergyBridge(QObject):
 
     @Slot()
     def chooseExportDirectory(self) -> None:
-        """Öffnet den nativen Qt Ordnerauswahl-Dialog."""
+        """Open the native folder picker without persisting its selection."""
         from PySide6.QtWidgets import QFileDialog, QApplication
-        active_window = QApplication.activeWindow()
-        curr_eff = ui_settings.resolve_effective()
-        default_dir = curr_eff.get("export_directory") or str(Path.home() / "Documents")
-        path = QFileDialog.getExistingDirectory(active_window, "Exportordner wählen", default_dir)
-        if path:
-            ui_settings.save_patch({"export_directory": path})
-            self._update_settings_snapshot()
+        try:
+            active_window = QApplication.activeWindow()
+            curr_eff = ui_settings.resolve_effective()
+            default_dir = curr_eff.get("export_directory") or str(Path.home() / "Documents")
+            path = QFileDialog.getExistingDirectory(active_window, "Exportordner wählen", default_dir)
+            if not path:
+                self.systemActionResult.emit(json.dumps({
+                    "ok": True,
+                    "status": "cancelled",
+                    "action": "chooseExportDirectory",
+                    "message": "Ordnerauswahl abgebrochen.",
+                }, ensure_ascii=False))
+                return
+
             self.directorySelected.emit(path)
+            self.systemActionResult.emit(json.dumps({
+                "ok": True,
+                "status": "success",
+                "action": "chooseExportDirectory",
+                "message": "Exportordner ausgewählt. Noch nicht gespeichert.",
+                "path": path,
+            }, ensure_ascii=False))
+        except Exception:
+            log.exception("Exportordner konnte nicht ausgewählt werden")
+            self.systemActionResult.emit(json.dumps({
+                "ok": False,
+                "status": "error",
+                "action": "chooseExportDirectory",
+                "message": "Der Exportordner konnte nicht ausgewählt werden.",
+            }, ensure_ascii=False))
 
     @Slot()
     def openExportDirectory(self) -> None:
         """Öffnet den eingestellten Exportordner im OS-Dateimanager."""
-        import subprocess, sys
-        from pathlib import Path
         curr_eff = ui_settings.resolve_effective()
         exp_dir = curr_eff.get("export_directory") or str(Path.home() / "Documents")
         try:
             p = Path(exp_dir)
             p.mkdir(parents=True, exist_ok=True)
-            if sys.platform == "win32":
-                os.startfile(str(p))
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(p)])
-            else:
-                subprocess.run(["xdg-open", str(p)])
-            self.systemActionResult.emit(json.dumps({"ok": True, "action": "openExportDirectory"}, ensure_ascii=False))
-        except Exception as exc:
+            _open_path(p)
+            self.systemActionResult.emit(json.dumps({
+                "ok": True,
+                "status": "success",
+                "action": "openExportDirectory",
+                "message": "Exportordner geöffnet.",
+                "path": str(p),
+            }, ensure_ascii=False))
+        except Exception:
             log.exception("Konnte Exportordner nicht öffnen")
-            self.systemActionResult.emit(json.dumps({"ok": False, "action": "openExportDirectory", "error": str(exc)}, ensure_ascii=False))
+            self.systemActionResult.emit(json.dumps({
+                "ok": False,
+                "status": "error",
+                "action": "openExportDirectory",
+                "message": "Der Exportordner konnte nicht geöffnet werden.",
+            }, ensure_ascii=False))
 
     @Slot(str, str)
     def searchWeatherLocations(self, operation_id: str, query: str) -> None:
@@ -683,41 +770,61 @@ class EnergyBridge(QObject):
     @Slot()
     def openDiagnosticLog(self) -> None:
         """Öffnet das Diagnoseprotokoll energyradar.log im Standard-Texteditor."""
-        import subprocess, sys
-        from energyradar import config
         log_path = config.DATA_DIR / "energyradar.log"
         try:
-            config.DATA_DIR.mkdir(parents=True, exist_ok=True)
             if not log_path.exists():
-                log_path.write_text("=== EnergyRadar Log Start ===\n", encoding="utf-8")
-            if sys.platform == "win32":
-                os.startfile(str(log_path))
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(log_path)])
-            else:
-                subprocess.run(["xdg-open", str(log_path)])
-            self.systemActionResult.emit(json.dumps({"ok": True, "action": "openDiagnosticLog"}, ensure_ascii=False))
-        except Exception as exc:
+                self.systemActionResult.emit(json.dumps({
+                    "ok": False,
+                    "status": "error",
+                    "action": "openDiagnosticLog",
+                    "message": "Das Systemprotokoll ist derzeit nicht verfügbar.",
+                }, ensure_ascii=False))
+                return
+            _open_path(log_path)
+            self.systemActionResult.emit(json.dumps({
+                "ok": True,
+                "status": "success",
+                "action": "openDiagnosticLog",
+                "message": "Systemprotokoll geöffnet.",
+                "path": str(log_path),
+            }, ensure_ascii=False))
+        except Exception:
             log.exception("Konnte Log-Datei nicht öffnen")
-            self.systemActionResult.emit(json.dumps({"ok": False, "action": "openDiagnosticLog", "error": str(exc)}, ensure_ascii=False))
+            self.systemActionResult.emit(json.dumps({
+                "ok": False,
+                "status": "error",
+                "action": "openDiagnosticLog",
+                "message": "Das Systemprotokoll ist derzeit nicht verfügbar.",
+            }, ensure_ascii=False))
 
     @Slot()
     def openLogDirectory(self) -> None:
         """Öffnet den Anwendungsdaten-Ordner im OS-Dateimanager."""
-        import subprocess, sys
-        from energyradar import config
         try:
-            config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-            if sys.platform == "win32":
-                os.startfile(str(config.DATA_DIR))
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(config.DATA_DIR)])
-            else:
-                subprocess.run(["xdg-open", str(config.DATA_DIR)])
-            self.systemActionResult.emit(json.dumps({"ok": True, "action": "openLogDirectory"}, ensure_ascii=False))
-        except Exception as exc:
+            if not config.DATA_DIR.exists():
+                self.systemActionResult.emit(json.dumps({
+                    "ok": False,
+                    "status": "error",
+                    "action": "openLogDirectory",
+                    "message": "Der Protokollordner ist derzeit nicht verfügbar.",
+                }, ensure_ascii=False))
+                return
+            _open_path(config.DATA_DIR)
+            self.systemActionResult.emit(json.dumps({
+                "ok": True,
+                "status": "success",
+                "action": "openLogDirectory",
+                "message": "Protokollordner geöffnet.",
+                "path": str(config.DATA_DIR),
+            }, ensure_ascii=False))
+        except Exception:
             log.exception("Konnte Log-Ordner nicht öffnen")
-            self.systemActionResult.emit(json.dumps({"ok": False, "action": "openLogDirectory", "error": str(exc)}, ensure_ascii=False))
+            self.systemActionResult.emit(json.dumps({
+                "ok": False,
+                "status": "error",
+                "action": "openLogDirectory",
+                "message": "Der Protokollordner konnte nicht geöffnet werden.",
+            }, ensure_ascii=False))
 
     @Slot(str, str, str, str, str)
     def requestExport(self, operation_id: str, export_kind: str, range_type: str, start_date_str: str, end_date_str: str) -> None:

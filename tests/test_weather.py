@@ -2,7 +2,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 from energyradar.services.weather.models import (
-    CurrentWeather, HourlyWeatherPoint, LocationCandidate, ProviderWeatherPayload, ResolvedLocation, SunData, WeatherReport
+    CurrentWeather, DailyWeatherPoint, HourlyWeatherPoint, LocationCandidate, ProviderWeatherPayload, ResolvedLocation, SunData, WeatherReport
 )
 from energyradar.services.weather.providers.open_meteo import OpenMeteoProvider, map_wmo_code
 from energyradar.services.weather import cache
@@ -89,6 +89,11 @@ def test_open_meteo_weather_intelligence_fields_are_parsed():
             "cloud_cover": [20, 35, 40],
         },
         "daily": {
+            "time": ["2026-07-29", "2026-07-30"],
+            "weather_code": [2, 61],
+            "temperature_2m_min": [13.5, 14.0],
+            "temperature_2m_max": [24.0, 20.5],
+            "precipitation_probability_max": [15, 70],
             "sunrise": ["2026-07-29T05:50", "2026-07-30T05:51"],
             "sunset": ["2026-07-29T21:10", "2026-07-30T21:09"],
         },
@@ -111,8 +116,13 @@ def test_open_meteo_weather_intelligence_fields_are_parsed():
         "2026-07-29T13:00",
     ]
     assert payload.hourly[1].precipitation_probability_percent == 25
+    assert len(payload.daily) == 2
+    assert payload.daily[1].condition == "rain"
+    assert payload.daily[1].temperature_max_c == 20.5
+    assert payload.daily[1].precipitation_probability_percent == 70
+    assert payload.daily[0].sunrise == "2026-07-29T05:50"
     requested_url = mock_urlopen.call_args.args[0].full_url
-    assert "forecast_days=2" in requested_url
+    assert "forecast_days=7" in requested_url
     assert "wind_speed_unit=kmh" in requested_url
 
 
@@ -182,6 +192,7 @@ def test_open_meteo_missing_sections_degrade_to_empty_weather():
     assert payload.current.temperature_c is None
     assert payload.current.is_day is None
     assert payload.hourly == []
+    assert payload.daily == []
     assert payload.sun.sunrise is None
     assert payload.sun.sunset is None
     assert payload.timezone == "Europe/Berlin"
@@ -215,6 +226,15 @@ def test_cache_ttl_and_stale_fallback(tmp_path, monkeypatch):
                 precipitation_probability_percent=20.0,
             )
         ],
+        daily=[
+            DailyWeatherPoint(
+                date="2026-07-22",
+                condition="partly_cloudy",
+                temperature_min_c=15.0,
+                temperature_max_c=25.0,
+                precipitation_probability_percent=20.0,
+            )
+        ],
     )
 
     key = cache.get_location_key("open_meteo", 49.869, 8.932, "Europe/Berlin")
@@ -226,6 +246,7 @@ def test_cache_ttl_and_stale_fallback(tmp_path, monkeypatch):
     assert cached.current.feels_like_c == 23.4
     assert cached.current.wind_speed_kmh == 11.0
     assert cached.hourly[0].precipitation_probability_percent == 20.0
+    assert cached.daily[0].temperature_max_c == 25.0
 
     # Read back cache
     cached, freshness, age = cache.load_cached_payload(key)

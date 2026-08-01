@@ -133,7 +133,7 @@ class _Strings:
     # ------------------------------------------------------------------ #
     devices_title = "Geräte & Datenqualität"
     device_fronius = "Fronius Wechselrichter"
-    device_mt175 = "Stromzähler (MT175)"
+    device_mt175 = "Tasmota SmartMeterReader"
     device_status_connected = "Verbunden"
     device_status_unavailable = "Nicht erreichbar"
     device_status_error = "Fehler"
@@ -153,7 +153,7 @@ class _Strings:
     avail_energy_year = "Erzeugte Energie (Jahr)"
     avail_energy_total = "Erzeugte Energie (gesamt)"
 
-    # MT175 measurements
+    # Tasmota smart-meter measurements
     avail_grid_power = "Aktuelle Netzleistung"
     avail_grid_import = "Bezugsenergie gesamt"
     avail_grid_export = "Einspeiseenergie gesamt"

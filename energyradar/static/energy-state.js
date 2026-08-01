@@ -18,14 +18,10 @@
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   const phases = [
-    { at: 0,    name: "night",     top: [5, 15, 38],  mid: [12, 30, 58],    horizon: [27, 45, 67],    glow: [90, 119, 160],  stars: 0.28, glowX: 50, glowY: 100 },
-    { at: 300,  name: "sunrise",   top: [25, 52, 88], mid: [78, 110, 142],  horizon: [214, 154, 129], glow: [255, 177, 112], stars: 0.08, glowX: 18, glowY: 76 },
-    { at: 480,  name: "morning",   top: [61, 122, 178], mid: [112, 160, 198], horizon: [201, 194, 174], glow: [255, 216, 154], stars: 0, glowX: 32, glowY: 48 },
-    { at: 690,  name: "noon",      top: [69, 132, 188], mid: [124, 174, 208], horizon: [213, 202, 174], glow: [255, 222, 158], stars: 0, glowX: 50, glowY: 34 },
-    { at: 870,  name: "afternoon", top: [66, 116, 169], mid: [128, 157, 186], horizon: [219, 183, 139], glow: [255, 190, 100], stars: 0, glowX: 68, glowY: 48 },
-    { at: 1080, name: "sunset",    top: [49, 69, 118], mid: [162, 105, 132], horizon: [229, 139, 106], glow: [255, 141, 87],  stars: 0.03, glowX: 82, glowY: 73 },
-    { at: 1260, name: "night",     top: [5, 15, 38],  mid: [12, 30, 58],    horizon: [27, 45, 67],    glow: [90, 119, 160],  stars: 0.28, glowX: 50, glowY: 100 },
-    { at: 1440, name: "night",     top: [5, 15, 38],  mid: [12, 30, 58],    horizon: [27, 45, 67],    glow: [90, 119, 160],  stars: 0.28, glowX: 50, glowY: 100 },
+    { at: 0, name: "night" }, { at: 300, name: "sunrise" },
+    { at: 480, name: "morning" }, { at: 690, name: "noon" },
+    { at: 870, name: "afternoon" }, { at: 1080, name: "sunset" },
+    { at: 1260, name: "night" }, { at: 1440, name: "night" },
   ];
 
   const accentTokens = {
@@ -49,14 +45,6 @@
     return Math.min(max, Math.max(min, value));
   }
 
-  function mix(a, b, amount) {
-    return a + (b - a) * amount;
-  }
-
-  function mixRgb(a, b, amount) {
-    return a.map((channel, index) => Math.round(mix(channel, b[index], amount)));
-  }
-
   function rgb(value) {
     return value.join(" ");
   }
@@ -70,18 +58,7 @@
     const to = phases[index + 1];
     const progress = clamp((minute - from.at) / (to.at - from.at));
 
-    return {
-      phase: progress < 0.5 ? from.name : to.name,
-      sky: {
-        top: rgb(mixRgb(from.top, to.top, progress)),
-        mid: rgb(mixRgb(from.mid, to.mid, progress)),
-        horizon: rgb(mixRgb(from.horizon, to.horizon, progress)),
-        glow: rgb(mixRgb(from.glow, to.glow, progress)),
-        starsOpacity: mix(from.stars, to.stars, progress).toFixed(3),
-        glowX: `${mix(from.glowX, to.glowX, progress).toFixed(1)}%`,
-        glowY: `${mix(from.glowY, to.glowY, progress).toFixed(1)}%`,
-      },
-    };
+    return { phase: progress < 0.5 ? from.name : to.name };
   }
 
   function deriveProduction(powerWatts, connection) {
@@ -138,47 +115,6 @@
     return { headlineKey, detailKey };
   }
 
-  function deriveEnergyVisual(powerWatts, production, connection, grid) {
-    let brightness = 1;
-    let saturation = 1;
-    let glow = 0.34;
-
-    if (production === "unknown") {
-      brightness = 0.9;
-      saturation = 0.9;
-      glow = 0.2;
-    } else if (production === "none" || production === "low") {
-      const low = clamp((Number(powerWatts) || 0) / LOW_PRODUCTION_MAX);
-      brightness = mix(0.88, 1, low);
-      saturation = mix(0.88, 1, low);
-      glow = mix(0.18, 0.3, low);
-    } else if (production === "high") {
-      const high = clamp((powerWatts - HIGH_PRODUCTION_MIN) / (MAX_VISUAL_POWER - HIGH_PRODUCTION_MIN));
-      brightness = mix(1, 1.08, high);
-      saturation = mix(1, 1.04, high);
-      glow = mix(0.34, 0.48, high);
-    }
-
-    // Nur ein explizites späteres Netzsignal darf diesen Zustand aktivieren.
-    if (grid === "importing") {
-      brightness *= 0.94;
-      saturation *= 0.9;
-      glow *= 0.72;
-    }
-
-    if (connection === "unreachable") {
-      brightness *= 0.92;
-      saturation *= 0.9;
-      glow *= 0.8;
-    }
-
-    return {
-      brightness: brightness.toFixed(2),
-      saturation: saturation.toFixed(2),
-      glowStrength: glow.toFixed(2),
-    };
-  }
-
   function deriveMotion(production, connection) {
     const reduced = motionQuery.matches;
     const calm = connection !== "online" || production === "none" || production === "low";
@@ -219,15 +155,6 @@
         accentDark: rgb(accent.dark),
         accentLight: rgb(accent.light),
         gaugeFraction: clamp((Number(telemetry.powerWatts) || 0) / MAX_VISUAL_POWER),
-        sky: {
-          ...time.sky,
-          ...deriveEnergyVisual(
-            telemetry.powerWatts,
-            production,
-            telemetry.connection,
-            telemetry.grid
-          ),
-        },
       },
       motion: deriveMotion(production, telemetry.connection),
     });

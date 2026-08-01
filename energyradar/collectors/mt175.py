@@ -1,4 +1,4 @@
-"""Collector for the BitShake MT175 smart meter via Tasmota HTTP bridge.
+"""Collector for Iskra MT631/MT175 meters via a Tasmota HTTP bridge.
 
 Single responsibility: fetch data from the Tasmota ``Status 10`` endpoint
 and return a strongly-typed :class:`~models.mt175.MT175Reading`.
@@ -13,14 +13,10 @@ Typical response::
     {
       "StatusSNS": {
         "Time": "2026-07-21T18:59:19",
-        "MT175": {
-          "ImportActive": 9755.000,
-          "ExportActive": 12399.000,
-          "Power": 0,
-          "power_L1": 0,
-          "power_L2": 0,
-          "power_L3": 0,
-          "server_id": ""
+        "MT631": {
+          "ImportActive": 9798.031,
+          "ExportActive": 12480.630,
+          "Power": -789
         }
       }
     }
@@ -29,6 +25,7 @@ Typical response::
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -44,7 +41,11 @@ _TASMOTA_QUERY = "cmnd=Status%2010"
 
 
 class MT175AddressError(ValueError):
-    """The configured MT175 address cannot be turned into a valid endpoint."""
+    """The configured smart-meter address cannot become a valid endpoint."""
+
+
+class SmartMeterDataError(ValueError):
+    """The response is JSON data but not a supported Tasmota meter payload."""
 
 
 # ---------------------------------------------------------------------------
@@ -64,19 +65,20 @@ def _local_zone() -> ZoneInfo:
         return ZoneInfo("Europe/Berlin")
 
 
-def _to_float(value: object, default: float = 0.0) -> float:
-    """Coerce *value* to :class:`float`, returning *default* on failure.
+def _to_float(value: object) -> float | None:
+    """Return a finite float for a numeric value, otherwise ``None``.
 
     Handles ``None``, numeric types, and numeric strings (e.g. ``"9755.000"``
-    as some Tasmota firmware variants return).  Malformed strings are treated
-    as *default* rather than raising.
+    as some Tasmota firmware variants return).  Booleans, malformed strings,
+    NaN, and infinities are unavailable rather than fabricated as zero.
     """
-    if value is None:
-        return default
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
-        return default
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _parse_timestamp(raw_time: str | None, zone: ZoneInfo) -> datetime | None:
@@ -121,8 +123,10 @@ def _is_pin_locked(mt175: dict) -> bool:
     * ``power_L3 == 0``
     * ``server_id`` is empty / absent
     """
+    power_keys = ("Power", "power_L1", "power_L2", "power_L3")
     return (
-        _to_float(mt175.get("Power")) == 0.0
+        all(key in mt175 for key in power_keys)
+        and _to_float(mt175.get("Power")) == 0.0
         and _to_float(mt175.get("power_L1")) == 0.0
         and _to_float(mt175.get("power_L2")) == 0.0
         and _to_float(mt175.get("power_L3")) == 0.0
@@ -141,9 +145,9 @@ def parse(raw: dict) -> MT175Reading:
     ----------
     raw:
         The JSON object decoded from the Tasmota HTTP response.  Must
-        contain the top-level ``StatusSNS`` key and a nested ``MT175``
-        sub-object.  All individual meter fields within ``MT175`` are
-        optional and degrade to safe defaults when absent or ``None``.
+        contain a ``StatusSNS`` object and a nested ``MT631`` or ``MT175``
+        object.  Missing, malformed, and non-finite measurements remain
+        unavailable rather than degrading to fabricated zero values.
 
     Returns
     -------
@@ -152,10 +156,8 @@ def parse(raw: dict) -> MT175Reading:
 
     Raises
     ------
-    KeyError
-        If ``StatusSNS`` or the nested ``MT175`` block is missing.
-        This signals a corrupt or unexpected Tasmota response and should
-        be handled by the caller.
+    SmartMeterDataError
+        If the decoded JSON has no supported meter object.
     """
     # Capture the wall-clock moment of arrival before any field access.
     # This is the first thing we do so that received_at is as close as
@@ -164,21 +166,30 @@ def parse(raw: dict) -> MT175Reading:
     zone = _local_zone()
     received_at = datetime.now(zone)
 
-    sns = raw["StatusSNS"]
-    mt175 = sns["MT175"]
+    if not isinstance(raw, dict) or not isinstance(raw.get("StatusSNS"), dict):
+        raise SmartMeterDataError("No supported Tasmota smart meter found.")
+    sns = raw.get("StatusSNS")
+    meter_key = next(
+        (key for key in ("MT631", "MT175") if key in sns),
+        None,
+    )
+    if meter_key is None or not isinstance(sns[meter_key], dict):
+        raise SmartMeterDataError("No supported Tasmota smart meter found.")
+    meter = sns[meter_key]
 
     timestamp = _parse_timestamp(sns.get("Time"), zone)
 
-    import_kwh = _to_float(mt175.get("ImportActive"))
-    export_kwh = _to_float(mt175.get("ExportActive"))
-    phase_l1 = _to_float(mt175.get("power_L1"))
-    phase_l2 = _to_float(mt175.get("power_L2"))
-    phase_l3 = _to_float(mt175.get("power_L3"))
-    meter_id = str(mt175.get("server_id", "") or "")
+    import_kwh = _to_float(meter.get("ImportActive"))
+    export_kwh = _to_float(meter.get("ExportActive"))
+    phase_l1 = _to_float(meter.get("power_L1"))
+    phase_l2 = _to_float(meter.get("power_L2"))
+    phase_l3 = _to_float(meter.get("power_L3"))
+    raw_meter_id = meter.get("server_id")
+    meter_id = str(raw_meter_id).strip() if raw_meter_id is not None else None
+    meter_id = meter_id or None
 
-    current_power: float | None = (
-        None if _is_pin_locked(mt175) else _to_float(mt175.get("Power"))
-    )
+    pin_locked = meter_key == "MT175" and _is_pin_locked(meter)
+    current_power = None if pin_locked else _to_float(meter.get("Power"))
 
     return MT175Reading(
         timestamp=timestamp,
@@ -190,6 +201,8 @@ def parse(raw: dict) -> MT175Reading:
         phase_l2_w=phase_l2,
         phase_l3_w=phase_l3,
         meter_id=meter_id,
+        meter_type=meter_key,
+        pin_locked=pin_locked,
     )
 
 
@@ -288,17 +301,21 @@ def read_url(url: str) -> MT175Reading:
     requests.exceptions.RequestException
         On any network or HTTP-level failure (timeout, connection refused,
         non-2xx status, …).  The caller is responsible for handling these.
-    KeyError
-        If the HTTP response JSON does not contain the expected structure.
+    SmartMeterDataError
+        If the JSON response has no supported Tasmota meter block.
     """
     endpoint = build_endpoint(url)
     response = requests.get(endpoint, timeout=(1.5, 3.0), allow_redirects=False)
     response.raise_for_status()
-    return parse(response.json())
+    try:
+        raw = response.json()
+    except ValueError as exc:
+        raise SmartMeterDataError("Tasmota returned malformed JSON data.") from exc
+    return parse(raw)
 
 
 def read_demo() -> MT175Reading:
-    """Demo-Quelle für ISKRA MT175 Smart Meter mit plausiblem Live-Netzfluss."""
+    """Demo source for a Tasmota smart meter with plausible live grid flow."""
     import random
     from energyradar.collectors import fronius
     zone = _local_zone()
@@ -316,4 +333,6 @@ def read_demo() -> MT175Reading:
         phase_l2_w=grid_w / 3.0,
         phase_l3_w=grid_w / 3.0,
         meter_id="DEMO-MT175-8842",
+        meter_type="MT175",
+        pin_locked=False,
     )

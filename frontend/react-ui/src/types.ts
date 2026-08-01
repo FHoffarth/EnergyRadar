@@ -22,6 +22,7 @@ export interface PowerData {
 
 export interface TodayHistoryPoint {
   time: string;
+  timestampMs: number | null;
   solar: number | null;
   home: number | null;
   gridImport: number | null;
@@ -64,7 +65,6 @@ export interface DeviceCardData {
 export interface RawSettings {
   refresh_seconds?: number | null;
   theme?: 'dark' | 'light' | 'system' | null;
-  dynamic_bg_enabled?: boolean | null;
   motion_mode?: 'full' | 'reduced' | 'none' | null;
   text_size?: 'normal' | 'large' | null;
   number_format?: 'de-DE' | 'en-US' | null;
@@ -77,13 +77,14 @@ export interface RawSettings {
   fronius_address?: string | null;
   mt175_address?: string | null;
   pv_installed_kwp?: number | null;
+  preferred_name?: string | null;
+  greeting_enabled?: boolean | null;
   resolved_location?: ResolvedLocationData | null;
 }
 
 export interface EffectiveSettings {
   refresh_seconds: number;
   theme: 'dark' | 'light' | 'system';
-  dynamic_bg_enabled: boolean;
   motion_mode: 'full' | 'reduced' | 'none';
   text_size: 'normal' | 'large';
   number_format: 'de-DE' | 'en-US';
@@ -96,14 +97,25 @@ export interface EffectiveSettings {
   fronius_address: string;
   mt175_address: string;
   pv_installed_kwp: number | null;
+  preferred_name: string | null;
+  greeting_enabled: boolean;
 }
 
 export interface SystemInfo {
   app_version: string;
   build: string;
   database_schema_version: number;
+  /** Expected cadence of persisted history, distinct from live polling. */
+  recording_interval_seconds: number;
   database_path: string;
   log_path: string;
+  export_directory: string;
+  database_healthy: boolean;
+  recording_active: boolean;
+  recording_since: string | null;
+  stored_samples: number;
+  database_size_bytes: number;
+  last_recorded_sample_at: string | null;
 }
 
 export interface SettingsPayload {
@@ -172,6 +184,17 @@ export interface HourlyWeatherData {
   precipitation_probability_percent?: number | null;
 }
 
+export interface DailyWeatherData {
+  date: string;
+  condition: string;
+  weather_code: number | null;
+  temperature_min_c: number | null;
+  temperature_max_c: number | null;
+  precipitation_probability_percent?: number | null;
+  sunrise?: string | null;
+  sunset?: string | null;
+}
+
 export interface WeatherQualityData {
   freshness: 'fresh' | 'stale' | 'expired' | 'unknown';
   source: string;
@@ -193,6 +216,7 @@ export interface WeatherReportData {
   sun: SunData | null;
   current: CurrentWeatherData | null;
   hourly?: HourlyWeatherData[];
+  daily?: DailyWeatherData[];
   quality: WeatherQualityData | null;
   warnings: WeatherWarningData[];
 }
@@ -266,28 +290,40 @@ export interface EnergySnapshot {
 
 export interface TimelineEntry {
   time: string;
+  /** Exact sample time used by time-scaled charts and coverage checks. */
+  timestampMs?: number | null;
   solarKw: number | null;
   homeLoadKw: number | null;
   gridKw: number | null;
   batteryPct: number | null;
   origin: DataOrigin;
+  solarOrigin?: DataOrigin;
+  homeLoadOrigin?: DataOrigin;
+  gridOrigin?: DataOrigin;
+  isGapMarker?: boolean;
 }
 
 export interface DemoDeviceSummary {
   id: string;
   name: string;
   category: string;
-  status: 'active' | 'idle' | 'last_known' | 'unknown';
+  status: 'active' | 'partial' | 'last_known' | 'offline' | 'unconfigured' | 'idle' | 'unknown';
   powerWatts: number | null;
   origin: DataOrigin;
   lastSeen: string;
   smartShedEnabled: boolean;
   notes: string;
   iconName: string;
+  connectionStatus?: string;
+  dataStatus?: string;
+  capabilities?: string[];
 }
 
 export interface ConnectionTestResult {
   ok: boolean;
   message: string;
   latencyMs: number | null;
+  status?: 'success' | 'partial' | 'failure' | string;
+  testedAt?: string | null;
+  capabilities?: string[];
 }

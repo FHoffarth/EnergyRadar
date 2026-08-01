@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
-import { LivingSkyBackground } from './LivingSkyBackground';
 import { useApp } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
 import { NowView } from '../../views/NowView';
@@ -30,11 +29,10 @@ export function AppLayout() {
   // Light mode uses a subtly tinted canvas so surfaces read as surfaces
   // rather than dissolving into a white page.
   return (
-    <div className="flex h-screen w-full bg-[#EFF1F4] dark:bg-[#121212] text-[#1C1C1E] dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300 relative">
-      <LivingSkyBackground />
+    <div className="flex h-screen w-full bg-[var(--radar-canvas)] text-[#1C1C1E] dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300 relative">
       <Sidebar onOpenSetupWizard={() => setIsSetupWizardOpen(true)} />
       <main className="flex-1 overflow-y-auto overflow-x-hidden relative flex flex-col z-10">
-        <div className="flex-1 flex flex-col max-w-[960px] w-full mx-auto">
+        <div className="cockpit-shell flex-1 flex flex-col" data-testid="desktop-content">
           {renderView()}
         </div>
       </main>

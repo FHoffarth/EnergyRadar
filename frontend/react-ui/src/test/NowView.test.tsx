@@ -115,6 +115,29 @@ describe('NowView - top-level statement', () => {
   });
 });
 
+describe('NowView - greeting preference', () => {
+  beforeEach(() => {
+    providerState.snapshot = solarOnlySnapshot(0.3);
+    providerState.timeline = [];
+    providerState.devices = [];
+    providerState.sourceType = 'bridge';
+    appState.weatherReport = null;
+  });
+
+  it('shows the locally configured preferred name', () => {
+    appState.settingsPayload = { effective_settings: { greeting_enabled: true, preferred_name: 'Florian' } };
+    render(<NowView />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Florian');
+  });
+
+  it('retains the factual home headline when the greeting is disabled', () => {
+    appState.settingsPayload = { effective_settings: { greeting_enabled: false, preferred_name: 'Florian' } };
+    render(<NowView />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toContain('Florian');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('PV');
+  });
+});
+
 describe('NowView - unknown values', () => {
   beforeEach(() => {
     providerState.snapshot = solarOnlySnapshot(0.3);
@@ -185,7 +208,10 @@ describe('NowView - day trend evidence threshold', () => {
     providerState.timeline = solarTimeline([0.1, 0.2, 0.3]);
     render(<NowView />);
     expect(screen.queryByText('Noch nicht genug Messpunkte für einen Tagesverlauf.')).toBeNull();
-    expect(screen.getByLabelText('Gemessener PV-Tagesverlauf')).toBeTruthy();
+    const chart = screen.getByLabelText('Gemessener PV-Tagesverlauf');
+    expect(chart).toBeTruthy();
+    expect(chart.className).toContain('h-[clamp(17rem,34vh,24rem)]');
+    expect(screen.getByTestId('now-workspace').className).toContain('cockpit-page');
   });
 });
 

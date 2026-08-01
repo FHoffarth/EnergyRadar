@@ -24,7 +24,6 @@ _SETTINGS_LOCK = threading.RLock()
 DEFAULTS: dict[str, Any] = {
     "refresh_seconds": 5,
     "theme": "dark",             # "dark" | "light" | "system"
-    "dynamic_bg_enabled": True,
     "motion_mode": "full",        # "full" | "reduced" | "none"
     "text_size": "normal",        # "normal" | "large"
     "number_format": "de-DE",     # "de-DE" | "en-US"
@@ -37,7 +36,26 @@ DEFAULTS: dict[str, Any] = {
     "fronius_address": "",
     "mt175_address": "",
     "pv_installed_kwp": None,
+    "preferred_name": None,
+    "greeting_enabled": True,
 }
+
+# Live power is a current-state feature, not a background history job.  Older
+# UI versions allowed persisting a 60-second cadence; the React UI no longer
+# exposes that control, so such profiles silently made both cards and charts
+# look about one minute late.  Ten seconds remains gentler than the established
+# five-second default while keeping the live view meaningfully current.
+MIN_REFRESH_SECONDS = 3
+MAX_LIVE_REFRESH_SECONDS = 10
+
+
+def _effective_refresh_seconds(value: Any) -> int:
+    """Return a safe live polling cadence for defaults and persisted values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return int(DEFAULTS["refresh_seconds"])
+    if not math.isfinite(value):
+        return int(DEFAULTS["refresh_seconds"])
+    return max(MIN_REFRESH_SECONDS, min(MAX_LIVE_REFRESH_SECONDS, int(value)))
 
 
 def _settings_path() -> Path:
@@ -50,7 +68,6 @@ def _settings_path() -> Path:
 class UISettings:
     refresh_seconds: Optional[int] = None
     theme: Optional[str] = None
-    dynamic_bg_enabled: Optional[bool] = None
     motion_mode: Optional[str] = None
     text_size: Optional[str] = None
     number_format: Optional[str] = None
@@ -63,6 +80,8 @@ class UISettings:
     fronius_address: Optional[str] = None
     mt175_address: Optional[str] = None
     pv_installed_kwp: Optional[float] = None
+    preferred_name: Optional[str] = None
+    greeting_enabled: Optional[bool] = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UISettings:
@@ -115,6 +134,9 @@ def resolve_effective(raw_dict: Optional[dict[str, Any]] = None) -> dict[str, An
     for k, v in raw_dict.items():
         if k in DEFAULTS and v is not None:
             effective[k] = v
+    effective["refresh_seconds"] = _effective_refresh_seconds(
+        effective["refresh_seconds"]
+    )
     return effective
 
 
@@ -130,14 +152,22 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
         if k == "refresh_seconds":
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError("refresh_seconds muss eine Zahl sein.")
-            validated[k] = max(3, min(60, int(v)))
+            if not math.isfinite(v):
+                raise ValueError("refresh_seconds muss eine gültige Zahl sein.")
+            validated[k] = _effective_refresh_seconds(v)
 
         elif k == "theme":
             if str(v) not in {"dark", "light", "system"}:
                 raise ValueError("Ungültiges Theme.")
             validated[k] = str(v)
 
-        elif k == "dynamic_bg_enabled" or k == "weather_enabled":
+        elif k == "dynamic_bg_enabled":
+            # Removed setting retained only as an input compatibility shim.
+            # Old saved values are intentionally ignored and never become
+            # effective settings again.
+            continue
+
+        elif k in {"weather_enabled", "greeting_enabled"}:
             if not isinstance(v, bool):
                 raise ValueError(f"{k} muss ein Boolean sein.")
             validated[k] = v
@@ -179,6 +209,12 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
             if not (0.0 < val <= 1000.0):
                 raise ValueError("pv_installed_kwp muss zwischen 0 und 1000 kWp liegen.")
             validated[k] = val
+
+        elif k == "preferred_name":
+            val_str = " ".join(str(v).split())
+            if len(val_str) > 80:
+                raise ValueError("preferred_name darf höchstens 80 Zeichen enthalten.")
+            validated[k] = val_str if val_str else None
 
         elif k in {"location_query", "export_directory", "mt175_address", "fronius_address"}:
             val_str = str(v).strip()
