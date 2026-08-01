@@ -10,23 +10,23 @@ def test_patch_semantics(tmp_path, monkeypatch):
     monkeypatch.setattr(ui_settings, "_settings_path", lambda: settings_file)
 
     # 1. Initialer Patch
-    patch1 = {"theme": "dark", "motion_mode": "full", "refresh_seconds": 10}
+    patch1 = {"theme": "dark", "text_size": "large", "refresh_seconds": 10}
     saved1 = ui_settings.save_patch(patch1)
     assert saved1["theme"] == "dark"
-    assert saved1["motion_mode"] == "full"
+    assert saved1["text_size"] == "large"
     assert saved1["refresh_seconds"] == 10
 
     # 2. Zweiter Patch - update theme, missing keys MUST be retained
     patch2 = {"theme": "light"}
     saved2 = ui_settings.save_patch(patch2)
     assert saved2["theme"] == "light"
-    assert saved2["motion_mode"] == "full"
+    assert saved2["text_size"] == "large"
     assert saved2["refresh_seconds"] == 10
 
     # 3. Explizites null setzt einen Wert auf None zurück
-    patch3 = {"motion_mode": None}
+    patch3 = {"text_size": None}
     saved3 = ui_settings.save_patch(patch3)
-    assert saved3["motion_mode"] is None
+    assert saved3["text_size"] is None
     assert saved3["theme"] == "light"
 
 
@@ -47,7 +47,7 @@ def test_defaults_not_persisted(tmp_path, monkeypatch):
     effective = ui_settings.resolve_effective(raw_json)
     assert effective["theme"] == "light"
     assert "dynamic_bg_enabled" not in effective
-    assert effective["motion_mode"] == "full"
+    assert "motion_mode" not in effective
 
 
 def test_removed_dynamic_background_setting_is_ignored_safely(tmp_path, monkeypatch):
@@ -68,6 +68,23 @@ def test_removed_dynamic_background_setting_is_ignored_safely(tmp_path, monkeypa
     assert "dynamic_bg_enabled" not in vm.effective_settings
     # Compatibility: reading the legacy value does not rewrite user storage.
     assert json.loads(settings_file.read_text(encoding="utf-8"))["dynamic_bg_enabled"] is False
+
+
+def test_removed_motion_setting_is_ignored_without_rewriting_user_storage(tmp_path, monkeypatch):
+    settings_file = tmp_path / "ui-settings.json"
+    monkeypatch.setattr(ui_settings, "_settings_path", lambda: settings_file)
+    original = {"theme": "system", "motion_mode": "none"}
+    settings_file.write_text(json.dumps(original), encoding="utf-8")
+
+    effective = ui_settings.resolve_effective(ui_settings.load_raw_dict())
+    assert effective["theme"] == "system"
+    assert "motion_mode" not in effective
+    assert ui_settings.validate_patch({"motion_mode": "reduced"}) == {}
+
+    vm = viewmodels.build_settings_vm()
+    assert vm.settings == {"theme": "system"}
+    assert "motion_mode" not in vm.effective_settings
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == original
 
 
 def test_corrupt_settings_fallback(tmp_path, monkeypatch):

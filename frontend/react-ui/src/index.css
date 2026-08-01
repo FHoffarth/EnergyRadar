@@ -176,46 +176,11 @@
   font-size: 112.5%;
 }
 
-[data-motion="full"] {
-  --motion-fast: 160ms;
-  --motion-standard: 240ms;
-  --motion-prominent: 700ms;
-  --motion-distance: 0.5rem;
-}
-
-[data-motion="reduced"] {
-  --motion-fast: 80ms;
-  --motion-standard: 120ms;
-  --motion-prominent: 120ms;
-  --motion-distance: 0;
-}
-
-[data-motion="none"] {
-  --motion-fast: 0ms;
-  --motion-standard: 0ms;
-  --motion-prominent: 0ms;
-  --motion-distance: 0;
-}
-
-[data-motion="none"] *, [data-motion="none"] ::before, [data-motion="none"] ::after {
-  animation-duration: 0ms !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0ms !important;
-  scroll-behavior: auto !important;
-}
-
-[data-motion="reduced"] *, [data-motion="reduced"] ::before, [data-motion="reduced"] ::after {
-  animation-duration: var(--motion-prominent) !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: var(--motion-standard) !important;
-  scroll-behavior: auto !important;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
-    animation-duration: 120ms !important;
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 120ms !important;
+    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
 }

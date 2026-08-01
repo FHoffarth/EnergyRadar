@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { ViewState, SystemStatus, ThemeMode, PowerData, TodayData, DeviceCardData, SettingsPayload, RawSettings, LocationCandidateData, WeatherReportData } from '../types';
-import { applyMotionPreference } from '../lib/motion';
+import { ViewState, SystemStatus, ThemeMode, PowerData, TodayData, DeviceCardData, SettingsPayload, RawSettings, LocationCandidateData, WeatherReportData, TariffRecordData } from '../types';
 import { initBridge, QtBridge } from '../lib/bridge';
 import { nowData$, todayData$, startEnergyService } from '../lib/energyService';
 import { NumberLocale, DEFAULT_NUMBER_LOCALE } from '../lib/format';
@@ -14,6 +13,11 @@ export type SystemActionStatus = 'idle' | 'loading' | 'success' | 'cancelled' | 
 
 export interface SettingsSaveState {
   status: SettingsSaveStatus;
+  message?: string;
+}
+
+export interface TariffOperationState {
+  status: 'idle' | 'saving' | 'saved' | 'error';
   message?: string;
 }
 
@@ -62,6 +66,7 @@ interface AppContextType {
   weatherTestState: WeatherTestState;
   settingsSaveState: SettingsSaveState;
   systemActionState: SystemActionState;
+  tariffOperationState: TariffOperationState;
   // Weather actions
   searchWeatherLocations: (query: string) => void;
   confirmWeatherLocation: (candidate: LocationCandidateData) => void;
@@ -71,6 +76,8 @@ interface AppContextType {
   updateSettings: (patch: RawSettings) => void;
   saveSettings: (settings: { theme?: string; refresh_seconds?: number; mt175_address?: string }) => void;
   saveFroniusAddress: (address: string) => void;
+  saveTariff: (tariff: TariffRecordData) => void;
+  deleteTariff: (recordId: number) => void;
   testConnection: (deviceId: string) => void;
   chooseExportDirectory: () => void;
   consumeSystemActionPath: () => void;
@@ -108,6 +115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const connectionTestsInFlightRef = useRef(new Set<string>());
   const connectionTestTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [settingsPayload, setSettingsPayload] = useState<SettingsPayload | null>(null);
+  const [tariffOperationState, setTariffOperationState] = useState<TariffOperationState>({ status: 'idle' });
   const [weatherValidationState, setWeatherValidationState] = useState<{ checking: boolean; result?: any }>({ checking: false });
   const [weatherSearchState, setWeatherSearchState] = useState<WeatherSearchState>({
     status: 'idle',
@@ -256,6 +264,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSettingsSaveState({ status: 'error', message });
       });
 
+      b.tariffOperationSucceeded?.connect(() => {
+        setTariffOperationState({ status: 'saved', message: 'Tarifzeitraum gespeichert.' });
+      });
+      b.tariffOperationFailed?.connect((errorJson) => {
+        let message = 'Tarifzeitraum konnte nicht gespeichert werden.';
+        try {
+          const parsed = JSON.parse(errorJson);
+          if (typeof parsed?.message === 'string' && parsed.message) message = parsed.message;
+        } catch {}
+        setTariffOperationState({ status: 'error', message });
+      });
+
       b.weatherCandidatesResult.connect((opId, resJson) => {
         if (opId !== searchOpIdRef.current) return;
         if (searchTimeoutRef.current) {
@@ -371,15 +391,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const effective = settingsPayload?.effective_settings;
     const currentTheme = theme || effective?.theme || 'dark';
-    const motionMode = effective?.motion_mode || 'full';
     const textSize = effective?.text_size || 'normal';
 
     root.setAttribute('data-theme', currentTheme);
-    const motionQuery = typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-reduced-motion: reduce)')
-      : null;
-    const applyMotion = () => applyMotionPreference(motionMode, root, motionQuery?.matches ?? false);
-    applyMotion();
     root.setAttribute('data-text-size', textSize);
 
     const applyThemeClass = () => {
@@ -398,16 +412,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       const listener = () => applyThemeClass();
       mediaQuery.addEventListener('change', listener);
-      const motionListener = () => applyMotion();
-      motionQuery?.addEventListener('change', motionListener);
       return () => {
         mediaQuery.removeEventListener('change', listener);
-        motionQuery?.removeEventListener('change', motionListener);
       };
     }
-    const motionListener = () => applyMotion();
-    motionQuery?.addEventListener('change', motionListener);
-    return () => motionQuery?.removeEventListener('change', motionListener);
   }, [theme, settingsPayload]);
 
   // ── Weather actions ──────────────────────────────────────────────
@@ -534,6 +542,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (bridge) bridge.saveFroniusAddress(address);
   };
 
+  const saveTariff = (tariff: TariffRecordData) => {
+    if (!bridge?.saveTariff) {
+      setTariffOperationState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+      return;
+    }
+    setTariffOperationState({ status: 'saving' });
+    bridge.saveTariff(JSON.stringify(tariff));
+  };
+
+  const deleteTariff = (recordId: number) => {
+    if (!bridge?.deleteTariff) {
+      setTariffOperationState({ status: 'error', message: 'Desktop-Verbindung ist nicht verfügbar.' });
+      return;
+    }
+    setTariffOperationState({ status: 'saving' });
+    bridge.deleteTariff(recordId);
+  };
+
   const runSystemAction = (action: SystemActionName, invoke: (desktopBridge: QtBridge) => void) => {
     if (systemActionsInFlightRef.current.has(action)) return;
     if (!bridge) {
@@ -648,7 +674,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ) ? 'saved' : 'absent',
       weatherReport,
       weatherTestState,
-      settingsSaveState, systemActionState,
+      settingsSaveState, systemActionState, tariffOperationState,
       searchWeatherLocations,
       confirmWeatherLocation,
       removeResolvedLocation,
@@ -656,6 +682,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateSettings,
       saveSettings,
       saveFroniusAddress,
+      saveTariff,
+      deleteTariff,
       testConnection,
       chooseExportDirectory,
       consumeSystemActionPath,

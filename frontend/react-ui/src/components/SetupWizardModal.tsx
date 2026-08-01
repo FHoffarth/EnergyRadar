@@ -195,7 +195,7 @@ export function SetupWizardModal({ isOpen, onClose, onTestConnection, isBridgeCo
             {step === 'enter_details' && (
               <button onClick={handleRunTest} disabled={isTesting || !host.trim()}
                 className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold disabled:opacity-40 transition-all flex items-center gap-1.5 shadow-xs">
-                {isTesting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {isTesting && <Loader2 className="w-3.5 h-3.5" />}
                 <span>Verbindung prüfen</span>
               </button>
             )}

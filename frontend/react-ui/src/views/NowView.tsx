@@ -2,7 +2,7 @@ import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Sun, Home, Zap } from 'lucide-react';
 import { useApp, useNumberLocale } from '../context/AppContext';
-import { useEffectiveMotionMode } from '../lib/motion';
+import { usePrefersReducedMotion } from '../lib/motion';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
 import { WeatherIntelligence } from '../components/WeatherIntelligence';
 import { CurrentEnergyBriefing } from '../components/CurrentEnergyBriefing';
@@ -22,8 +22,7 @@ export function NowView() {
   const { settingsPayload, weatherReport } = useApp();
   const locale = useNumberLocale();
 
-  const motionMode = settingsPayload?.effective_settings?.motion_mode ?? 'full';
-  const animateCharts = useEffectiveMotionMode(motionMode) === 'full';
+  const animateCharts = !usePrefersReducedMotion();
   const greetingEnabled = Boolean(settingsPayload) && (settingsPayload?.effective_settings?.greeting_enabled ?? true);
   const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
 

@@ -180,7 +180,7 @@ export function DevicesView() {
                           : 'bg-amber-500 hover:bg-amber-600 text-white'
                       }`}
                     >
-                      {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                      {isTesting ? <Loader2 className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5" />}
                       {isTesting ? 'Verbindung wird geprüft …' : presentation.action}
                     </button>
                   </div>

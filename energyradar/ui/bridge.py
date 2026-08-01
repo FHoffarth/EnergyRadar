@@ -93,6 +93,8 @@ class EnergyBridge(QObject):
     # ---------------------------------------------------------------- #
     settingsSaveSucceeded = Signal(str)            # result json
     settingsSaveFailed = Signal(str)               # error json
+    tariffOperationSucceeded = Signal(str)         # result json
+    tariffOperationFailed = Signal(str)            # error json
     directorySelected = Signal(str)                # selected path
     weatherConfigurationResult = Signal(str)       # result json
     systemActionResult = Signal(str)               # result json
@@ -505,6 +507,44 @@ class EnergyBridge(QObject):
     def saveSettings(self, settings_json: str) -> None:
         """Abwärtskompatible Wrapper-Methode für saveSettings."""
         self.updateSettings(settings_json)
+
+    @Slot(str)
+    def saveTariff(self, tariff_json: str) -> None:  # noqa: N802
+        """Create or update one validated tariff period."""
+        from energyradar.services import tariffs
+        try:
+            payload = json.loads(tariff_json)
+            if not isinstance(payload, dict):
+                raise ValueError("Tarif muss ein JSON-Objekt sein.")
+            record_id = payload.pop("id", None)
+            record = (
+                tariffs.update_record(int(record_id), payload)
+                if record_id is not None
+                else tariffs.create_record(payload)
+            )
+            self._update_settings_snapshot()
+            self.tariffOperationSucceeded.emit(json.dumps({"ok": True, "record": record}, ensure_ascii=False))
+            QTimer.singleShot(0, self._on_timer)
+        except Exception as exc:
+            log.warning("Tarif konnte nicht gespeichert werden: %s", exc)
+            self.tariffOperationFailed.emit(json.dumps({
+                "ok": False,
+                "message": str(exc),
+            }, ensure_ascii=False))
+
+    @Slot(int)
+    def deleteTariff(self, record_id: int) -> None:  # noqa: N802
+        """Delete the explicitly selected tariff period."""
+        from energyradar.services import tariffs
+        try:
+            if not tariffs.delete_record(record_id):
+                raise ValueError("Tarif wurde nicht gefunden.")
+            self._update_settings_snapshot()
+            self.tariffOperationSucceeded.emit(json.dumps({"ok": True, "deleted_id": record_id}, ensure_ascii=False))
+            QTimer.singleShot(0, self._on_timer)
+        except Exception as exc:
+            log.warning("Tarif konnte nicht gelöscht werden: %s", exc)
+            self.tariffOperationFailed.emit(json.dumps({"ok": False, "message": str(exc)}, ensure_ascii=False))
 
     @Slot()
     def chooseExportDirectory(self) -> None:

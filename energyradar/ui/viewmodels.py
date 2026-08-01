@@ -66,6 +66,7 @@ class TodayViewModel:
     generated_label: str
     consumption_kwh: Optional[float]
     consumption_label: str
+    consumption_reason: Optional[str]
     import_total_kwh: Optional[float]
     import_total_label: str
     export_total_kwh: Optional[float]
@@ -77,6 +78,7 @@ class TodayViewModel:
     history: List[dict]
     has_data: bool
     has_source: bool
+    economy: dict
 
     # Solar-Prognose (Sprint 5E)
     solar_forecast: Optional[dict] = None
@@ -116,6 +118,7 @@ class SettingsViewModel:
     refresh_seconds: int
     timezone: str
     theme: str              # "dark" | "light" | "system"
+    tariffs: List[dict]
 
 
 @dataclass(frozen=True)
@@ -468,6 +471,21 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
 
     summary = hist_data["summary"]
 
+    try:
+        from energyradar.services import economy, tariffs
+        economy_data = economy.calculate_period(
+            hist_data["economy_basis"], tariffs.list_records()
+        )
+    except Exception as exc:
+        log.warning("Solar-Economy-Berechnung nicht verfügbar: %s", exc)
+        economy_data = {
+            "period": hist_data["period"],
+            "coverage_state": "unavailable",
+            "provisional": False,
+            "results": {},
+            "reason": "calculation_unavailable",
+        }
+
     gen_kwh = summary["solar_kwh"]
     cons_kwh = summary["consumption_kwh"]
     imp_kwh = summary["grid_import_kwh"]
@@ -487,6 +505,7 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
         consumption_kwh=cons_kwh,
         consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
+        consumption_reason=summary.get("consumption_reason"),
         import_total_kwh=imp_kwh,
         import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
         export_total_kwh=exp_kwh,
@@ -498,6 +517,7 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
         history=hist_data["points"],
         has_data=len(hist_data["points"]) > 0,
         has_source=has_source,
+        economy=economy_data,
         solar_forecast=solar_forecast_dict,
     )
 
@@ -668,12 +688,14 @@ def build_settings_vm() -> SettingsViewModel:
 
     from energyradar import config
     from energyradar.ui import settings as ui_settings
-    from energyradar.services import data_source as ds
+    from energyradar.services import data_source as ds, tariffs
 
     raw_dict = ui_settings.load_raw_dict()
-    # Do not expose the removed Living Sky preference to current clients.
-    # Keeping the on-disk value untouched makes rollback safe.
+    # Do not expose removed appearance preferences to current clients.
+    # Keeping their on-disk values untouched avoids rewriting user profiles
+    # merely because a newer application version read them.
     raw_dict.pop("dynamic_bg_enabled", None)
+    raw_dict.pop("motion_mode", None)
     effective_dict = ui_settings.resolve_effective(raw_dict)
 
     src = ds.effective()
@@ -715,6 +737,7 @@ def build_settings_vm() -> SettingsViewModel:
         refresh_seconds=effective_dict.get("refresh_seconds", 5),
         timezone=config.MT175_TIMEZONE,
         theme=effective_dict.get("theme", "dark"),
+        tariffs=tariffs.list_records(),
     )
 
 
