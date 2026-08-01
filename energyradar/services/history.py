@@ -8,6 +8,7 @@ und auf Coverage prüfen. Liefert das fachliche History-Objekt für Viewmodels.
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 from energyradar.services import storage
+from energyradar.services.economy import coverage_state
 
 # Wenn der Abstand zwischen zwei Punkten größer ist, wird die Lücke nicht interpoliert.
 MAX_GAP_SECONDS = 300  # 5 Minuten
@@ -66,6 +67,15 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     first_grid_export_counter: Optional[float] = None
     last_grid_export_counter: Optional[float] = None
 
+    # Economy uses a stricter evidence path: stale/partial/unknown source rows
+    # remain visible in history but cannot support a current financial claim.
+    econ_first_pv_counter = econ_last_pv_counter = None
+    econ_first_import_counter = econ_last_import_counter = None
+    econ_first_export_counter = econ_last_export_counter = None
+    econ_last_pv = econ_last_import = econ_last_export = None
+    econ_pv_wh = econ_import_wh = econ_export_wh = 0.0
+    econ_pv_covered_s = econ_grid_covered_s = 0.0
+
     for row in samples:
         dt = datetime.strptime(row["measured_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone(tz)
 
@@ -75,6 +85,44 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
         pv_counter = row["pv_energy_today_wh"]
         import_counter = row["grid_import_total_wh"]
         export_counter = row["grid_export_total_wh"]
+        pv_trusted = row.get("pv_quality_status", row.get("sample_quality_status")) == "valid"
+        grid_trusted = row.get("grid_quality_status", row.get("sample_quality_status")) == "valid"
+
+        if pv_trusted:
+            if pv_counter is not None:
+                if econ_first_pv_counter is None:
+                    econ_first_pv_counter = pv_counter
+                econ_last_pv_counter = pv_counter
+            if econ_last_pv is not None and pv_w is not None:
+                diff = (dt - econ_last_pv["time"]).total_seconds()
+                if 0 < diff <= MAX_GAP_SECONDS:
+                    econ_pv_covered_s += diff
+                    econ_pv_wh += ((pv_w + econ_last_pv["val"]) / 2) * (diff / 3600.0)
+            econ_last_pv = {"time": dt, "val": pv_w} if pv_w is not None else None
+        else:
+            econ_last_pv = None
+
+        if grid_trusted:
+            if import_counter is not None:
+                if econ_first_import_counter is None:
+                    econ_first_import_counter = import_counter
+                econ_last_import_counter = import_counter
+            if export_counter is not None:
+                if econ_first_export_counter is None:
+                    econ_first_export_counter = export_counter
+                econ_last_export_counter = export_counter
+            import_w = max(grid_w, 0) if grid_w is not None else None
+            export_w = max(-grid_w, 0) if grid_w is not None else None
+            if econ_last_import is not None and import_w is not None:
+                diff = (dt - econ_last_import["time"]).total_seconds()
+                if 0 < diff <= MAX_GAP_SECONDS:
+                    econ_grid_covered_s += diff
+                    econ_import_wh += ((import_w + econ_last_import["val"]) / 2) * (diff / 3600.0)
+                    econ_export_wh += ((export_w + econ_last_export["val"]) / 2) * (diff / 3600.0)
+            econ_last_import = {"time": dt, "val": import_w} if import_w is not None else None
+            econ_last_export = {"time": dt, "val": export_w} if export_w is not None else None
+        else:
+            econ_last_import = econ_last_export = None
 
         # Counter Delta Tracking
         if pv_counter is not None:
@@ -189,6 +237,72 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     if solar_kwh and solar_kwh > 0 and cov_pv >= 0.90 and cov_grid >= 0.90: # Needs grid export reliable
         self_consumption_pct = max(0, min(100, round((1.0 - (export_kwh / solar_kwh)) * 100)))
 
+    period_key = f"{start_of_day.isoformat()}|{now.isoformat()}"
+
+    def economy_energy(
+        first_counter: Optional[float],
+        last_counter: Optional[float],
+        integrated_wh: float,
+        coverage: float,
+    ) -> dict[str, Any]:
+        value_kwh: Optional[float] = None
+        source = "unavailable"
+        reason: Optional[str] = None
+        if first_counter is not None and last_counter is not None:
+            delta = last_counter - first_counter
+            if delta >= 0:
+                value_kwh = delta / 1000.0
+                source = "counter_delta"
+            else:
+                reason = "counter_reset_or_negative_delta"
+        if value_kwh is None and coverage >= 0.5:
+            value_kwh = integrated_wh / 1000.0
+            source = "integrated_power_history"
+            reason = "counter_unusable_fallback_to_covered_power_history" if reason else None
+        state = coverage_state(coverage)
+        if value_kwh is None:
+            state = "unavailable"
+        return {
+            "value_kwh": format(value_kwh, ".12g") if value_kwh is not None else None,
+            "source": source,
+            "coverage_ratio": round(coverage, 6),
+            "coverage_state": state,
+            "period_key": period_key,
+            "reason": reason,
+        }
+
+    economy_basis = {
+        "period": {
+            "from": start_of_day.isoformat(),
+            "to": now.isoformat(),
+            "timezone": str(tz),
+            "local_date_from": start_of_day.date().isoformat(),
+            "local_date_to": now.date().isoformat(),
+        },
+        "source_hierarchy": [
+            "counter_delta",
+            "provider_energy_total",
+            "integrated_power_history",
+            "unavailable",
+        ],
+        "solar_generation": economy_energy(
+            econ_first_pv_counter, econ_last_pv_counter, econ_pv_wh,
+            min(1.0, econ_pv_covered_s / total_seconds_today),
+        ),
+        "grid_import": economy_energy(
+            econ_first_import_counter,
+            econ_last_import_counter,
+            econ_import_wh,
+            min(1.0, econ_grid_covered_s / total_seconds_today),
+        ),
+        "grid_export": economy_energy(
+            econ_first_export_counter,
+            econ_last_export_counter,
+            econ_export_wh,
+            min(1.0, econ_grid_covered_s / total_seconds_today),
+        ),
+    }
+
     return {
         "period": {
             "from": start_of_day.isoformat(),
@@ -208,5 +322,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             "self_consumption_pct": self_consumption_pct,
             "autarky_pct": autarky_pct
         },
+        "economy_basis": economy_basis,
         "points": points
     }

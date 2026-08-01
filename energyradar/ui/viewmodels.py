@@ -77,6 +77,7 @@ class TodayViewModel:
     history: List[dict]
     has_data: bool
     has_source: bool
+    economy: dict
 
     # Solar-Prognose (Sprint 5E)
     solar_forecast: Optional[dict] = None
@@ -116,6 +117,7 @@ class SettingsViewModel:
     refresh_seconds: int
     timezone: str
     theme: str              # "dark" | "light" | "system"
+    tariffs: List[dict]
 
 
 @dataclass(frozen=True)
@@ -468,6 +470,21 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
 
     summary = hist_data["summary"]
 
+    try:
+        from energyradar.services import economy, tariffs
+        economy_data = economy.calculate_period(
+            hist_data["economy_basis"], tariffs.list_records()
+        )
+    except Exception as exc:
+        log.warning("Solar-Economy-Berechnung nicht verfügbar: %s", exc)
+        economy_data = {
+            "period": hist_data["period"],
+            "coverage_state": "unavailable",
+            "provisional": False,
+            "results": {},
+            "reason": "calculation_unavailable",
+        }
+
     gen_kwh = summary["solar_kwh"]
     cons_kwh = summary["consumption_kwh"]
     imp_kwh = summary["grid_import_kwh"]
@@ -498,6 +515,7 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
         history=hist_data["points"],
         has_data=len(hist_data["points"]) > 0,
         has_source=has_source,
+        economy=economy_data,
         solar_forecast=solar_forecast_dict,
     )
 
@@ -668,7 +686,7 @@ def build_settings_vm() -> SettingsViewModel:
 
     from energyradar import config
     from energyradar.ui import settings as ui_settings
-    from energyradar.services import data_source as ds
+    from energyradar.services import data_source as ds, tariffs
 
     raw_dict = ui_settings.load_raw_dict()
     # Do not expose the removed Living Sky preference to current clients.
@@ -715,6 +733,7 @@ def build_settings_vm() -> SettingsViewModel:
         refresh_seconds=effective_dict.get("refresh_seconds", 5),
         timezone=config.MT175_TIMEZONE,
         theme=effective_dict.get("theme", "dark"),
+        tariffs=tariffs.list_records(),
     )
 
 

@@ -61,3 +61,51 @@ def test_coverage_and_integration(monkeypatch):
     # Cov
     assert res["coverage"]["pv"] == round(60 / (12*3600), 3)
     assert res["summary"]["autarky_pct"] is None # Cov too low
+    assert res["economy_basis"]["solar_generation"]["source"] == "counter_delta"
+    assert res["economy_basis"]["solar_generation"]["coverage_state"] == "sparse"
+
+
+def test_economy_basis_rejects_counter_reset_and_negative_delta(monkeypatch):
+    tz = timezone.utc
+    base_time = datetime(2026, 7, 22, 1, 0, tzinfo=tz)
+
+    class MockDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return base_time
+
+    monkeypatch.setattr(history, "datetime", MockDatetime)
+    samples = [
+        {"measured_at": "2026-07-22 00:00:00", "pv_power_w": 1000, "grid_power_w": 100,
+         "pv_energy_today_wh": 500, "grid_import_total_wh": 1000, "grid_export_total_wh": 1000, "sample_quality_status": "valid"},
+        {"measured_at": "2026-07-22 00:10:00", "pv_power_w": 1000, "grid_power_w": 100,
+         "pv_energy_today_wh": 10, "grid_import_total_wh": 900, "grid_export_total_wh": 900, "sample_quality_status": "valid"},
+    ]
+    monkeypatch.setattr(history.storage, "get_samples_since", lambda _start: samples)
+    result = history.get_today_history(tz)["economy_basis"]
+    assert result["solar_generation"]["value_kwh"] is None
+    assert result["grid_import"]["value_kwh"] is None
+    assert result["grid_export"]["value_kwh"] is None
+    assert result["solar_generation"]["reason"] == "counter_reset_or_negative_delta"
+
+
+def test_stale_rows_remain_visible_but_do_not_support_economy(monkeypatch):
+    tz = timezone.utc
+    base_time = datetime(2026, 7, 22, 0, 2, tzinfo=tz)
+    class MockDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None): return base_time
+    monkeypatch.setattr(history, "datetime", MockDatetime)
+    samples = [
+        {"measured_at": "2026-07-22 00:00:00", "pv_power_w": 1000, "grid_power_w": -100,
+         "pv_energy_today_wh": 0, "grid_import_total_wh": 0, "grid_export_total_wh": 0,
+         "pv_quality_status": "stale", "grid_quality_status": "stale", "sample_quality_status": "stale"},
+        {"measured_at": "2026-07-22 00:01:00", "pv_power_w": 1000, "grid_power_w": -100,
+         "pv_energy_today_wh": 10, "grid_import_total_wh": 0, "grid_export_total_wh": 2,
+         "pv_quality_status": "stale", "grid_quality_status": "stale", "sample_quality_status": "stale"},
+    ]
+    monkeypatch.setattr(history.storage, "get_samples_since", lambda _start: samples)
+    result = history.get_today_history(tz)
+    assert len(result["points"]) == 2
+    assert result["economy_basis"]["solar_generation"]["value_kwh"] is None
+    assert result["economy_basis"]["grid_export"]["coverage_state"] == "unavailable"

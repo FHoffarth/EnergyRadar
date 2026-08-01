@@ -129,7 +129,8 @@ function processTodayViewModel(raw: Record<string, any>) {
     gridFeedInTotal: toDataState(raw.export_total_kwh),
     selfConsumption: toDataState(raw.self_consumption_pct),
     selfSufficiency: toDataState(raw.autarky_pct),
-    history
+    history,
+    economy: raw.economy && typeof raw.economy === 'object' ? raw.economy : null,
   });
 }
 

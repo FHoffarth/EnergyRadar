@@ -11,6 +11,7 @@ import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
+import { EconomySummary } from '../components/EconomySummary';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
@@ -98,6 +99,7 @@ export function TodayView() {
 
       <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
       <DailyInterpretation statements={statements} />
+      <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">

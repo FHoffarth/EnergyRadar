@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { greetingTitle } from '../lib/greeting';
 import { applyMotionPreference, MotionMode } from '../lib/motion';
+import { TariffSettings } from '../components/TariffSettings';
 
 /**
  * Reduce a pasted address to "host" or "host:port".
@@ -231,6 +232,7 @@ export function SettingsView() {
       </header>
 
       <div className="cockpit-grid items-start">
+        <TariffSettings />
         {/* Theme */}
         <section className="cockpit-surface order-3 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">

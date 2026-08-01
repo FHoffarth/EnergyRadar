@@ -7,6 +7,7 @@ import { HistoryOverviewChart } from '../components/HistoryOverviewChart';
 import { evaluateCoverage } from '../lib/storytelling';
 import { useEffectiveMotionMode } from '../lib/motion';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
+import { EconomySummary } from '../components/EconomySummary';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -21,7 +22,7 @@ const ranges: { id: Range; label: string }[] = [
 ];
 
 export function MemoryView() {
-  const { requestExport, requestMailShare, exportStatus, settingsPayload } = useApp();
+  const { requestExport, requestMailShare, exportStatus, settingsPayload, todayData } = useApp();
   const { timeline } = useEnergyProvider();
   const locale = useNumberLocale();
   const animate = useEffectiveMotionMode(settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
@@ -78,6 +79,15 @@ export function MemoryView() {
         selectedRange={rangeLabel}
         coverage={coverage}
       />
+
+      {range === 'today' ? (
+        <EconomySummary report={todayData?.economy} locale={locale} scope="memory" />
+      ) : (
+        <section className="cockpit-surface my-5 p-5" aria-label="Wirtschaftlichkeit im gewählten Zeitraum">
+          <h2 className="cockpit-section-title">Wirtschaftlicher Solarwert</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Für diesen Zeitraum ist in der aktuellen Ansicht noch keine belastbare Berechnung verfügbar. Es wird kein Tageswert hochgerechnet.</p>
+        </section>
+      )}
 
       <section className="cockpit-surface my-5 p-5" aria-labelledby="history-range-heading">
         <h2 id="history-range-heading" className="cockpit-section-title">Zeitraum wählen</h2>
