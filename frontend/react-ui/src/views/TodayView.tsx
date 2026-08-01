@@ -17,7 +17,7 @@ import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, to
 // Recharts 3 omits standard SVG fill props from this generic component's
 // public TypeScript surface even though the runtime component supports them.
 const GapReferenceArea = ReferenceArea as React.ComponentType<React.ComponentProps<'rect'> & {
-  x1: number; x2: number; ifOverflow?: 'hidden';
+  x1: number; x2: number; yAxisId?: 'left' | 'right'; ifOverflow?: 'hidden';
 }>;
 
 /** A series needs this many measured points before it is charted or listed. */
@@ -185,7 +185,8 @@ export function TodayView() {
                     }} />
                   {gaps.map((gap, index) => (
                     <GapReferenceArea key={`gap-area-${index}`} x1={gap.before.timestampMs} x2={gap.after.timestampMs}
-                      fill="#64748B" fillOpacity={0.09} stroke="none" ifOverflow="hidden" />
+                      yAxisId={hasLeftAxis ? 'left' : 'right'} fill="#64748B" fillOpacity={0.09}
+                      stroke="none" ifOverflow="hidden" />
                   ))}
                   {gaps.flatMap((gap, gapIndex) => series.map(entry => {
                     const before = gap.before[entry.key];
