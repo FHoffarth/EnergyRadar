@@ -60,14 +60,14 @@ export const todayData$ = new Observable<TodayData>({
 
 // ── Service Logic ────────────────────────────────────────────────────────
 
-function processNowViewModel(raw: Record<string, any>) {
+export function processNowViewModel(raw: Record<string, any>) {
   // Python NowViewModel fields:
   // verdict_kind, pv_power_w, grid_power_w, consumption_w, data_quality, pin_locked, freshness_label
-  const pv = typeof raw.pv_power_w === 'number' ? raw.pv_power_w : null;
+  const pv = typeof raw.pv_power_w === 'number' && Number.isFinite(raw.pv_power_w) ? raw.pv_power_w : null;
   // NOTE: React grid was historically positive=feed-in, but Python models Grid as positive=draw, negative=feed-in.
   // We align with Python here: positive = grid draw (Bezug aus dem Netz).
-  const grid = typeof raw.grid_power_w === 'number' ? raw.grid_power_w : null;
-  const home = typeof raw.consumption_w === 'number' ? raw.consumption_w : null;
+  const grid = typeof raw.grid_power_w === 'number' && Number.isFinite(raw.grid_power_w) ? raw.grid_power_w : null;
+  const home = typeof raw.consumption_w === 'number' && Number.isFinite(raw.consumption_w) ? raw.consumption_w : null;
   const quality = raw.data_quality || 'no_source';
 
   // Determine system status
@@ -100,19 +100,25 @@ function processNowViewModel(raw: Record<string, any>) {
 function processTodayViewModel(raw: Record<string, any>) {
   // Python fields: generated_kwh, consumption_kwh, import_total_kwh, export_total_kwh, self_consumption_pct, autarky_pct, history
 
-  // Map history to typed array, formatting time to HH:MM locally
+  // Preserve the exact timestamp for coverage and time-scaled charts. `time`
+  // remains the compact local caption used by tooltips and summaries.
   const history = (raw.history || []).map((pt: any) => {
     let timeStr = "";
+    let timestampMs: number | null = null;
     if (pt.measured_at) {
       const dt = new Date(pt.measured_at);
-      timeStr = dt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      if (Number.isFinite(dt.getTime())) {
+        timestampMs = dt.getTime();
+        timeStr = dt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
     }
     return {
       time: timeStr,
-      solar: typeof pt.pv_power_w === 'number' ? pt.pv_power_w : null,
-      home: typeof pt.home_power_w === 'number' ? pt.home_power_w : null,
-      gridImport: typeof pt.grid_import_w === 'number' ? pt.grid_import_w : null,
-      gridExport: typeof pt.grid_export_w === 'number' ? pt.grid_export_w : null,
+      timestampMs,
+      solar: typeof pt.pv_power_w === 'number' && Number.isFinite(pt.pv_power_w) ? pt.pv_power_w : null,
+      home: typeof pt.home_power_w === 'number' && Number.isFinite(pt.home_power_w) ? pt.home_power_w : null,
+      gridImport: typeof pt.grid_import_w === 'number' && Number.isFinite(pt.grid_import_w) ? pt.grid_import_w : null,
+      gridExport: typeof pt.grid_export_w === 'number' && Number.isFinite(pt.grid_export_w) ? pt.grid_export_w : null,
     };
   });
 

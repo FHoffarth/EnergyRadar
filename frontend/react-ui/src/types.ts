@@ -22,6 +22,7 @@ export interface PowerData {
 
 export interface TodayHistoryPoint {
   time: string;
+  timestampMs: number | null;
   solar: number | null;
   home: number | null;
   gridImport: number | null;
@@ -287,11 +288,17 @@ export interface EnergySnapshot {
 
 export interface TimelineEntry {
   time: string;
+  /** Exact sample time used by time-scaled charts and coverage checks. */
+  timestampMs?: number | null;
   solarKw: number | null;
   homeLoadKw: number | null;
   gridKw: number | null;
   batteryPct: number | null;
   origin: DataOrigin;
+  solarOrigin?: DataOrigin;
+  homeLoadOrigin?: DataOrigin;
+  gridOrigin?: DataOrigin;
+  isGapMarker?: boolean;
 }
 
 export interface DemoDeviceSummary {

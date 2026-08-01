@@ -82,4 +82,13 @@ describe('TodayView - per-series evidence thresholds', () => {
       screen.getByText('Für heute liegen noch nicht genug Messwerte für eine Verlaufskurve vor.'),
     ).toBeTruthy();
   });
+
+  it('announces the same visible timestamp gap used by the shared chart adapter', () => {
+    providerState.timeline = [
+      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+      { time: '12:00:20', timestampMs: 20_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
+    ];
+    render(<TodayView />);
+    expect(screen.getByRole('img', { name: /1 sichtbaren Datenlücke/ })).toBeTruthy();
+  });
 });

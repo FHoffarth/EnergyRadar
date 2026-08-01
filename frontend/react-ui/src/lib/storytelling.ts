@@ -1,4 +1,5 @@
 import { EnergySnapshot, TimelineEntry } from '../types';
+import { gapThresholdMs, timelineTimeMs } from './timelineIntegrity';
 
 export type CoverageLevel = 'complete' | 'partial' | 'sparse' | 'unavailable';
 
@@ -10,12 +11,13 @@ export interface CoverageResult {
   lastTime: string | null;
 }
 
-function minuteOfDay(value: string): number | null {
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  return hour < 24 && minute < 60 ? hour * 60 + minute : null;
+export interface CoverageOptions {
+  /** Configured collector cadence. Never inferred from observed samples. */
+  expectedCadenceSeconds?: number;
+  expectedStartMs?: number;
+  expectedEndMs?: number;
+  /** Fewer measured samples cannot support continuity or peak claims. */
+  sparseThreshold?: number;
 }
 
 export function hasMeasurement(point: TimelineEntry): boolean {
@@ -25,39 +27,33 @@ export function hasMeasurement(point: TimelineEntry): boolean {
 
 export function evaluateCoverage(
   timeline: TimelineEntry[],
-  expectedStartMinute?: number,
-  expectedEndMinute?: number,
+  options: CoverageOptions = {},
 ): CoverageResult {
-  const measured = timeline.filter(hasMeasurement);
+  const expectedCadenceSeconds = options.expectedCadenceSeconds ?? 5;
+  const sparseThreshold = options.sparseThreshold ?? 4;
+  const measured = timeline
+    .filter(hasMeasurement)
+    .map((point, index) => ({ point, index, timestampMs: timelineTimeMs(point) }))
+    .filter((entry): entry is { point: TimelineEntry; index: number; timestampMs: number } => entry.timestampMs !== null)
+    .sort((a, b) => a.timestampMs - b.timestampMs || a.index - b.index);
   if (!measured.length) return { level: 'unavailable', measuredPoints: 0, gapCount: 0, firstTime: null, lastTime: null };
-  if (measured.length < 4) return {
-    level: 'sparse', measuredPoints: measured.length, gapCount: 0,
-    firstTime: measured[0].time || null, lastTime: measured[measured.length - 1].time || null,
-  };
-
-  const minutes = measured.map(point => minuteOfDay(point.time)).filter((value): value is number => value !== null);
-  if (minutes.length < 4) return {
-    level: 'sparse', measuredPoints: measured.length, gapCount: 0,
-    firstTime: measured[0].time || null, lastTime: measured[measured.length - 1].time || null,
-  };
-  const sorted = [...new Set(minutes)].sort((a, b) => a - b);
-  const intervals = sorted.slice(1).map((value, index) => value - sorted[index]).filter(value => value > 0);
-  if (!intervals.length) return {
-    level: 'sparse', measuredPoints: measured.length, gapCount: 0,
-    firstTime: measured[0].time || null, lastTime: measured[measured.length - 1].time || null,
-  };
-  const orderedIntervals = [...intervals].sort((a, b) => a - b);
-  const cadence = orderedIntervals[Math.floor(orderedIntervals.length / 2)];
-  const tolerance = Math.max(15, cadence * 2.5);
-  const interiorGaps = intervals.filter(value => value > tolerance).length;
+  const uniqueTimes = [...new Set(measured.map(entry => entry.timestampMs))];
+  const thresholdMs = gapThresholdMs(expectedCadenceSeconds);
+  const intervals = uniqueTimes.slice(1).map((value, index) => value - uniqueTimes[index]).filter(value => value > 0);
+  const interiorGaps = intervals.filter(value => value > thresholdMs).length;
   const boundaryGaps = (
-    (expectedStartMinute !== undefined && sorted[0] - expectedStartMinute > tolerance ? 1 : 0)
-    + (expectedEndMinute !== undefined && expectedEndMinute - sorted[sorted.length - 1] > tolerance ? 1 : 0)
+    (options.expectedStartMs !== undefined && uniqueTimes[0] - options.expectedStartMs > thresholdMs ? 1 : 0)
+    + (options.expectedEndMs !== undefined && options.expectedEndMs - uniqueTimes[uniqueTimes.length - 1] > thresholdMs ? 1 : 0)
   );
   const gapCount = interiorGaps + boundaryGaps;
+  const firstTime = measured[0].point.time || null;
+  const lastTime = measured[measured.length - 1].point.time || null;
+  if (measured.length < sparseThreshold || uniqueTimes.length < sparseThreshold) return {
+    level: 'sparse', measuredPoints: measured.length, gapCount, firstTime, lastTime,
+  };
   return {
     level: gapCount ? 'partial' : 'complete', measuredPoints: measured.length, gapCount,
-    firstTime: measured[0].time || null, lastTime: measured[measured.length - 1].time || null,
+    firstTime, lastTime,
   };
 }
 
@@ -70,7 +66,7 @@ export function coverageCopy(level: CoverageLevel, scope = 'Zeitraum'): string {
 
 export function highestMeasuredPoint(timeline: TimelineEntry[], key: 'solarKw' | 'homeLoadKw'): TimelineEntry | null {
   const candidates = timeline.filter(point => typeof point[key] === 'number' && Number.isFinite(point[key]));
-  if (candidates.length < 3) return null;
+  if (candidates.length < 4) return null;
   return candidates.reduce((highest, point) => (point[key] as number) > (highest[key] as number) ? point : highest);
 }
 
@@ -83,13 +79,31 @@ export function dailyStatements(
   if (coverage.level !== 'complete') statements.push(coverageCopy(coverage.level, 'Tagesverlauf'));
   if (snapshot?.quality === 'live' && snapshot.grid.origin === 'observed' && snapshot.grid.valueKw !== null) {
     if (snapshot.grid.valueKw > 0) statements.push('Derzeit bezieht dein Zuhause Energie aus dem Netz.');
-    else if (snapshot.grid.valueKw < 0) statements.push('Derzeit wird überschüssige Solarenergie eingespeist.');
+    else if (snapshot.grid.valueKw < 0) {
+      const supportedSolarSurplus = snapshot.solar.origin === 'observed'
+        && snapshot.homeLoad.origin === 'observed'
+        && snapshot.solar.valueKw !== null
+        && snapshot.homeLoad.valueKw !== null
+        && snapshot.solar.valueKw > snapshot.homeLoad.valueKw;
+      statements.push(supportedSolarSurplus
+        ? 'Derzeit wird überschüssige Solarenergie eingespeist.'
+        : 'Derzeit wird Energie ins Netz eingespeist.');
+    }
     else statements.push('Derzeit findet kein Austausch mit dem Netz statt.');
   }
-  const solarPeak = highestMeasuredPoint(timeline, 'solarKw');
-  const homePeak = highestMeasuredPoint(timeline, 'homeLoadKw');
-  if (homePeak) statements.push(`Der höchste gemessene Verbrauch trat gegen ${homePeak.time} Uhr auf.`);
-  if (solarPeak) statements.push(`Die höchste gemessene Solarleistung trat gegen ${solarPeak.time} Uhr auf.`);
+  const mayStatePeaks = coverage.level === 'complete' || coverage.level === 'partial';
+  const solarPeak = mayStatePeaks ? highestMeasuredPoint(timeline, 'solarKw') : null;
+  const homePeak = mayStatePeaks ? highestMeasuredPoint(timeline, 'homeLoadKw') : null;
+  if (homePeak) {
+    const origin = homePeak.homeLoadOrigin ?? homePeak.origin;
+    const qualifier = origin === 'observed' ? 'gemessene' : origin === 'calculated' ? 'berechnete' : 'erfasste';
+    statements.push(`Der höchste ${qualifier} Hausverbrauch trat gegen ${homePeak.time} Uhr auf.`);
+  }
+  if (solarPeak) {
+    const origin = solarPeak.solarOrigin ?? solarPeak.origin;
+    const qualifier = origin === 'observed' ? 'gemessene' : 'erfasste';
+    statements.push(`Die höchste ${qualifier} Solarleistung trat gegen ${solarPeak.time} Uhr auf.`);
+  }
   if (!statements.length && coverage.level === 'complete') {
     statements.push('Für den erfassten Tagesverlauf liegen durchgehend Messwerte vor.');
   }

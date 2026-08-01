@@ -5,7 +5,6 @@ import { Info } from 'lucide-react';
 import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
-import { dedupeTickFormatter } from '../lib/chartAxis';
 import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
 import { useEffectiveMotionMode } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
@@ -13,9 +12,14 @@ import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
+import { formatTimelineTime, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
 /** A series needs this many measured points before it is charted or listed. */
-const MIN_SERIES_POINTS = 3;
+const MIN_SERIES_POINTS = 2;
+
+function isDemoSource(sourceType: string): boolean {
+  return sourceType === 'demo';
+}
 
 type SeriesKey = 'solarKw' | 'homeLoadKw' | 'batteryPct';
 
@@ -36,6 +40,9 @@ export function TodayView() {
   const locale = useNumberLocale();
   const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
   const animate = useEffectiveMotionMode(requestedMotion) === 'full';
+  const expectedCadenceSeconds = isDemoSource(sourceType)
+    ? 2 * 60 * 60
+    : settingsPayload?.effective_settings?.refresh_seconds ?? 5;
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';
@@ -44,24 +51,26 @@ export function TodayView() {
     gridFeedInTotal: { state: 'unknown' }, gridDrawTotal: { state: 'unknown' },
     selfSufficiency: { state: 'unknown' }, selfConsumption: { state: 'unknown' }, history: [],
   };
-  const currentMinute = new Date().getHours() * 60 + new Date().getMinutes();
-  const coverage = evaluateCoverage(timeline, 0, currentMinute);
+  const coverage = evaluateCoverage(timeline, {
+    expectedCadenceSeconds,
+    ...todayCoverageBoundaries(timeline),
+  });
   const statements = dailyStatements(timeline, coverage, snapshot);
+  const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
+  const chartGapCount = chartTimeline.filter(point => point.isGapMarker).length;
 
   // Per-series evidence thresholds: a series that the devices never
   // delivered must not appear as a flat line or an empty legend entry.
   const series = [
-    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', dot: 'bg-amber-500/80', axis: 'left' as const },
-    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', dot: 'bg-indigo-500', axis: 'left' as const },
-    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', dot: 'bg-emerald-500', axis: 'right' as const },
+    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', legendDot: 'bg-amber-500/80', axis: 'left' as const },
+    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', legendDot: 'bg-indigo-500', axis: 'left' as const },
+    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', legendDot: 'bg-emerald-500', axis: 'right' as const },
   ].filter(entry => evidenceCount(timeline, entry.key) >= MIN_SERIES_POINTS);
 
   // Axis and tooltip use up to two decimals so low-power days do not
   // collapse into a column of identical "0,1 kW" ticks.
   const formatAxisKw = (value: number) =>
     formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-
-  const formatTimeTick = dedupeTickFormatter(timeline, 'time');
 
   const hasLeftAxis = series.some(entry => entry.axis === 'left');
   const hasRightAxis = series.some(entry => entry.axis === 'right');
@@ -115,7 +124,7 @@ export function TodayView() {
             <div className="flex items-center gap-3 text-xs">
               {series.map(entry => (
                 <div className="flex items-center gap-1.5" key={entry.key}>
-                  <span className={`w-2 h-2 rounded-full ${entry.dot} inline-block`} />
+                  <span className={`w-2 h-2 rounded-full ${entry.legendDot} inline-block`} />
                   <span className="text-slate-500 dark:text-slate-400">{entry.name}</span>
                 </div>
               ))}
@@ -123,9 +132,11 @@ export function TodayView() {
           </div>
 
           {hasChartableSeries ? (
-            <div className="h-[clamp(20rem,48vh,34rem)] w-full">
+            <div className="h-[clamp(20rem,48vh,34rem)] w-full" role="img"
+              aria-label={`Energieverlauf mit ${chartGapCount} sichtbaren ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Solar und Verbrauch in Kilowatt.`}>
+              <p className="sr-only">Fehlende Messperioden werden nicht verbunden. Gültige Nullwerte bleiben Teil der Kurve.</p>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={timeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                <ComposedChart data={chartTimeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#D97706" stopOpacity={0.16} />
@@ -137,8 +148,9 @@ export function TodayView() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.3} vertical={false} />
-                  <XAxis dataKey="time" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
-                    minTickGap={48} tickFormatter={formatTimeTick} />
+                  <XAxis dataKey="timestampMs" type="number" scale="time" domain={['dataMin', 'dataMax']}
+                    stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
+                    minTickGap={48} tickFormatter={value => formatTimelineTime(value, locale)} />
                   {hasLeftAxis && (
                     <YAxis yAxisId="left" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} unit="kW"
                       tickFormatter={formatAxisKw} />
@@ -161,11 +173,15 @@ export function TodayView() {
                   {series.map(entry => (
                     entry.key === 'batteryPct' ? (
                       <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2} dot={false} connectNulls={false}
+                        stroke={entry.color} strokeWidth={2}
+                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
+                        connectNulls={false}
                         isAnimationActive={animate} />
                     ) : (
                       <Area key={entry.key} yAxisId="left" type="linear" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2} fillOpacity={1} connectNulls={false}
+                        stroke={entry.color} strokeWidth={2} fillOpacity={1}
+                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
+                        connectNulls={false}
                         fill={entry.key === 'solarKw' ? 'url(#solarGradT)' : 'url(#homeGradT)'}
                         isAnimationActive={animate} />
                     )

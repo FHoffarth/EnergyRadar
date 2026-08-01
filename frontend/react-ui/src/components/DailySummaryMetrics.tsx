@@ -10,11 +10,13 @@ function energy(state: TodayData['solarTotal'], locale: NumberLocale): string {
 }
 
 export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayData; coverage: CoverageResult; locale: NumberLocale }) {
+  const complete = coverage.level === 'complete';
+  const periodLabel = (daily: string, captured: string) => complete ? daily : captured;
   const metrics = [
-    ['Solar heute', energy(data.solarTotal, locale), 'text-amber-600 dark:text-amber-400'],
-    ['Verbrauch heute', energy(data.homeTotal, locale), 'text-indigo-600 dark:text-indigo-400'],
-    ['Netzbezug', energy(data.gridDrawTotal, locale), 'text-orange-600 dark:text-orange-400'],
-    ['Einspeisung', energy(data.gridFeedInTotal, locale), 'text-emerald-600 dark:text-emerald-400'],
+    [periodLabel('Solar heute', 'Solar im erfassten Zeitraum'), energy(data.solarTotal, locale), 'text-amber-600 dark:text-amber-400'],
+    [periodLabel('Verbrauch heute', 'Verbrauch im erfassten Zeitraum'), energy(data.homeTotal, locale), 'text-indigo-600 dark:text-indigo-400'],
+    [periodLabel('Netzbezug heute', 'Netzbezug im erfassten Zeitraum'), energy(data.gridDrawTotal, locale), 'text-orange-600 dark:text-orange-400'],
+    [periodLabel('Einspeisung heute', 'Einspeisung im erfassten Zeitraum'), energy(data.gridFeedInTotal, locale), 'text-emerald-600 dark:text-emerald-400'],
     ['Datenabdeckung', coverage.level === 'complete' ? 'Vollständig' : coverage.level === 'partial' ? 'Teilweise' : coverage.level === 'sparse' ? 'Wenige Daten' : UNKNOWN_VALUE, 'text-slate-700 dark:text-slate-200'],
   ];
   return (

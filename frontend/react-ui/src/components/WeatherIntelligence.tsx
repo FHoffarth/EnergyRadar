@@ -52,6 +52,19 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function hasFreshWeather(report: WeatherReportData): boolean {
+  return report.quality?.freshness === 'fresh';
+}
+
+function WeatherFreshnessNotice({ report }: { report: WeatherReportData }) {
+  if (hasFreshWeather(report)) return null;
+  return (
+    <p role="status" className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+      Wetterdaten sind derzeit nicht aktuell. Angezeigt werden die zuletzt verfügbaren Wetterdaten.
+    </p>
+  );
+}
+
 function safeDate(value?: string | null): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -155,7 +168,9 @@ export function CompactHourlyForecast({ report, locale }: { report: WeatherRepor
   return (
     <section aria-label="Stündliche Wettervorhersage" className="cockpit-surface-muted px-5 py-4 sm:px-6">
       <p className="cockpit-eyebrow">Wetter heute</p>
-      <h2 className="cockpit-section-title mt-1">Stündliche Vorhersage</h2>
+      <h2 className="cockpit-section-title mt-1">
+        {hasFreshWeather(report) ? 'Stündliche Vorhersage' : 'Stündliche Vorhersage · zuletzt verfügbar'}
+      </h2>
       <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">
         {visible.map(point => (
           <React.Fragment key={point.time}>
@@ -205,7 +220,7 @@ export function MultiDayWeatherForecast({ report, locale }: { report: WeatherRep
   return (
     <details className="cockpit-surface-muted px-5 py-4 sm:px-6">
       <summary className="cursor-pointer text-sm font-semibold text-slate-700 marker:text-sky-600 dark:text-slate-200 dark:marker:text-sky-300">
-        5–7-Tage-Ausblick
+        {hasFreshWeather(report) ? '5–7-Tage-Ausblick' : '5–7-Tage-Ausblick · zuletzt verfügbar'}
       </summary>
       <ul className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-2">
         {forecast.map(point => (
@@ -234,15 +249,17 @@ export function WeatherIntelligence({
   }
 
   const { current } = report;
+  const freshWeather = hasFreshWeather(report);
   const CurrentIcon = iconForCondition(current.condition, current.is_day);
   const temperature = formatTemperature(current.temperature_c, locale);
-  const context = snapshot ? energyWeatherInsight({ now, sun: report.sun, current, snapshot }) : null;
+  const context = freshWeather && snapshot ? energyWeatherInsight({ now, sun: report.sun, current, snapshot }) : null;
   const location = cleanDisplayText(report.location?.display_name);
 
   return (
     <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted overflow-hidden">
       <div className="px-5 py-5 sm:px-6">
         <p className="cockpit-eyebrow">Energie-Kontext</p>
+        <WeatherFreshnessNotice report={report} />
         {location && <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300" title={location}>{location}</p>}
         <div className="mt-3 flex min-w-0 items-center gap-4">
           <CurrentIcon className="h-12 w-12 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />

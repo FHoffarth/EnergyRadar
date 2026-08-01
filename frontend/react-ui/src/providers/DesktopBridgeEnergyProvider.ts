@@ -6,7 +6,7 @@ import { nowData$, todayData$ } from '../lib/energyService';
 type Subscriber = (snapshot: EnergySnapshot) => void;
 type DeviceSubscriber = (devices: DemoDeviceSummary[]) => void;
 
-function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
+export function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): EnergySnapshot {
   const { power, status } = data;
 
   const dataStateToValue = (state: PowerData['solar']): number | null => {
@@ -48,12 +48,14 @@ function powerDataToSnapshot(data: { power: PowerData; status: SystemStatus }): 
   const hasLiveData = solarOrigin === 'observed' || homeOrigin === 'observed' || gridOrigin === 'observed';
 
   let quality: DataQuality;
-  if (hasLiveData) {
-    quality = 'live';
-  } else if (status === 'stale') {
+  if (status === 'stale') {
     quality = 'stale';
   } else if (status === 'error') {
     quality = 'error';
+  } else if (status === 'live' && hasLiveData) {
+    quality = 'live';
+  } else if (hasLiveData) {
+    quality = 'partial';
   } else {
     quality = 'unavailable';
   }
@@ -267,11 +269,15 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
 
     return td.history.map(pt => ({
       time: pt.time,
+      timestampMs: pt.timestampMs,
       solarKw: pt.solar !== null ? pt.solar / 1000 : null,
       homeLoadKw: pt.home !== null ? pt.home / 1000 : null,
       gridKw: pt.gridImport !== null ? pt.gridImport / 1000 : pt.gridExport !== null ? -(pt.gridExport / 1000) : null,
       batteryPct: null,
-      origin: 'estimated' as DataOrigin
+      origin: 'calculated' as DataOrigin,
+      solarOrigin: pt.solar !== null ? 'observed' as DataOrigin : 'unavailable' as DataOrigin,
+      homeLoadOrigin: pt.home !== null ? 'calculated' as DataOrigin : 'unavailable' as DataOrigin,
+      gridOrigin: pt.gridImport !== null || pt.gridExport !== null ? 'observed' as DataOrigin : 'unavailable' as DataOrigin,
     }));
   }
 

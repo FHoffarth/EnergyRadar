@@ -6,6 +6,7 @@ import { HistoryAvailabilitySummary } from '../components/HistoryAvailabilitySum
 import { HistoryOverviewChart } from '../components/HistoryOverviewChart';
 import { evaluateCoverage } from '../lib/storytelling';
 import { useEffectiveMotionMode } from '../lib/motion';
+import { todayCoverageBoundaries } from '../lib/timelineIntegrity';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -27,9 +28,12 @@ export function MemoryView() {
   const [exportType, setExportType] = useState<ExportType>('pdf');
   const [range, setRange] = useState<Range>('today');
   const rangeLabel = ranges.find(candidate => candidate.id === range)?.label ?? range;
-  const currentMinute = new Date().getHours() * 60 + new Date().getMinutes();
   const visibleTimeline = range === 'today' ? timeline : [];
-  const coverage = evaluateCoverage(visibleTimeline, 0, currentMinute);
+  const expectedCadenceSeconds = settingsPayload?.effective_settings?.refresh_seconds ?? 5;
+  const coverage = evaluateCoverage(visibleTimeline, {
+    expectedCadenceSeconds,
+    ...todayCoverageBoundaries(visibleTimeline),
+  });
 
   const getRangeDates = () => {
     const end = new Date();
@@ -99,7 +103,8 @@ export function MemoryView() {
               ? 'Die Kurve zeigt den derzeit geladenen Tagesverlauf. Fehlende Abschnitte bleiben als Lücken sichtbar.'
               : 'Für diesen Zeitraum liefert die aktuelle Oberfläche noch keinen Verlauf. Der Export kann gespeicherte Daten dennoch enthalten.'}
           </p>
-          <HistoryOverviewChart timeline={visibleTimeline} locale={locale} animate={animate} />
+          <HistoryOverviewChart timeline={visibleTimeline} locale={locale} animate={animate}
+            expectedCadenceSeconds={expectedCadenceSeconds} />
         </section>
       </div>
 

@@ -172,25 +172,6 @@ Umgebungen sind von Git ausgeschlossen und dürfen nicht committed werden.
 
 ---
 
-## Living Sky (zustandsbasierte Atmosphäre)
-
-Hinter dem Workspace liegt eine rein CSS-basierte Himmelsebene. Sie verwendet
-keine Bilder, Videos, Wetterdaten oder dauerhafte JavaScript-Render-Schleife.
-Die Inhalte bleiben durch Scrim und Glaseffekt visuell dominant.
-
-- **Tageszeit und PV-Leistung:** Die zentrale Energy-State-Schicht liefert
-  fertige Sky-Tokens für Phase, Helligkeit, Sättigung und Glow.
-- **Living-Sky-Consumer:** `static/background.js` enthält keine Schwellenwerte
-  und interpretiert keine Rohdaten. Er wendet nur die State-Tokens an.
-- **Bewegung:** Zwei große Gradient-Layer driften ausschließlich über
-  compositor-freundliche Transforms mit 140 bzw. 180 Sekunden Laufzeit.
-- **Barrierefreiheit:** `prefers-reduced-motion` deaktiviert Drift und
-  Übergänge vollständig.
-
-EnergyRadar besitzt aktuell keine Wetter- oder Netzbezugsdaten. Niedrige
-PV-Leistung wird deshalb nicht als Netzbezug interpretiert; der zentrale State
-führt diese Information ausdrücklich als `unknown`.
-
 ## Energy Intelligence Layer
 
 `static/energy-state.js` ist die einzige Präsentationsschicht zwischen
@@ -198,11 +179,11 @@ Rohtelemetrie und UI. Sie publiziert unveränderliche Snapshots mit:
 
 - `phase`, `production`, `trend`, `connection` und `source`
 - einem faktenbasierten `assessment`
-- zentralen `appearance`-Tokens für Living Sky, Accent und Chart
+- zentralen `appearance`-Tokens für Akzent und Diagramme
 - einem zentralen `motion`-Profil einschließlich Reduced Motion
 
-`app.js` reicht API-Werte über `updateTelemetry(...)` hinein. Living Sky,
-Energy Presence, Verbindungsstatus, Farbakzente und Animationen abonnieren
+`app.js` reicht API-Werte über `updateTelemetry(...)` hinein. Energy Presence,
+Verbindungsstatus, Farbakzente und Animationen abonnieren
 denselben State und enthalten keine eigenen Leistungsschwellen. Aussagen über
 Wetter, zukünftige Peaks, Batterien oder Geräte werden ohne entsprechende
 Datenquelle nicht erzeugt.
