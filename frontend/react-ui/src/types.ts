@@ -102,7 +102,6 @@ export interface DeviceCardData {
 export interface RawSettings {
   refresh_seconds?: number | null;
   theme?: 'dark' | 'light' | 'system' | null;
-  motion_mode?: 'full' | 'reduced' | 'none' | null;
   text_size?: 'normal' | 'large' | null;
   number_format?: 'de-DE' | 'en-US' | null;
   location_mode?: 'manual' | 'none' | null;
@@ -122,7 +121,6 @@ export interface RawSettings {
 export interface EffectiveSettings {
   refresh_seconds: number;
   theme: 'dark' | 'light' | 'system';
-  motion_mode: 'full' | 'reduced' | 'none';
   text_size: 'normal' | 'large';
   number_format: 'de-DE' | 'en-US';
   location_mode: 'manual' | 'none';

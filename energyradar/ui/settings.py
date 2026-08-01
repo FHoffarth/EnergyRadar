@@ -24,7 +24,6 @@ _SETTINGS_LOCK = threading.RLock()
 DEFAULTS: dict[str, Any] = {
     "refresh_seconds": 5,
     "theme": "dark",             # "dark" | "light" | "system"
-    "motion_mode": "full",        # "full" | "reduced" | "none"
     "text_size": "normal",        # "normal" | "large"
     "number_format": "de-DE",     # "de-DE" | "en-US"
     "location_mode": "none",      # "manual" | "none"
@@ -68,7 +67,6 @@ def _settings_path() -> Path:
 class UISettings:
     refresh_seconds: Optional[int] = None
     theme: Optional[str] = None
-    motion_mode: Optional[str] = None
     text_size: Optional[str] = None
     number_format: Optional[str] = None
     location_mode: Optional[str] = None
@@ -161,8 +159,8 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Ungültiges Theme.")
             validated[k] = str(v)
 
-        elif k == "dynamic_bg_enabled":
-            # Removed setting retained only as an input compatibility shim.
+        elif k in {"dynamic_bg_enabled", "motion_mode"}:
+            # Removed settings retained only as input compatibility shims.
             # Old saved values are intentionally ignored and never become
             # effective settings again.
             continue
@@ -171,11 +169,6 @@ def validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(v, bool):
                 raise ValueError(f"{k} muss ein Boolean sein.")
             validated[k] = v
-
-        elif k == "motion_mode":
-            if str(v) not in {"full", "reduced", "none"}:
-                raise ValueError("Ungültiger motion_mode.")
-            validated[k] = str(v)
 
         elif k == "text_size":
             if str(v) not in {"normal", "large"}:

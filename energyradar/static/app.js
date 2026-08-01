@@ -83,11 +83,8 @@ function initTheme() {
 }
 
 function animateNumber(el, target, format) {
-  const start = Number(el.dataset.v || 0); const duration = window.energyState.getSnapshot().motion.valueDurationMs;
-  if (!duration || start === target) { el.textContent = format.format(target); el.dataset.v = target; return; }
-  const started = performance.now();
-  const step = (now) => { const p = Math.min((now - started) / duration, 1); const value = start + (target - start) * (1 - Math.pow(1 - p, 3)); el.textContent = format.format(value); if (p < 1) requestAnimationFrame(step); };
-  el.dataset.v = target; requestAnimationFrame(step);
+  el.textContent = format.format(target);
+  el.dataset.v = target;
 }
 function powerParts(watts) { return watts >= 1000 ? { target: watts / 1000, unit: "kW", format: nf.dec2 } : { target: watts, unit: "W", format: nf.int }; }
 function displayPower(el, unitEl, watts) { const p = powerParts(watts); if (unitEl.textContent !== p.unit) el.dataset.v = p.target; unitEl.textContent = p.unit; animateNumber(el, p.target, p.format); }
@@ -108,9 +105,8 @@ function setGauge(fraction) { document.getElementById("gauge-fill").style.stroke
 
 function applyEnergyState(state) {
   const root = document.documentElement;
-  root.dataset.production = state.production; root.dataset.connection = state.connection; root.dataset.motion = state.motion.mode;
+  root.dataset.production = state.production; root.dataset.connection = state.connection;
   root.style.setProperty("--energy-accent-dark", state.appearance.accentDark); root.style.setProperty("--energy-accent-light", state.appearance.accentLight);
-  root.style.setProperty("--presence-enter-duration", state.motion.entranceDuration);
   document.getElementById("greeting").textContent = greetingForPhase(state.phase);
   document.getElementById("message").textContent = heroMessage(state);
   document.getElementById("recommendation").textContent = t(state.assessment.headlineKey);

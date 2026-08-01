@@ -6,7 +6,7 @@ import { MemoryView } from '../views/MemoryView';
 const requestExport = vi.fn();
 const appState: any = {
   requestExport, requestMailShare: vi.fn(), exportStatus: { status: 'idle', msg: '' },
-  settingsPayload: { effective_settings: { motion_mode: 'none', number_format: 'de-DE' }, system: {
+  settingsPayload: { effective_settings: { number_format: 'de-DE' }, system: {
     recording_since: '2026-07-01T08:00:00', last_recorded_sample_at: '2026-08-01T10:00:00',
   } },
 };

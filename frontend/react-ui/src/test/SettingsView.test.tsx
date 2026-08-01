@@ -148,7 +148,6 @@ describe('SettingsView - no provider selection', () => {
       },
       effective_settings: {
         theme: 'dark',
-        motion_mode: 'full',
         text_size: 'normal',
         number_format: 'de-DE',
         weather_enabled: true,
@@ -270,7 +269,7 @@ describe('SettingsView - persisted dirty state', () => {
     settings: { preferred_name: 'Flo', greeting_enabled: true, theme: 'dark' },
     effective_settings: {
       preferred_name: 'Flo', greeting_enabled: true, theme: 'dark',
-      motion_mode: 'full', text_size: 'normal', number_format: 'de-DE', weather_enabled: false,
+      text_size: 'normal', number_format: 'de-DE', weather_enabled: false,
       fronius_address: '192.0.2.1', mt175_address: '',
     },
     system: {},
@@ -297,18 +296,14 @@ describe('SettingsView - persisted dirty state', () => {
     expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_name: 'Florian' }));
   });
 
-  it('applies motion immediately, persists it through save, and restores it on discard', () => {
+  it('does not expose or persist the removed animation mode', () => {
     render(<SettingsView />);
-    fireEvent.click(screen.getByRole('button', { name: /Reduziert/ }));
-    expect(document.documentElement.dataset.motionSetting).toBe('reduced');
-    expect(document.documentElement.dataset.motion).toBe('reduced');
-
-    fireEvent.click(screen.getByRole('button', { name: /Änderungen speichern/ }));
-    expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ motion_mode: 'reduced' }));
-
-    fireEvent.click(screen.getByRole('button', { name: /Verwerfen/ }));
-    expect(document.documentElement.dataset.motionSetting).toBe('full');
-    expect(document.documentElement.dataset.motion).toBe('full');
+    expect(screen.queryByText('Animationsmodus')).toBeNull();
+    expect(screen.queryByText('Volle Effekte')).toBeNull();
+    expect(screen.queryByText('Sanfte Übergänge')).toBeNull();
+    expect(screen.queryByText('Statisch')).toBeNull();
+    expect(document.documentElement).not.toHaveAttribute('data-motion-setting');
+    expect(document.documentElement).not.toHaveAttribute('data-motion');
   });
 
   it('keeps edits after a failed save and discard restores persisted values', () => {

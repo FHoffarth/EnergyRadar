@@ -15,8 +15,6 @@
   const TREND_THRESHOLD_WATTS = 150;
 
   const listeners = new Set();
-  const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-
   const phases = [
     { at: 0, name: "night" }, { at: 300, name: "sunrise" },
     { at: 480, name: "morning" }, { at: 690, name: "noon" },
@@ -115,19 +113,6 @@
     return { headlineKey, detailKey };
   }
 
-  function deriveMotion(production, connection) {
-    const reduced = motionQuery.matches;
-    const calm = connection !== "online" || production === "none" || production === "low";
-    return {
-      mode: reduced ? "reduced" : calm ? "calm" : "ambient",
-      reduced,
-      atmosphereDuration: reduced ? "0s" : calm ? "190s" : "140s",
-      glowDuration: reduced ? "0s" : calm ? "240s" : "180s",
-      entranceDuration: reduced ? "0s" : "420ms",
-      valueDurationMs: reduced ? 0 : 520,
-    };
-  }
-
   function freezeState(value) {
     Object.values(value).forEach((child) => {
       if (child && typeof child === "object" && !Object.isFrozen(child)) freezeState(child);
@@ -156,7 +141,6 @@
         accentLight: rgb(accent.light),
         gaugeFraction: clamp((Number(telemetry.powerWatts) || 0) / MAX_VISUAL_POWER),
       },
-      motion: deriveMotion(production, telemetry.connection),
     });
   }
 
@@ -196,7 +180,5 @@
   }
 
   setInterval(publish, TIME_REFRESH_MS);
-  motionQuery.addEventListener("change", publish);
-
   window.energyState = { updateTelemetry, subscribe, getSnapshot };
 })();

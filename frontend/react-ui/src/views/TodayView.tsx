@@ -6,7 +6,7 @@ import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
-import { useEffectiveMotionMode } from '../lib/motion';
+import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
@@ -45,8 +45,7 @@ export function TodayView() {
   const { timeline, sourceType, snapshot } = useEnergyProvider();
   const { settingsPayload, weatherReport, todayData } = useApp();
   const locale = useNumberLocale();
-  const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
-  const animate = useEffectiveMotionMode(requestedMotion) === 'full';
+  const animate = !usePrefersReducedMotion();
   const expectedCadenceSeconds = isDemoSource(sourceType)
     ? 2 * 60 * 60
     : settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;

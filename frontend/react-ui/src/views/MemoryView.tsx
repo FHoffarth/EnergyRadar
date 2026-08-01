@@ -5,7 +5,7 @@ import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive,
 import { HistoryAvailabilitySummary } from '../components/HistoryAvailabilitySummary';
 import { HistoryOverviewChart } from '../components/HistoryOverviewChart';
 import { evaluateCoverage } from '../lib/storytelling';
-import { useEffectiveMotionMode } from '../lib/motion';
+import { usePrefersReducedMotion } from '../lib/motion';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 import { EconomySummary } from '../components/EconomySummary';
 
@@ -25,7 +25,7 @@ export function MemoryView() {
   const { requestExport, requestMailShare, exportStatus, settingsPayload, todayData } = useApp();
   const { timeline } = useEnergyProvider();
   const locale = useNumberLocale();
-  const animate = useEffectiveMotionMode(settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
+  const animate = !usePrefersReducedMotion();
   const [exportType, setExportType] = useState<ExportType>('pdf');
   const [range, setRange] = useState<Range>('today');
   const rangeLabel = ranges.find(candidate => candidate.id === range)?.label ?? range;
@@ -149,7 +149,7 @@ export function MemoryView() {
           <div>
             <button type="button" onClick={handleExport} disabled={exportStatus.status === 'running'}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 py-3 font-medium text-white hover:bg-sky-800 disabled:opacity-50">
-              {exportStatus.status === 'running' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+              {exportStatus.status === 'running' ? <Loader2 className="h-5 w-5" /> : <Download className="h-5 w-5" />}
               Export speichern
             </button>
             {!isZip && exportType === 'pdf' && (
@@ -166,7 +166,7 @@ export function MemoryView() {
               }`}>
                 {exportStatus.status === 'error' ? <AlertCircle className="h-5 w-5 shrink-0" /> :
                   exportStatus.status === 'done' ? <CheckCircle className="h-5 w-5 shrink-0" /> :
-                    <Loader2 className="h-5 w-5 shrink-0 animate-spin" />}
+                    <Loader2 className="h-5 w-5 shrink-0" />}
                 <div><p className="font-medium">{exportStatus.status === 'error' ? 'Fehler' : exportStatus.status === 'done' ? 'Erfolgreich' : 'In Arbeit …'}</p>
                   {exportStatus.msg && <p className="mt-1 text-sm">{exportStatus.msg}</p>}</div>
               </div>

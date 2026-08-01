@@ -219,9 +219,7 @@ _PAGE_CSS = """
 _SPLASH_HTML = f"""<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><style>{_PAGE_CSS}
   .spin{{width:26px;height:26px;margin:1.1rem auto 0;border-radius:50%;
-        border:3px solid rgba(159,176,192,.25);border-top-color:#F5B301;
-        animation:r .8s linear infinite}}
-  @keyframes r{{to{{transform:rotate(360deg)}}}}
+        border:3px solid rgba(159,176,192,.25);border-top-color:#F5B301}}
 </style></head>
 <body><div class="box">
   <div class="logo">☀️</div>

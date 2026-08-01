@@ -8,7 +8,7 @@ import { EnergyChartTooltip } from './EnergyChartTooltip';
 interface DayTrendChartProps {
   timeline: TimelineEntry[];
   locale: NumberLocale;
-  /** Disable chart animation for reduced/no-motion users. */
+  /** Disable chart animation when the operating system requests reduced motion. */
   animate: boolean;
   /** Presentation size only; the measured series and evidence rules stay identical. */
   size?: 'compact' | 'workspace';

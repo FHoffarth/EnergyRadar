@@ -51,7 +51,6 @@ Item {
                         if (k === "no_source")  return theme.textMuted
                         return theme.text
                     }
-                    Behavior on color { ColorAnimation { duration: 300 } }
                 }
             }
 
@@ -144,7 +143,6 @@ Item {
                         if (q === "error")   return theme.negative
                         return theme.textDisabled
                     }
-                    Behavior on color { ColorAnimation { duration: 400 } }
                 }
 
                 Text {
