@@ -60,6 +60,19 @@ def _find_named(app: Path, name: str) -> list[Path]:
     return [path for path in app.rglob(name) if path.is_file()]
 
 
+def _text_payload(path: Path) -> str | None:
+    """Return small text resources while excluding compiled binary payloads."""
+    if path.stat().st_size > 5_000_000:
+        return None
+    payload = path.read_bytes()
+    if b"\0" in payload[:4096]:
+        return None
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def validate_structure(
     app: Path,
     project_root: Path,
@@ -129,8 +142,8 @@ def validate_structure(
         lowered = path.name.lower()
         if lowered in FORBIDDEN_BUNDLE_NAMES or lowered.endswith((".db", ".sqlite", ".sqlite3")) or lowered.startswith(".env."):
             forbidden.append(path.relative_to(app))
-        if path.stat().st_size <= 5_000_000:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _text_payload(path)
+        if text is not None:
             for pattern in DEVELOPER_PATH_PATTERNS:
                 if pattern.search(text):
                     developer_paths.append(str(path.relative_to(app)))

@@ -137,6 +137,16 @@ class MacOSBundleContractTests(unittest.TestCase):
         with self.assertRaisesRegex(validator.BundleValidationError, "Private configuration"):
             validator.validate_structure(self.app, self.root, "arm64")
 
+    def test_developer_path_is_rejected_in_text_but_binary_debug_strings_are_not_runtime_paths(self):
+        binary = self.app / "Contents" / "Frameworks" / "third-party.dylib"
+        binary.write_bytes(b"\xcf\xfa\xed\xfe\0/Users/vendor/work/library/source.cpp")
+        validator.validate_structure(self.app, self.root, "arm64")
+
+        text_resource = self.app / "Contents" / "Resources" / "runtime.conf"
+        text_resource.write_text("resource=/Users/alice/Desktop/private/config.json", encoding="utf-8")
+        with self.assertRaisesRegex(validator.BundleValidationError, "Developer-local paths"):
+            validator.validate_structure(self.app, self.root, "arm64")
+
     def test_setup_host_must_remain_empty(self):
         setup_wizard = self.root / "frontend" / "react-ui" / "src" / "components" / "SetupWizardModal.tsx"
         setup_wizard.write_text(
