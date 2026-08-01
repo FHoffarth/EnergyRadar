@@ -78,6 +78,18 @@ def _find_dist() -> Path:
         return Path(__file__).resolve().parent / "frontend" / "react-ui" / "dist"
 
 
+def _runtime_icon_path(platform_name: str | None = None) -> Path | None:
+    """Return a packaged runtime icon appropriate for the current platform."""
+    platform_name = platform_name or sys.platform
+    assets = config.BASE_DIR / "ui" / "assets"
+    candidates = (
+        [assets / "logo.ico", assets / "icon-512.png"]
+        if platform_name == "win32"
+        else [assets / "icon-512.png"]
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
 def _window_geometry_is_visible(x: int, y: int, width: int, height: int) -> bool:
     """Return whether the saved window rectangle intersects an active screen."""
     screens = [
@@ -124,12 +136,9 @@ def main() -> None:
     app.setApplicationName("EnergyRadar")
     app.setOrganizationName("EnergyRadar")
 
-    # Icon
-    icon_path = config.BASE_DIR / "ui" / "assets" / "logo.ico"
-    if not icon_path.exists():
-        icon_path = config.BASE_DIR / "ui" / "assets" / "icons" / "app.ico"
+    icon_path = _runtime_icon_path()
 
-    if icon_path.exists():
+    if icon_path is not None:
         app_icon = QIcon(str(icon_path))
         app.setWindowIcon(app_icon)
 
@@ -137,7 +146,7 @@ def main() -> None:
     view = QWebEngineView()
     view.setPage(DiagnosticWebPage(view))
     view.setWindowTitle("EnergyRadar")
-    if icon_path.exists():
+    if icon_path is not None:
         view.setWindowIcon(QIcon(str(icon_path)))
     view.resize(1200, 800)
 

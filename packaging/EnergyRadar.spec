@@ -7,12 +7,20 @@ from pathlib import Path
 
 
 APP_NAME = "EnergyRadar"
-MACOS_MARKETING_VERSION = os.environ.get("ENERGYRADAR_MACOS_VERSION", "0.5.0")
-MACOS_BUILD_VERSION = os.environ.get("ENERGYRADAR_MACOS_BUILD", "1")
 PROJECT_ROOT = Path(SPECPATH).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+from energyradar import config as app_config
+
+APP_VERSION = app_config.APP_VERSION
+MACOS_MARKETING_VERSION = os.environ.get(
+    "ENERGYRADAR_MACOS_VERSION", APP_VERSION.partition("-")[0]
+)
+MACOS_BUILD_VERSION = os.environ.get("ENERGYRADAR_MACOS_BUILD", "1")
 ENTRY_POINT = PROJECT_ROOT / "desktop_web.py"
 REACT_DIST = PROJECT_ROOT / "frontend" / "react-ui" / "dist"
 UI_ASSETS = PROJECT_ROOT / "energyradar" / "ui" / "assets"
+BUILDINFO_PATH = os.environ.get("ENERGYRADAR_BUILDINFO_PATH")
+GENERATED_DATAS = [(BUILDINFO_PATH, ".")] if BUILDINFO_PATH else []
 
 if sys.platform == "win32":
     executable_icon = str(UI_ASSETS / "logo.ico")
@@ -36,7 +44,7 @@ a = Analysis(
     datas=[
         (str(REACT_DIST), "react-ui/dist"),
         (str(UI_ASSETS), "energyradar/ui/assets"),
-    ],
+    ] + GENERATED_DATAS,
     hiddenimports=[
         "PySide6.QtWebEngineCore",
         "PySide6.QtWebEngineWidgets",

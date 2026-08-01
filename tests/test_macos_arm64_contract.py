@@ -1,7 +1,10 @@
 import importlib.util
+import json
 import os
+import plistlib
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -11,6 +14,11 @@ SPEC = importlib.util.spec_from_file_location("validate_macos_bundle", VALIDATOR
 assert SPEC and SPEC.loader
 validator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(validator)
+BUILD_PATH = PROJECT_ROOT / "tools" / "build.py"
+BUILD_SPEC = importlib.util.spec_from_file_location("build_tool", BUILD_PATH)
+assert BUILD_SPEC and BUILD_SPEC.loader
+build_tool = importlib.util.module_from_spec(BUILD_SPEC)
+BUILD_SPEC.loader.exec_module(build_tool)
 
 
 class MacOSArm64BundleContractTests(unittest.TestCase):
@@ -25,8 +33,29 @@ class MacOSArm64BundleContractTests(unittest.TestCase):
         self.executable.parent.mkdir(parents=True)
         self.executable.write_bytes(b"fake Mach-O")
         self.executable.chmod(self.executable.stat().st_mode | 0o111)
-        (self.app / "Contents" / "Info.plist").write_text(
-            "<plist></plist>", encoding="utf-8"
+        resources = self.app / "Contents" / "Resources"
+        resources.mkdir(parents=True)
+        with (self.app / "Contents" / "Info.plist").open("wb") as handle:
+            plistlib.dump(
+                {
+                    "CFBundleShortVersionString": "0.5.0",
+                    "CFBundleIconFile": "EnergyRadar.icns",
+                },
+                handle,
+            )
+        (resources / "EnergyRadar.icns").write_bytes(b"icon")
+        (resources / "BUILDINFO.json").write_text(
+            json.dumps(
+                {
+                    "app_version": "0.5.0-rc1",
+                    "bundle_version": "0.5.0",
+                    "source_commit": "1" * 40,
+                    "architecture": "arm64",
+                    "signing": "ad-hoc",
+                    "notarized": False,
+                }
+            ),
+            encoding="utf-8",
         )
         (self.react_dist / "assets").mkdir(parents=True)
         (self.react_dist / "index.html").write_text(
@@ -139,10 +168,58 @@ class MacOSArm64BundleContractTests(unittest.TestCase):
         ):
             validator.validate_structure(self.app, self.root)
 
+    def test_inconsistent_bundle_version_is_rejected(self):
+        info_plist = self.app / "Contents" / "Info.plist"
+        with info_plist.open("wb") as handle:
+            plistlib.dump(
+                {
+                    "CFBundleShortVersionString": "9.9.9",
+                    "CFBundleIconFile": "EnergyRadar.icns",
+                },
+                handle,
+            )
+        with self.assertRaisesRegex(
+            validator.BundleValidationError, "Info.plist version"
+        ):
+            validator.validate_structure(self.app, self.root)
+
+    def test_buildinfo_uses_authoritative_full_version(self):
+        build_info = self.app / "Contents" / "Resources" / "BUILDINFO.json"
+        payload = json.loads(build_info.read_text(encoding="utf-8"))
+        payload["app_version"] = "0.5.0"
+        build_info.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(
+            validator.BundleValidationError, "BUILDINFO app version"
+        ):
+            validator.validate_structure(self.app, self.root)
+
 
 class MacOSArm64WorkflowContractTests(unittest.TestCase):
+    def test_buildinfo_records_authoritative_version_commit_and_architecture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build_info = root / "BUILDINFO.json"
+            commit = "a" * 40
+            with mock.patch.dict(os.environ, {"GITHUB_SHA": commit}), mock.patch.object(
+                build_tool.platform, "machine", return_value="arm64"
+            ):
+                result = build_tool._write_build_info(
+                    build_info, root, "0.5.0-rc1"
+                )
+
+            payload = json.loads(result.read_text(encoding="utf-8"))
+            self.assertEqual(payload["app_version"], "0.5.0-rc1")
+            self.assertEqual(payload["bundle_version"], "0.5.0")
+            self.assertEqual(payload["source_commit"], commit)
+            self.assertEqual(payload["architecture"], "arm64")
+            self.assertEqual(payload["signing"], "ad-hoc")
+            self.assertFalse(payload["notarized"])
+
     def test_workflow_uses_native_runner_and_exact_artifacts(self):
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "build.yml").read_text(
+            encoding="utf-8"
+        )
+        spec = (PROJECT_ROOT / "packaging" / "EnergyRadar.spec").read_text(
             encoding="utf-8"
         )
         self.assertIn("name: Build macOS (Apple Silicon arm64)", workflow)
@@ -150,6 +227,8 @@ class MacOSArm64WorkflowContractTests(unittest.TestCase):
         self.assertIn("EnergyRadar-macOS-arm64.zip", workflow)
         self.assertIn("EnergyRadar-macOS-arm64.zip.sha256", workflow)
         self.assertIn("python3 tools/validate_macos_bundle.py", workflow)
+        self.assertIn("ENERGYRADAR_BUILDINFO_PATH", spec)
+        self.assertIn("APP_VERSION = app_config.APP_VERSION", spec)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,48 @@
 import shutil
+import json
 import os
+import platform
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+
+def _source_commit(base_dir: Path) -> str:
+    github_sha = os.environ.get("GITHUB_SHA")
+    if github_sha:
+        return github_sha
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=base_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _write_build_info(destination: Path, base_dir: Path, app_version: str) -> Path:
+    build_info = {
+        "app_version": app_version,
+        "bundle_version": app_version.partition("-")[0],
+        "source_commit": _source_commit(base_dir),
+        "architecture": platform.machine(),
+        "signing": "ad-hoc",
+        "notarized": False,
+    }
+    destination.write_text(
+        json.dumps(build_info, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return destination
 
 
 def main():
     print("Starting EnergyRadar Build Process...")
     base_dir = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(base_dir))
+    from energyradar import config
     spec_file = base_dir / "packaging" / "EnergyRadar.spec"
     frontend_index = base_dir / "frontend" / "react-ui" / "dist" / "index.html"
     dist_dir = base_dir / "dist"
@@ -35,13 +70,21 @@ def main():
         print("PyInstaller is missing. Install the pinned requirements from requirements-build.txt.")
         sys.exit(1)
 
-    # Run PyInstaller
+    # Generate build metadata before packaging so it is covered by the final
+    # macOS bundle signature instead of modifying the signed app afterwards.
     os.environ["PYTHONPATH"] = str(base_dir)
-    result = subprocess.run(
-        [sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", str(spec_file)],
-        cwd=base_dir,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory(prefix="energyradar-buildinfo-") as directory:
+        build_info = _write_build_info(
+            Path(directory) / "BUILDINFO.json", base_dir, config.APP_VERSION
+        )
+        build_environment = os.environ.copy()
+        build_environment["ENERGYRADAR_BUILDINFO_PATH"] = str(build_info)
+        result = subprocess.run(
+            [sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", str(spec_file)],
+            cwd=base_dir,
+            check=False,
+            env=build_environment,
+        )
 
     if result.returncode == 0:
         expected_output = (

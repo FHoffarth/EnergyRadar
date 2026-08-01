@@ -4,11 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import plistlib
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+from energyradar import config
 
 
 ARM64_ARCHIVE_NAME = "EnergyRadar-macOS-arm64.zip"
@@ -32,6 +39,11 @@ def _require(condition: bool, message: str) -> None:
         raise BundleValidationError(message)
 
 
+def macos_marketing_version(app_version: str) -> str:
+    """Return Apple's numeric marketing-version form of the app version."""
+    return app_version.partition("-")[0]
+
+
 def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
     """Validate required files, local-data exclusions, and UI defaults."""
     _require(app.is_dir(), f"Application bundle is missing: {app}")
@@ -40,10 +52,12 @@ def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
     info_plist = app / "Contents" / "Info.plist"
     react_dist = app / "Contents" / "Resources" / "react-ui" / "dist"
     react_index = react_dist / "index.html"
+    build_info_path = app / "Contents" / "Resources" / "BUILDINFO.json"
 
     _require(executable.is_file(), f"Main executable is missing: {executable}")
     _require(os.access(executable, os.X_OK), f"Main executable is not executable: {executable}")
     _require(info_plist.is_file(), f"Info.plist is missing: {info_plist}")
+    _require(build_info_path.is_file(), f"BUILDINFO.json is missing: {build_info_path}")
     _require(react_index.is_file(), f"React entry point is missing: {react_index}")
     _require(
         any(react_dist.glob("assets/*.js")),
@@ -53,6 +67,44 @@ def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
         any(path.name == "QtWebEngineProcess" for path in app.rglob("QtWebEngineProcess")),
         "QtWebEngineProcess is missing from the application bundle.",
     )
+
+    with info_plist.open("rb") as handle:
+        plist = plistlib.load(handle)
+    expected_bundle_version = macos_marketing_version(config.APP_VERSION)
+    _require(
+        plist.get("CFBundleShortVersionString") == expected_bundle_version,
+        "Info.plist version does not match the authoritative application version.",
+    )
+    icon_name = plist.get("CFBundleIconFile")
+    _require(bool(icon_name), "Info.plist does not declare a bundle icon.")
+    icon_path = app / "Contents" / "Resources" / str(icon_name)
+    if not icon_path.suffix:
+        icon_path = icon_path.with_suffix(".icns")
+    _require(icon_path.is_file(), f"Declared bundle icon is missing: {icon_path}")
+
+    build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
+    _require(
+        build_info.get("app_version") == config.APP_VERSION,
+        "BUILDINFO app version does not match the authoritative application version.",
+    )
+    _require(
+        build_info.get("bundle_version") == expected_bundle_version,
+        "BUILDINFO bundle version does not match Info.plist.",
+    )
+    _require(
+        build_info.get("architecture") == "arm64",
+        "BUILDINFO architecture is not arm64.",
+    )
+    _require(
+        re.fullmatch(r"[0-9a-f]{40}", str(build_info.get("source_commit", ""))) is not None,
+        "BUILDINFO source commit is missing or invalid.",
+    )
+    expected_source_commit = os.environ.get("GITHUB_SHA")
+    if expected_source_commit:
+        _require(
+            build_info.get("source_commit") == expected_source_commit,
+            "BUILDINFO source commit does not match the workflow commit.",
+        )
 
     forbidden: list[Path] = []
     for path in app.rglob("*"):
@@ -112,6 +164,8 @@ def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
         "app": app,
         "executable": executable,
         "info_plist": info_plist,
+        "build_info": build_info_path,
+        "bundle_icon": icon_path,
         "react_index": react_index,
     }
 
@@ -184,7 +238,7 @@ def main() -> int:
     parser.add_argument(
         "--project-root",
         type=Path,
-        default=Path(__file__).resolve().parents[1],
+        default=PROJECT_ROOT,
     )
     args = parser.parse_args()
 
