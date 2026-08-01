@@ -85,11 +85,11 @@ export function TariffSettings() {
 
       <div>
         <h3 className="text-sm font-semibold">Gespeicherte Tarifzeiträume</h3>
-        {(settingsPayload?.tariffs?.length ?? 0) === 0 ? <p className="mt-2 text-sm text-slate-500">Noch keine Tarife hinterlegt.</p> : <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
+        {(settingsPayload?.tariffs?.length ?? 0) === 0 ? <p className="mt-2 text-sm text-slate-500">Solar Economy ist bereit. Hinterlege mindestens einen Strombezugspreis und einen Einspeisetarif, damit EnergyRadar den wirtschaftlichen Solarwert berechnen kann. Der Grundpreis ist optional.</p> : <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
           {settingsPayload!.tariffs.map(record => <li key={record.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="font-medium">{typeLabel[record.tariff_type]} · {record.tariff_type === 'base_price' ? `${record.annual_eur} €/Jahr` : `${record.value_ct_per_kwh} ct/kWh`}</p><p className="text-xs text-slate-500">{record.valid_from} bis {record.valid_until ?? 'offen'} · {record.label ?? 'ohne Bezeichnung'}{record.provisional ? ' · vorläufig' : ''}</p></div><button type="button" onClick={() => edit(record)} className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"><Pencil className="h-4 w-4" />Bearbeiten</button></li>)}
         </ul>}
       </div>
-      <p className="text-xs text-slate-500">Der Grundpreis wird angezeigt, aber nicht als vermiedene Stromkosten gerechnet. Gültig-bis-Daten gelten einschließlich des angegebenen Tages.</p>
+      <p className="text-xs text-slate-500">Der Grundpreis bleibt unberücksichtigt, weil er unabhängig vom Verbrauch anfällt. Gültig-bis-Daten gelten einschließlich des angegebenen Tages.</p>
     </section>
   );
 }

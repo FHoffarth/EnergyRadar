@@ -47,4 +47,47 @@ describe('TariffSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tarifzeitraum speichern' }));
     expect(saveTariff).toHaveBeenCalledWith(expect.objectContaining({ tariff_type: 'feed_in_tariff', provisional: true }));
   });
+
+  it('guides an empty setup without requiring a base price', () => {
+    render(<TariffSettings />);
+    expect(screen.getByText(/Solar Economy ist bereit/)).toBeInTheDocument();
+    expect(screen.getByText(/Strombezugspreis und einen Einspeisetarif/)).toBeInTheDocument();
+    expect(screen.getByText(/Der Grundpreis ist optional/)).toBeInTheDocument();
+  });
+
+  it('saves and discards a base price in EUR per year without a default', () => {
+    render(<TariffSettings />);
+    fireEvent.change(screen.getByLabelText('Tarifart'), { target: { value: 'base_price' } });
+    const annual = screen.getByLabelText('Jahresgrundpreis brutto in €');
+    expect(annual).toHaveValue(null);
+    fireEvent.change(annual, { target: { value: '120.00' } });
+    fireEvent.change(screen.getByLabelText('Gültig ab'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('Anbieter oder Bezeichnung (optional)'), { target: { value: 'ENTEGA Ökostrom fix 24' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tarifentwurf zurücksetzen' }));
+    expect(screen.getByLabelText('Tarifart')).toHaveValue('grid_work_price');
+    expect(screen.getByLabelText('Betrag in ct/kWh')).toHaveValue(null);
+
+    fireEvent.change(screen.getByLabelText('Tarifart'), { target: { value: 'base_price' } });
+    fireEvent.change(screen.getByLabelText('Jahresgrundpreis brutto in €'), { target: { value: '120.00' } });
+    fireEvent.change(screen.getByLabelText('Gültig ab'), { target: { value: '2026-01-01' } });
+    fireEvent.click(screen.getByLabelText(/Vorläufiger Wert/));
+    fireEvent.click(screen.getByRole('button', { name: 'Tarifzeitraum speichern' }));
+    expect(saveTariff).toHaveBeenCalledWith(expect.objectContaining({
+      tariff_type: 'base_price', annual_eur: '120.00', value_ct_per_kwh: null, provisional: true,
+    }));
+  });
+
+  it('lists and edits an open-ended provisional base-price period', () => {
+    app.settingsPayload.tariffs = [{
+      id: 7, tariff_type: 'base_price', value_ct_per_kwh: null, annual_eur: '120',
+      valid_from: '2026-01-01', valid_until: null, label: 'ENTEGA Ökostrom fix 24',
+      source_type: 'invoice', provisional: true,
+    }];
+    render(<TariffSettings />);
+    expect(screen.getByText('Grundpreis · 120 €/Jahr')).toBeInTheDocument();
+    expect(screen.getByText(/2026-01-01 bis offen.*vorläufig/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Bearbeiten' }));
+    expect(screen.getByLabelText('Tarifart')).toHaveValue('base_price');
+    expect(screen.getByLabelText('Jahresgrundpreis brutto in €')).toHaveValue(120);
+  });
 });

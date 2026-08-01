@@ -32,6 +32,7 @@ export interface TodayHistoryPoint {
 export interface TodayData {
   solarTotal: DataState<number>;
   homeTotal: DataState<number>;
+  homeTotalReason?: string | null;
   gridFeedInTotal: DataState<number>;
   gridDrawTotal: DataState<number>;
   selfSufficiency: DataState<number>;
@@ -73,7 +74,7 @@ export interface EconomyReportData {
   tariffs: Record<string, TariffRecordData | null>;
   results: Record<'grid_import_cost' | 'feed_in_remuneration' | 'avoided_grid_cost' | 'solar_economic_value' | 'net_variable_energy_position', EconomyMoneyResultData>;
   exclusions: string[];
-  reason?: string;
+  reason?: string | null;
 }
 
 export interface DeviceCardData {

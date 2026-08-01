@@ -66,6 +66,7 @@ class TodayViewModel:
     generated_label: str
     consumption_kwh: Optional[float]
     consumption_label: str
+    consumption_reason: Optional[str]
     import_total_kwh: Optional[float]
     import_total_label: str
     export_total_kwh: Optional[float]
@@ -504,6 +505,7 @@ def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
         consumption_kwh=cons_kwh,
         consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
+        consumption_reason=summary.get("consumption_reason"),
         import_total_kwh=imp_kwh,
         import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
         export_total_kwh=exp_kwh,

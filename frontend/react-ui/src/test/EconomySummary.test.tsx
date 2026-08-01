@@ -31,14 +31,28 @@ describe('EconomySummary', () => {
     expect(screen.getByText(/2,14\s*€/)).toBeInTheDocument();
     expect(screen.getByText('Vermiedene Stromkosten')).toBeInTheDocument();
     screen.getByText('Berechnungsdetails').click();
-    expect(screen.getByText(/Grundpreise bleiben unberücksichtigt/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Wirtschaftlicher Solarwert heute' })).toBeInTheDocument();
+    expect(screen.getByText('Der Grundpreis bleibt unberücksichtigt, weil er unabhängig vom Verbrauch anfällt.')).toBeInTheDocument();
     expect(screen.getByText(/Formel Solarwert: vermiedene Stromkosten \+ geschätzte Einspeisevergütung/)).toBeInTheDocument();
+    expect(screen.getByText('Grundpreis (nur Kontext)')).toBeInTheDocument();
+    expect(screen.getByText(/120 €\/Jahr/)).toBeInTheDocument();
   });
 
   it('uses partial wording and visibly labels provisional tariffs', () => {
     render(<EconomySummary report={report({ coverage_state: 'partial', provisional: true })} locale="de-DE" />);
-    expect(screen.getByText('Geschätzter Wert im erfassten Zeitraum.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Wirtschaftlicher Solarwert im erfassten Zeitraum' })).toBeInTheDocument();
+    expect(screen.getByText('Keine Hochrechnung auf nicht erfasste Zeiträume.')).toBeInTheDocument();
     expect(screen.getByText(/Vorläufiger Wert/)).toBeInTheDocument();
+  });
+
+  it('renders the exact partial-period Decimal fixture as 1.22 EUR', () => {
+    const fixture = report({ coverage_state: 'partial' });
+    fixture.results.grid_import_cost.value_eur = '0.4794';
+    fixture.results.avoided_grid_cost.value_eur = '0.7446';
+    fixture.results.feed_in_remuneration.value_eur = '0.4716';
+    fixture.results.solar_economic_value.value_eur = '1.2162';
+    render(<EconomySummary report={fixture} locale="de-DE" />);
+    expect(screen.getByText(/1,22\s*€/)).toBeInTheDocument();
   });
 
   it('keeps a valid zero distinct from unavailable', () => {
@@ -52,8 +66,32 @@ describe('EconomySummary', () => {
   });
 
   it('does not imply a missing feed-in tariff is zero', () => {
-    const missing = report(); missing.results.solar_economic_value.value_eur = null; missing.results.feed_in_remuneration.value_eur = null; missing.tariffs.feed_in_tariff = null;
+    const missing = report();
+    missing.results.solar_economic_value.value_eur = null;
+    missing.results.solar_economic_value.reason = 'feed_in_tariff_missing_or_boundary';
+    missing.results.feed_in_remuneration.value_eur = null;
+    missing.tariffs.feed_in_tariff = null;
     render(<EconomySummary report={missing} locale="de-DE" />);
-    expect(screen.getByText(/Fehlende Mess- oder Tarifdaten werden nicht als 0 €/)).toBeInTheDocument();
+    expect(screen.getByText('Der Einspeisetarif ist nicht für den gesamten erfassten Zeitraum bestätigt.')).toBeInTheDocument();
+  });
+
+  it('shows the precise energy rejection without claiming valid tariffs are missing', () => {
+    const unavailable = report({ coverage_state: 'unavailable', reason: 'energy_period_mismatch' });
+    unavailable.results.solar_economic_value.value_eur = null;
+    unavailable.results.solar_economic_value.reason = 'energy_period_mismatch';
+    render(<EconomySummary report={unavailable} locale="de-DE" />);
+    expect(screen.getByText('PV-Erzeugung und Einspeisung beziehen sich nicht auf denselben erfassten Zeitraum.')).toBeInTheDocument();
+    expect(screen.queryByText(/Tarifdaten fehlen/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/34.00 ct\/kWh/)).toBeInTheDocument();
+    expect(screen.getByText(/12.00 ct\/kWh/)).toBeInTheDocument();
+  });
+
+  it('labels a provisional base price only as context', () => {
+    const provisionalBase = report();
+    provisionalBase.tariffs.base_price!.provisional = true;
+    render(<EconomySummary report={provisionalBase} locale="de-DE" />);
+    screen.getByText('Berechnungsdetails').click();
+    expect(screen.getByText(/120 €\/Jahr.*vorläufig/)).toBeInTheDocument();
+    expect(screen.getByText(/2,14\s*€/)).toBeInTheDocument();
   });
 });

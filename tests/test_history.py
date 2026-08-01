@@ -57,12 +57,23 @@ def test_coverage_and_integration(monkeypatch):
 
     assert res["summary"]["solar_kwh"] == 0.03
     assert res["summary"]["grid_import_kwh"] == 0.01 # 505-500 = 5. 5/1000 = 0.01
+    assert res["summary"]["consumption_kwh"] == 0.03
+    assert res["summary"]["consumption_reason"] is None
 
     # Cov
     assert res["coverage"]["pv"] == round(60 / (12*3600), 3)
     assert res["summary"]["autarky_pct"] is None # Cov too low
     assert res["economy_basis"]["solar_generation"]["source"] == "counter_delta"
-    assert res["economy_basis"]["solar_generation"]["coverage_state"] == "sparse"
+    assert res["economy_basis"]["solar_generation"]["coverage_state"] == "partial"
+    assert res["economy_basis"]["grid_export"]["coverage_state"] == "partial"
+    assert (
+        res["economy_basis"]["solar_generation"]["period_key"]
+        == res["economy_basis"]["grid_export"]["period_key"]
+        == "2026-07-22T10:00:00+00:00|2026-07-22T10:01:00+00:00"
+    )
+    assert res["economy_basis"]["solar_generation"]["provenance"] == "trusted_counter_observations"
+    assert res["economy_basis"]["house_consumption"]["coverage_state"] == "partial"
+    assert res["economy_basis"]["house_consumption"]["value_kwh"] == "0.025"
 
 
 def test_economy_basis_rejects_counter_reset_and_negative_delta(monkeypatch):
@@ -87,6 +98,8 @@ def test_economy_basis_rejects_counter_reset_and_negative_delta(monkeypatch):
     assert result["grid_import"]["value_kwh"] is None
     assert result["grid_export"]["value_kwh"] is None
     assert result["solar_generation"]["reason"] == "counter_reset_or_negative_delta"
+    assert result["house_consumption"]["value_kwh"] is None
+    assert result["house_consumption"]["reason"] == "house_solar_generation_counter_reset_or_negative_delta"
 
 
 def test_stale_rows_remain_visible_but_do_not_support_economy(monkeypatch):
@@ -109,3 +122,58 @@ def test_stale_rows_remain_visible_but_do_not_support_economy(monkeypatch):
     assert len(result["points"]) == 2
     assert result["economy_basis"]["solar_generation"]["value_kwh"] is None
     assert result["economy_basis"]["grid_export"]["coverage_state"] == "unavailable"
+
+
+def captured_energy(value, *, period="start|end", source="counter_delta", provenance="trusted_counter_observations", coverage="partial", reason=None):
+    return {
+        "value_kwh": value,
+        "period_key": period,
+        "source": source,
+        "provenance": provenance,
+        "coverage_state": coverage,
+        "reason": reason,
+    }
+
+
+def test_house_energy_uses_decimal_compatible_period_totals_without_direct_counter():
+    result = history.derive_house_energy(
+        captured_energy("6.17"), captured_energy("1.57"), captured_energy("3.93")
+    )
+    assert result == {
+        "value_kwh": "3.81",
+        "source": "calculated_compatible_energy",
+        "provenance": "trusted_counter_observations",
+        "coverage_state": "partial",
+        "period_key": "start|end",
+        "reason": None,
+        "formula": "pv_generation_kwh + grid_import_kwh - grid_export_kwh",
+    }
+
+
+@pytest.mark.parametrize(
+    ("changed_entry", "field", "value", "expected_reason"),
+    [
+        ("imported", "period_key", "later|end", "house_energy_period_mismatch"),
+        ("exported", "source", "integrated_power_history", "house_energy_source_mismatch"),
+        ("solar", "provenance", "untrusted", "house_energy_provenance_mismatch"),
+    ],
+)
+def test_house_energy_rejects_incompatible_period_source_and_provenance(changed_entry, field, value, expected_reason):
+    entries = {name: captured_energy("1") for name in ("solar", "imported", "exported")}
+    entries[changed_entry][field] = value
+    result = history.derive_house_energy(entries["solar"], entries["imported"], entries["exported"])
+    assert result["value_kwh"] is None
+    assert result["reason"] == expected_reason
+
+
+def test_house_energy_preserves_zero_and_rejects_negative_balance():
+    zero = history.derive_house_energy(
+        captured_energy("0"), captured_energy("0"), captured_energy("0")
+    )
+    assert zero["value_kwh"] == "0"
+    assert zero["coverage_state"] == "partial"
+    negative = history.derive_house_energy(
+        captured_energy("0"), captured_energy("0"), captured_energy("0.01")
+    )
+    assert negative["value_kwh"] is None
+    assert negative["reason"] == "house_energy_balance_negative"

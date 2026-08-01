@@ -92,6 +92,19 @@ describe('storytelling trust rules', () => {
     expect(screen.getByText('Netzbezug heute')).toBeTruthy();
   });
 
+  it('shows derived partial consumption and a precise unavailable reason', () => {
+    const partial = { level: 'partial' as const, measuredPoints: 4, gapCount: 1, firstTime: '08:00', lastTime: '09:00' };
+    const { rerender } = render(<DailySummaryMetrics data={totals({ home: 3.81 })}
+      coverage={partial} locale="de-DE" />);
+    expect(screen.getByText('Verbrauch im erfassten Zeitraum')).toBeTruthy();
+    expect(screen.getByText('3,81 kWh')).toBeTruthy();
+
+    const unavailable = totals();
+    unavailable.homeTotalReason = 'house_energy_period_mismatch';
+    rerender(<DailySummaryMetrics data={unavailable} coverage={partial} locale="de-DE" />);
+    expect(screen.getByText('PV, Netzbezug und Einspeisung beziehen sich nicht auf denselben Zeitraum.')).toBeTruthy();
+  });
+
   it('uses neutral export wording without PV evidence and solar wording only with supporting evidence', () => {
     const timeline = [point(0), point(5_000), point(10_000), point(15_000)];
     const complete = coverage(timeline);

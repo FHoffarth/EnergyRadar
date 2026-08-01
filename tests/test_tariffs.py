@@ -80,3 +80,36 @@ def test_base_price_requires_annual_value_and_keeps_rate_null(tariff_db):
     ))
     assert created["annual_eur"] == "120"
     assert created["value_ct_per_kwh"] is None
+
+
+def test_base_price_history_update_overlap_boundaries_and_open_end(tariff_db):
+    old = tariffs.create_record(record(
+        tariff_type="base_price", value_ct_per_kwh=None, annual_eur="120.00",
+        valid_until="2026-06-30",
+    ))
+    updated = tariffs.update_record(old["id"], record(
+        tariff_type="base_price", value_ct_per_kwh=None, annual_eur="121.50",
+        valid_until="2026-06-30",
+    ))
+    assert updated["annual_eur"] == "121.5"
+    with pytest.raises(tariffs.TariffOverlapError):
+        tariffs.create_record(record(
+            tariff_type="base_price", value_ct_per_kwh=None, annual_eur="130",
+            valid_from="2026-06-30", valid_until=None,
+        ))
+    current = tariffs.create_record(record(
+        tariff_type="base_price", value_ct_per_kwh=None, annual_eur="130",
+        valid_from="2026-07-01", valid_until=None,
+    ))
+    assert tariffs.record_at("base_price", date(2026, 6, 30))["id"] == old["id"]
+    assert tariffs.record_at("base_price", date(2026, 7, 1))["id"] == current["id"]
+    assert tariffs.record_at("base_price", date(2030, 1, 1))["id"] == current["id"]
+
+
+def test_zero_and_provisional_base_price_are_preserved(tariff_db):
+    created = tariffs.create_record(record(
+        tariff_type="base_price", value_ct_per_kwh=None, annual_eur="0",
+        valid_until=None, provisional=True,
+    ))
+    assert created["annual_eur"] == "0"
+    assert created["provisional"] is True

@@ -125,6 +125,7 @@ function processTodayViewModel(raw: Record<string, any>) {
   todayData$.set({
     solarTotal: toDataState(raw.generated_kwh),
     homeTotal: toDataState(raw.consumption_kwh),
+    homeTotalReason: typeof raw.consumption_reason === 'string' ? raw.consumption_reason : null,
     gridDrawTotal: toDataState(raw.import_total_kwh),
     gridFeedInTotal: toDataState(raw.export_total_kwh),
     selfConsumption: toDataState(raw.self_consumption_pct),

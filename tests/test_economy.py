@@ -4,8 +4,20 @@ from decimal import Decimal
 from energyradar.services import economy
 
 
-def energy(value, source="counter_delta", coverage="complete", key="period"):
-    return {"value_kwh": value, "source": source, "coverage_state": coverage, "period_key": key}
+def energy(
+    value,
+    source="counter_delta",
+    coverage="complete",
+    key="period",
+    provenance="trusted_counter_observations",
+):
+    return {
+        "value_kwh": value,
+        "source": source,
+        "provenance": provenance,
+        "coverage_state": coverage,
+        "period_key": key,
+    }
 
 
 def basis(solar="3.2", imported="2", exported="1.4", coverage="complete"):
@@ -39,6 +51,23 @@ def test_complete_decimal_calculation_and_base_price_exclusion():
     assert result["exclusions"] == ["base_price_not_avoidable"]
 
 
+def test_base_price_is_context_only_and_never_changes_any_economic_formula():
+    with_base = economy.calculate_period(basis(), tariffs())
+    without_base = economy.calculate_period(basis(), tariffs()[:2])
+    zero_base_records = tariffs()
+    zero_base_records[2]["annual_eur"] = "0"
+    with_zero_base = economy.calculate_period(basis(), zero_base_records)
+    for result_name in (
+        "grid_import_cost", "feed_in_remuneration", "avoided_grid_cost",
+        "solar_economic_value", "net_variable_energy_position",
+    ):
+        expected = with_base["results"][result_name]["value_eur"]
+        assert without_base["results"][result_name]["value_eur"] == expected
+        assert with_zero_base["results"][result_name]["value_eur"] == expected
+    assert with_base["tariffs"]["base_price"]["annual_eur"] == "120.00"
+    assert without_base["tariffs"]["base_price"] is None
+
+
 def test_zero_is_available_and_missing_tariff_is_not_zero():
     zero = economy.calculate_period(basis(solar="0", imported="0", exported="0"), tariffs())
     assert zero["results"]["solar_economic_value"]["value_eur"] == "0.00"
@@ -58,7 +87,7 @@ def test_incompatible_energy_bases_and_real_negative_self_consumption_are_withhe
     mixed["grid_export"]["source"] = "integrated_power_history"
     result = economy.calculate_period(mixed, tariffs())
     assert result["results"]["avoided_grid_cost"]["value_eur"] is None
-    assert result["energy_basis"]["direct_self_consumption"]["reason"] == "incompatible_or_unavailable_energy_basis"
+    assert result["energy_basis"]["direct_self_consumption"]["reason"] == "energy_source_mismatch"
     inconsistent = economy.calculate_period(basis(solar="1", exported="1.1"), tariffs())
     assert inconsistent["energy_basis"]["direct_self_consumption"]["value_kwh"] is None
     assert inconsistent["energy_basis"]["direct_self_consumption"]["reason"] == "pv_lower_than_export"
@@ -105,3 +134,48 @@ def test_coverage_thresholds_are_deterministic():
     assert economy.coverage_state("0.49") == "sparse"
     assert economy.coverage_state("0.50") == "partial"
     assert economy.coverage_state("0.90") == "complete"
+
+
+def test_partial_compatible_counter_basis_calculates_expected_fixture_without_house_total():
+    captured = basis(solar="6.12", imported="1.41", exported="3.93", coverage="partial")
+    assert "house_consumption" not in captured
+    records = tariffs()
+    records[1]["valid_from"] = "2014-01-01"
+
+    result = economy.calculate_period(captured, records)
+
+    assert result["coverage_state"] == "partial"
+    assert result["reason"] is None
+    assert result["energy_basis"]["direct_self_consumption"]["value_kwh"] == "2.19"
+    assert Decimal(result["results"]["avoided_grid_cost"]["value_eur"]) == Decimal("0.7446")
+    assert Decimal(result["results"]["feed_in_remuneration"]["value_eur"]) == Decimal("0.4716")
+    assert Decimal(result["results"]["solar_economic_value"]["value_eur"]) == Decimal("1.2162")
+    assert result["tariffs"]["grid_work_price"] is not None
+    assert result["tariffs"]["feed_in_tariff"] is not None
+    assert result["results"]["solar_economic_value"]["reason"] is None
+    assert isinstance(economy.decimal_text("6.12"), Decimal)
+
+
+def test_incompatible_periods_and_provenance_remain_unavailable_with_precise_reason():
+    period_mismatch = basis(coverage="partial")
+    period_mismatch["grid_export"]["period_key"] = "different-period"
+    result = economy.calculate_period(period_mismatch, tariffs())
+    assert result["results"]["solar_economic_value"]["value_eur"] is None
+    assert result["reason"] == "energy_period_mismatch"
+
+    provenance_mismatch = basis(coverage="partial")
+    provenance_mismatch["grid_export"]["provenance"] = "backfilled_counter_observations"
+    result = economy.calculate_period(provenance_mismatch, tariffs())
+    assert result["results"]["solar_economic_value"]["value_eur"] is None
+    assert result["reason"] == "energy_provenance_mismatch"
+
+
+def test_valid_tariffs_are_not_reported_missing_when_energy_is_rejected():
+    incompatible = basis(coverage="partial")
+    incompatible["grid_export"]["period_key"] = "different-period"
+
+    result = economy.calculate_period(incompatible, tariffs())
+
+    assert result["tariffs"]["grid_work_price"] is not None
+    assert result["tariffs"]["feed_in_tariff"] is not None
+    assert "tariff" not in result["reason"]

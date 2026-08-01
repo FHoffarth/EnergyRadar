@@ -71,6 +71,27 @@ def _tariff_meta(record: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _energy_compatibility_reason(
+    solar: dict[str, Any],
+    solar_value: Decimal | None,
+    exported: dict[str, Any],
+    export_value: Decimal | None,
+) -> str | None:
+    """Return the precise reason why PV minus export cannot be calculated."""
+    usable_states = {"complete", "partial"}
+    if solar_value is None or solar_value < 0 or solar.get("coverage_state") not in usable_states:
+        return "solar_energy_unavailable_or_sparse"
+    if export_value is None or export_value < 0 or exported.get("coverage_state") not in usable_states:
+        return "grid_export_energy_unavailable_or_sparse"
+    if not solar.get("period_key") or solar.get("period_key") != exported.get("period_key"):
+        return "energy_period_mismatch"
+    if not solar.get("source") or solar.get("source") != exported.get("source"):
+        return "energy_source_mismatch"
+    if not solar.get("provenance") or solar.get("provenance") != exported.get("provenance"):
+        return "energy_provenance_mismatch"
+    return None
+
+
 def calculate_period(
     basis: dict[str, Any],
     tariff_records: list[dict[str, Any]],
@@ -127,15 +148,12 @@ def calculate_period(
     else:
         feed_value = export_value * Decimal(str(feed_tariff["value_ct_per_kwh"])) / Decimal("100")
 
-    compatible = (
-        usable(solar, solar_value)
-        and usable(exported, export_value)
-        and solar.get("source") == exported.get("source")
-        and solar.get("period_key") == exported.get("period_key")
+    compatibility_reason = _energy_compatibility_reason(
+        solar, solar_value, exported, export_value
     )
     self_consumption = None
-    self_reason = None
-    if compatible:
+    self_reason = compatibility_reason
+    if compatibility_reason is None:
         candidate = solar_value - export_value
         if candidate < 0 and abs(candidate) <= _NOISE_KWH:
             candidate = Decimal("0")
@@ -143,9 +161,6 @@ def calculate_period(
             self_reason = "pv_lower_than_export"
         else:
             self_consumption = candidate
-    else:
-        self_reason = "incompatible_or_unavailable_energy_basis"
-
     self_status = _worst([solar_status, export_status])
     avoided = None
     avoided_reason = self_reason
@@ -158,13 +173,16 @@ def calculate_period(
 
     total_status = _worst([self_status, export_status])
     total = avoided + feed_value if avoided is not None and feed_value is not None else None
+    total_reason = None if total is not None else avoided_reason or feed_reason or "required_component_unavailable"
     net = feed_value - import_cost + avoided if None not in (feed_value, import_cost, avoided) else None
+    net_reason = None if net is not None else import_reason or total_reason or "required_component_unavailable"
     provisional = bool((feed_tariff or {}).get("provisional") or (grid_tariff or {}).get("provisional"))
 
     return {
         "period": period,
         "calculated_at": calculated.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "coverage_state": total_status if total is not None else "unavailable",
+        "reason": total_reason,
         "provisional": provisional,
         "energy_basis": {
             "solar_generation": solar,
@@ -187,8 +205,8 @@ def calculate_period(
             "grid_import_cost": _money(import_cost, status=import_status, formula="grid_import_kwh × grid_work_price_eur_per_kwh", reason=import_reason),
             "feed_in_remuneration": _money(feed_value, status=export_status, formula="grid_export_kwh × feed_in_tariff_eur_per_kwh", reason=feed_reason),
             "avoided_grid_cost": _money(avoided, status=self_status, formula="direct_self_consumption_kwh × grid_work_price_eur_per_kwh", reason=avoided_reason),
-            "solar_economic_value": _money(total, status=total_status, formula="avoided_grid_cost + feed_in_remuneration", reason=None if total is not None else "required_component_unavailable"),
-            "net_variable_energy_position": _money(net, status=_worst([import_status, total_status]), formula="feed_in_remuneration - grid_import_cost + avoided_grid_cost", reason=None if net is not None else "required_component_unavailable"),
+            "solar_economic_value": _money(total, status=total_status, formula="avoided_grid_cost + feed_in_remuneration", reason=total_reason),
+            "net_variable_energy_position": _money(net, status=_worst([import_status, total_status]), formula="feed_in_remuneration - grid_import_cost + avoided_grid_cost", reason=net_reason),
         },
         "exclusions": ["base_price_not_avoidable"],
     }
