@@ -6,6 +6,8 @@ import { TimelineEntry } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
+import { HourlyWeatherForecast, MultiDayWeatherForecast } from '../components/WeatherIntelligence';
+import { useEffectiveMotionMode } from '../lib/motion';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 3;
@@ -25,9 +27,10 @@ function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
 
 export function TodayView() {
   const { timeline, sourceType } = useEnergyProvider();
-  const { settingsPayload } = useApp();
+  const { settingsPayload, weatherReport } = useApp();
   const locale = useNumberLocale();
-  const animate = (settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
+  const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
+  const animate = useEffectiveMotionMode(requestedMotion) === 'full';
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';
@@ -52,14 +55,30 @@ export function TodayView() {
   const hasChartableSeries = series.length > 0;
 
   return (
-    <div className="px-8 pt-10 pb-6 h-full flex flex-col overflow-y-auto">
-      <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl mb-6">
+    <div className="cockpit-page h-full flex flex-col overflow-y-auto" data-testid="today-workspace">
+      <header className="mb-6 max-w-3xl">
+      <p className="cockpit-eyebrow">Tagesanalyse</p>
+      <h1 className="cockpit-title mt-2 text-slate-900 dark:text-white">
         {isDemo
           ? 'Heutiger Energieverlauf (Demo)'
           : noData
           ? 'Tagesverlauf noch nicht verfügbar'
           : 'Heutiger Energieverlauf'}
       </h1>
+      </header>
+
+      {!noData && (
+        <section aria-label="Tagesübersicht" className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-xl">
+          <div className="cockpit-surface-muted px-4 py-3">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Gespeicherte Messpunkte</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums">{formatNumber(timeline.length, locale)}</p>
+          </div>
+          <div className="cockpit-surface-muted px-4 py-3">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Darstellbare Messreihen</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums">{formatNumber(series.length, locale)}</p>
+          </div>
+        </section>
+      )}
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">
@@ -85,9 +104,9 @@ export function TodayView() {
       )}
 
       {!noData && (
-        <section className="border-t border-slate-200/70 dark:border-slate-800 pt-5 space-y-3">
+        <section className="cockpit-surface space-y-4 p-5 lg:p-6">
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            <h2 className="cockpit-section-title">
               {isDemo ? '24-Stunden-Chronik (Demo)' : '24-Stunden-Chronik'}
             </h2>
             <div className="flex items-center gap-3 text-xs">
@@ -101,7 +120,7 @@ export function TodayView() {
           </div>
 
           {hasChartableSeries ? (
-            <div className="h-64 w-full">
+            <div className="h-[clamp(20rem,48vh,34rem)] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={timeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
@@ -167,6 +186,10 @@ export function TodayView() {
           )}
         </section>
       )}
+      <div className="mt-6 grid gap-4" aria-label="Wettervorschau">
+        <HourlyWeatherForecast report={weatherReport} locale={locale} />
+        <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+      </div>
     </div>
   );
 }

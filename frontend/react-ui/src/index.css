@@ -21,6 +21,100 @@
   --font-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
+:root {
+  --radar-canvas: #eef2f3;
+  --radar-surface: rgba(255, 255, 255, 0.92);
+  --radar-surface-muted: rgba(248, 250, 252, 0.82);
+  --radar-border: rgba(148, 163, 184, 0.28);
+  --radar-accent: #0369a1;
+  --radar-accent-strong: #075985;
+  --radar-gutter: clamp(1.5rem, 2.5vw, 2.75rem);
+}
+
+.dark {
+  --radar-canvas: #101414;
+  --radar-surface: rgba(22, 29, 30, 0.94);
+  --radar-surface-muted: rgba(29, 39, 40, 0.78);
+  --radar-border: rgba(148, 163, 184, 0.18);
+  --radar-accent: #38bdf8;
+  --radar-accent-strong: #7dd3fc;
+}
+
+@layer components {
+  .cockpit-shell {
+    width: 100%;
+    max-width: 1720px;
+    margin-inline: auto;
+  }
+
+  .cockpit-page {
+    width: 100%;
+    min-width: 0;
+    padding: 2rem var(--radar-gutter) 3rem;
+  }
+
+  .cockpit-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .cockpit-surface {
+    min-width: 0;
+    border: 1px solid var(--radar-border);
+    border-radius: 1rem;
+    background: var(--radar-surface);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+  }
+
+  .cockpit-surface-muted {
+    min-width: 0;
+    border: 1px solid var(--radar-border);
+    border-radius: 0.875rem;
+    background: var(--radar-surface-muted);
+  }
+
+  .cockpit-eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--radar-accent);
+  }
+
+  .cockpit-title {
+    font-size: clamp(1.625rem, 2vw, 2.125rem);
+    line-height: 1.18;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+  }
+
+  .cockpit-section-title {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    color: rgb(71 85 105);
+  }
+
+  .dark .cockpit-section-title {
+    color: rgb(203 213 225);
+  }
+}
+
+@media (max-width: 1079px) {
+  .cockpit-page {
+    padding-inline: 1.25rem;
+  }
+
+  .cockpit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cockpit-grid > * {
+    grid-column: 1 / -1 !important;
+  }
+}
+
 /* Geist 1.7.2, self-hosted. Source, license and rationale for the bundled
    weights: src/assets/fonts/README.md. Relative url() keeps these resolvable
    in dev, in the production build, and over file:// in the packaged app.
@@ -82,25 +176,46 @@
   font-size: 112.5%;
 }
 
+[data-motion="full"] {
+  --motion-fast: 160ms;
+  --motion-standard: 240ms;
+  --motion-prominent: 700ms;
+  --motion-distance: 0.5rem;
+}
+
+[data-motion="reduced"] {
+  --motion-fast: 80ms;
+  --motion-standard: 120ms;
+  --motion-prominent: 120ms;
+  --motion-distance: 0;
+}
+
+[data-motion="none"] {
+  --motion-fast: 0ms;
+  --motion-standard: 0ms;
+  --motion-prominent: 0ms;
+  --motion-distance: 0;
+}
+
 [data-motion="none"] *, [data-motion="none"] ::before, [data-motion="none"] ::after {
-  animation-duration: 0.01ms !important;
+  animation-duration: 0ms !important;
   animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
+  transition-duration: 0ms !important;
   scroll-behavior: auto !important;
 }
 
 [data-motion="reduced"] *, [data-motion="reduced"] ::before, [data-motion="reduced"] ::after {
-  animation-duration: 0.3s !important;
+  animation-duration: var(--motion-prominent) !important;
   animation-iteration-count: 1 !important;
-  transition-duration: 0.3s !important;
+  transition-duration: var(--motion-standard) !important;
   scroll-behavior: auto !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 120ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 120ms !important;
     scroll-behavior: auto !important;
   }
 }

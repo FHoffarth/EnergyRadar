@@ -13,6 +13,7 @@ from typing import Any, Optional, Tuple
 
 from energyradar.services.weather.models import (
     CurrentWeather,
+    DailyWeatherPoint,
     HourlyWeatherPoint,
     ProviderWeatherPayload,
     SunData,
@@ -114,6 +115,20 @@ def load_cached_payload(location_key: str) -> Tuple[Optional[ProviderWeatherPayl
             for point in payload_dict.get("hourly", [])
             if isinstance(point, dict) and point.get("time")
         ]
+        daily = [
+            DailyWeatherPoint(
+                date=str(point.get("date", "")),
+                condition=point.get("condition", "unknown"),
+                weather_code=point.get("weather_code"),
+                temperature_min_c=point.get("temperature_min_c"),
+                temperature_max_c=point.get("temperature_max_c"),
+                precipitation_probability_percent=point.get("precipitation_probability_percent"),
+                sunrise=point.get("sunrise"),
+                sunset=point.get("sunset"),
+            )
+            for point in payload_dict.get("daily", [])
+            if isinstance(point, dict) and point.get("date")
+        ]
         payload = ProviderWeatherPayload(
             provider=payload_dict.get("provider", "open_meteo"),
             observed_at=payload_dict.get("observed_at", fetched_at_str),
@@ -123,6 +138,7 @@ def load_cached_payload(location_key: str) -> Tuple[Optional[ProviderWeatherPayl
             sun=sun,
             current=current,
             hourly=hourly,
+            daily=daily,
         )
         return payload, freshness, age
     except Exception as exc:

@@ -67,6 +67,12 @@ describe('TodayView - per-series evidence thresholds', () => {
     render(<TodayView />);
     expect(screen.getByText('Solar')).toBeTruthy();
     expect(screen.getByText('Verbrauch')).toBeTruthy();
+    expect(screen.getByTestId('today-workspace').className).toContain('cockpit-page');
+    const chartFrame = screen.getByText('24-Stunden-Chronik')
+      .closest('section')
+      ?.querySelector('.recharts-responsive-container')
+      ?.parentElement;
+    expect(chartFrame?.className).toContain('h-[clamp(20rem,48vh,34rem)]');
   });
 
   it('replaces the chart with an explanation when no series qualifies', () => {

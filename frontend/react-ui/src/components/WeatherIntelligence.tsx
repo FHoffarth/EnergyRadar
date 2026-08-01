@@ -4,7 +4,7 @@ import {
   Droplets, Moon, Sun, Sunrise, Sunset, Wind,
 } from 'lucide-react';
 import { NumberLocale, formatNumber, formatTemperature } from '../lib/format';
-import { HourlyWeatherData, WeatherReportData } from '../types';
+import { DailyWeatherData, HourlyWeatherData, WeatherReportData } from '../types';
 
 const CONDITION_LABELS: Record<string, string> = {
   clear: 'Klar',
@@ -81,6 +81,13 @@ function formatLocalTime(value: string, locale: NumberLocale, timezone?: string)
   }
 }
 
+function formatForecastDay(value: string, locale: NumberLocale): string | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const parsed = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(parsed);
+}
+
 function solarContext(report: WeatherReportData): string | null {
   const current = report.current;
   if (!current || current.is_day !== true || !isFiniteNumber(current.cloud_cover_percent)) return null;
@@ -105,18 +112,21 @@ function SunEvent({ report, locale }: { report: WeatherReportData; locale: Numbe
     .filter((event): event is { timestamp: string; label: string; Icon: WeatherIconComponent } => (
       typeof event.timestamp === 'string'
       && formatLocalTime(event.timestamp, locale, timezone) !== null
-    ))
-    .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
-  const event = events[0];
-  if (!event) return null;
-  const value = formatLocalTime(event.timestamp, locale, timezone);
-  if (!value) return null;
-  const EventIcon = event.Icon;
+    ));
+  if (!events.length) return null;
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <EventIcon className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
-      <span><span className="sr-only">{event.label}: </span>{value}</span>
-    </div>
+    <>
+      {events.map(event => {
+        const value = formatLocalTime(event.timestamp, locale, timezone);
+        const EventIcon = event.Icon;
+        return value ? (
+          <div key={event.label} className="flex min-w-0 items-center gap-2">
+            <EventIcon className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+            <span>{event.label}: {value}</span>
+          </div>
+        ) : null;
+      })}
+    </>
   );
 }
 
@@ -146,15 +156,81 @@ function ForecastItem({
   );
 }
 
+export function HourlyWeatherForecast({ report, locale }: { report: WeatherReportData | null; locale: NumberLocale }) {
+  if (!report || report.status !== 'available') return null;
+  const forecast = (report.hourly ?? []).filter(point => (
+    typeof point?.time === 'string'
+    && formatLocalTime(point.time, locale, report.location?.timezone) !== null
+    && isFiniteNumber(point.temperature_c)
+  )).slice(0, 12);
+  if (!forecast.length) return null;
+  return (
+    <section aria-label="Stündliche Wettervorhersage" className="cockpit-surface-muted px-5 py-4 sm:px-6">
+      <p className="cockpit-eyebrow">Wetter heute</p>
+      <h2 className="cockpit-section-title mt-1">Stündliche Vorhersage</h2>
+      <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">
+        {forecast.map(point => (
+          <React.Fragment key={point.time}>
+            <ForecastItem point={point} locale={locale} timezone={report.location?.timezone} />
+          </React.Fragment>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DailyForecastItem({ point, locale }: { point: DailyWeatherData; locale: NumberLocale }) {
+  const day = formatForecastDay(point.date, locale);
+  if (!day) return null;
+  const Icon = iconForCondition(point.condition);
+  return (
+    <li className="rounded-xl border border-slate-200/80 bg-white/55 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-950/25">
+      <time dateTime={point.date} className="text-xs font-semibold text-slate-700 dark:text-slate-200">{day}</time>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <Icon className="h-5 w-5 text-sky-700 dark:text-sky-300" aria-hidden />
+        <span className="text-sm tabular-nums text-slate-800 dark:text-slate-100">
+          {formatTemperature(point.temperature_min_c, locale) ?? '—'} / {formatTemperature(point.temperature_max_c, locale) ?? '—'}
+        </span>
+      </div>
+      {isFiniteNumber(point.precipitation_probability_percent) && (
+        <span className="mt-2 flex items-center gap-1 text-xs text-sky-700 dark:text-sky-300">
+          <Droplets className="h-3 w-3" aria-hidden />
+          {formatNumber(point.precipitation_probability_percent, locale, { maximumFractionDigits: 0 })} %
+        </span>
+      )}
+    </li>
+  );
+}
+
+export function MultiDayWeatherForecast({ report, locale }: { report: WeatherReportData | null; locale: NumberLocale }) {
+  if (!report || report.status !== 'available') return null;
+  const forecast = (report.daily ?? []).filter(point => formatForecastDay(point.date, locale)).slice(0, 7);
+  if (!forecast.length) return null;
+  return (
+    <details className="cockpit-surface-muted px-5 py-4 sm:px-6">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-700 marker:text-sky-600 dark:text-slate-200 dark:marker:text-sky-300">
+        5–7-Tage-Ausblick
+      </summary>
+      <ul className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-2">
+        {forecast.map(point => (
+          <React.Fragment key={point.date}>
+            <DailyForecastItem point={point} locale={locale} />
+          </React.Fragment>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function WeatherIntelligence({
-  report, locale,
+  report, locale, compact = false,
 }: {
-  report: WeatherReportData | null; locale: NumberLocale;
+  report: WeatherReportData | null; locale: NumberLocale; compact?: boolean;
 }) {
   if (!report || report.status !== 'available' || !report.current) {
     return (
-      <section aria-label="Wetter und Solarbedingungen" className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/45">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Wetter</h2>
+      <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted px-5 py-4">
+        <h2 className="cockpit-section-title">Energie-Kontext</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Wetterdaten aktuell nicht verfügbar</p>
       </section>
     );
@@ -165,18 +241,11 @@ export function WeatherIntelligence({
   const temperature = formatTemperature(current.temperature_c, locale);
   const context = solarContext(report);
   const location = cleanDisplayText(report.location?.display_name);
-  const forecast = (report.hourly ?? [])
-    .filter(point => (
-      typeof point?.time === 'string'
-      && formatLocalTime(point.time, locale, report.location?.timezone) !== null
-      && isFiniteNumber(point.temperature_c)
-    ))
-    .slice(0, 6);
 
   return (
-    <section aria-label="Wetter und Solarbedingungen" className="overflow-hidden rounded-2xl border border-sky-200/80 bg-sky-50/75 dark:border-sky-900/80 dark:bg-sky-950/30">
+    <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted overflow-hidden">
       <div className="px-5 py-5 sm:px-6">
-        <p className="text-xs font-medium uppercase tracking-wider text-sky-700 dark:text-sky-300">Wetter &amp; PV-Kontext</p>
+        <p className="cockpit-eyebrow">Energie-Kontext</p>
         {location && <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300" title={location}>{location}</p>}
         <div className="mt-3 flex min-w-0 items-center gap-4">
           <CurrentIcon className="h-12 w-12 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />
@@ -202,18 +271,7 @@ export function WeatherIntelligence({
         {context && <p className="mt-4 border-l-2 border-amber-500 pl-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{context}</p>}
       </div>
 
-      {forecast.length > 0 && (
-        <div className="border-t border-sky-200/70 px-5 py-4 dark:border-sky-900/70 sm:px-6">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Nächste Stunden</h3>
-          <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">
-            {forecast.map(point => (
-              <React.Fragment key={point.time}>
-                <ForecastItem point={point} locale={locale} timezone={report.location?.timezone} />
-              </React.Fragment>
-            ))}
-          </ul>
-        </div>
-      )}
+      {!compact && <div className="border-t border-sky-200/70 dark:border-sky-900/70"><HourlyWeatherForecast report={report} locale={locale} /></div>}
     </section>
   );
 }

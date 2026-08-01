@@ -8,6 +8,7 @@ import {
   Trash2, CheckCircle2, AlertCircle, AlertTriangle, Search, Globe, Server
 } from 'lucide-react';
 import { greetingTitle } from '../lib/greeting';
+import { applyMotionPreference, MotionMode } from '../lib/motion';
 
 /**
  * Reduce a pasted address to "host" or "host:port".
@@ -88,6 +89,7 @@ export function SettingsView() {
     setFroniusAddr(effective?.fronius_address || '');
     setMt175Addr(effective?.mt175_address || '');
     setTheme((effective?.theme || 'dark') as ThemeMode);
+    applyMotionPreference((effective?.motion_mode || 'full') as MotionMode);
     setIsDirty(false);
   };
 
@@ -177,13 +179,14 @@ export function SettingsView() {
   };
 
   return (
-    <div className="flex flex-col h-full pt-8 pb-8 px-8">
-      <header className="pb-6 flex items-start justify-between">
+    <div className="cockpit-page flex flex-col min-h-full" data-testid="settings-workspace">
+      <header className="pb-6 flex flex-col items-start justify-between gap-4 xl:flex-row">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1C1C1E] dark:text-white leading-tight">Einstellungen</h1>
+          <p className="cockpit-eyebrow">Konfiguration</p>
+          <h1 className="cockpit-title mt-2 text-[#1C1C1E] dark:text-white">Einstellungen</h1>
           <p className="text-[#6E6E6E] dark:text-slate-400 mt-1 text-sm">Geräte, Aufzeichnung, Darstellung und Systemstatus an einem Ort.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {settingsSaveState.status === 'saving' && (
             <span className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
               <Loader2 className="w-4 h-4 animate-spin" /> Wird gespeichert…
@@ -220,18 +223,18 @@ export function SettingsView() {
             <RotateCcw className="w-4 h-4" /> Verwerfen
           </button>
           <button onClick={handleSave} disabled={!isDirty || settingsSaveState.status === 'saving'}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            className="px-5 py-2 bg-sky-700 hover:bg-sky-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {settingsSaveState.status === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Änderungen speichern
           </button>
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 max-w-3xl">
+      <div className="cockpit-grid items-start">
         {/* Theme */}
-        <section className="order-3 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="cockpit-surface order-3 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
-            <Palette className="w-5 h-5 text-indigo-500" />
+            <Palette className="w-5 h-5 text-sky-600 dark:text-sky-400" />
             <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Darstellung</h2>
           </div>
 
@@ -244,14 +247,14 @@ export function SettingsView() {
               <button type="button" aria-label="Persönliche Begrüßung umschalten"
                 aria-pressed={Boolean(previewEnabled)}
                 onClick={() => updateDraft('greeting_enabled', !previewEnabled)}
-                className={`w-12 h-7 rounded-full p-0.5 transition-colors ${previewEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors ${previewEnabled ? 'bg-sky-700' : 'bg-slate-300 dark:bg-slate-700'}`}>
                 <div className={`w-6 h-6 rounded-full bg-white transition-transform ${previewEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
             <input id="preferred-name" type="text" maxLength={80} value={draft.preferred_name ?? effective?.preferred_name ?? ''}
               onChange={(event) => updateDraft('preferred_name', event.target.value)}
               placeholder="Name (optional)"
-              className="w-full px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              className="w-full px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
             <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3" aria-label="Vorschau der Begrüßung">
               <p className="text-xs uppercase tracking-wide text-slate-400">Vorschau</p>
               <p className="mt-1 font-semibold text-slate-900 dark:text-white">
@@ -279,7 +282,7 @@ export function SettingsView() {
                     }}
                     className={`flex items-center justify-center gap-2 p-3 rounded-xl border font-medium transition-all ${
                       active
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold shadow-sm'
+                        ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600 text-sky-700 dark:text-sky-300 font-semibold'
                         : 'border-[#E5E5E3] dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}>
                     <Icon className="w-4 h-4" />
@@ -303,7 +306,7 @@ export function SettingsView() {
                 updateDraft('dynamic_bg_enabled', nextVal);
               }}
               className={`w-12 h-7 rounded-full p-0.5 transition-colors duration-200 ${
-                getEff('dynamic_bg_enabled') ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
+                getEff('dynamic_bg_enabled') ? 'bg-sky-700' : 'bg-slate-300 dark:bg-slate-700'
               }`}>
               <div className={`w-6 h-6 rounded-full bg-white transition-transform duration-200 ${
                 getEff('dynamic_bg_enabled') ? 'translate-x-5' : 'translate-x-0'
@@ -322,10 +325,13 @@ export function SettingsView() {
                 const active = getEff('motion_mode') === m.id;
                 return (
                   <button key={m.id} type="button"
-                    onClick={() => updateDraft('motion_mode', m.id)}
+                    onClick={() => {
+                      updateDraft('motion_mode', m.id);
+                      applyMotionPreference(m.id as MotionMode);
+                    }}
                     className={`flex flex-col p-3 rounded-xl border text-left transition-all ${
                       active
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold shadow-sm'
+                        ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600 text-sky-700 dark:text-sky-300 font-semibold'
                         : 'border-[#E5E5E3] dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}>
                     <span className="font-semibold text-sm">{m.label}</span>
@@ -345,7 +351,7 @@ export function SettingsView() {
                     onClick={() => updateDraft('text_size', s.id)}
                     className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       getEff('text_size') === s.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold'
+                        ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600 text-sky-700 dark:text-sky-300 font-semibold'
                         : 'border-[#E5E5E3] dark:border-slate-800 text-slate-700 dark:text-slate-300'
                     }`}>{s.label}</button>
                 ))}
@@ -359,7 +365,7 @@ export function SettingsView() {
                     onClick={() => updateDraft('number_format', n.id)}
                     className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       getEff('number_format') === n.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-semibold'
+                        ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600 text-sky-700 dark:text-sky-300 font-semibold'
                         : 'border-[#E5E5E3] dark:border-slate-800 text-slate-700 dark:text-slate-300'
                     }`}>{n.label}</button>
                 ))}
@@ -369,7 +375,7 @@ export function SettingsView() {
         </section>
 
         {/* Weather & Location */}
-        <section className="order-4 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="cockpit-surface order-4 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <MapPin className="w-5 h-5 text-sky-500" />
             <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">System</h2>
@@ -559,7 +565,7 @@ export function SettingsView() {
         </section>
 
         {/* Data & Storage */}
-        <section className="order-2 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="cockpit-surface order-2 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <Folder className="w-5 h-5 text-emerald-500" />
             <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Daten & Speicher</h2>
@@ -593,7 +599,7 @@ export function SettingsView() {
                 Ordner wählen
               </button>
               <button onClick={openExportDirectory} disabled={systemActionBusy}
-                className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                className="px-3 py-2.5 bg-sky-700 hover:bg-sky-800 text-white rounded-xl font-medium text-xs flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 <ExternalLink className="w-4 h-4" /> Exportordner öffnen
               </button>
             </div>
@@ -609,7 +615,7 @@ export function SettingsView() {
         </section>
 
         {/* Device Addresses — Fronius primary, MT175 optional */}
-        <section className="order-1 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-[#E5E5E3] dark:border-slate-800 shadow-sm space-y-5">
+        <section className="cockpit-surface order-1 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
             <Server className="w-5 h-5 text-amber-500" />
             <h2 className="text-base font-bold text-[#1C1C1E] dark:text-white">Geräte</h2>
@@ -639,7 +645,7 @@ export function SettingsView() {
                 onClick={handleSaveFronius}
                 disabled={testConnectionStatus['fronius_primary']?.testing || !froniusAddr || froniusAddr !== (effective?.fronius_address || '')}
                 title={froniusAddr !== (effective?.fronius_address || '') ? 'Änderungen zuerst speichern' : undefined}
-                className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('fronius_primary') ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
+                className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('fronius_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
                 {testConnectionStatus['fronius_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {deviceOnline('fronius_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
               </button>
@@ -687,7 +693,7 @@ export function SettingsView() {
                     onClick={handleSaveMt175}
                     disabled={testConnectionStatus['mt175_primary']?.testing || !mt175Addr || mt175Addr !== (effective?.mt175_address || '')}
                     title={mt175Addr !== (effective?.mt175_address || '') ? 'Änderungen zuerst speichern' : undefined}
-                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('mt175_primary') ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
+                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('mt175_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
                     {testConnectionStatus['mt175_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     {deviceOnline('mt175_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
                   </button>
@@ -714,7 +720,7 @@ export function SettingsView() {
 
         {/* Product attribution. Kept to the end of Settings — deliberately not
             in the sidebar, navigation, Now/Today or any persistent banner. */}
-        <footer className="order-5 pt-2 pb-1 text-xs text-slate-400 dark:text-slate-600">
+        <footer className="order-5 col-span-12 pt-2 pb-1 text-xs text-slate-400 dark:text-slate-600">
           <p>{system?.app_version ? `EnergyRadar ${system.app_version}` : 'EnergyRadar'}</p>
           <p className="mt-0.5">© 2026 Florian Hoffarth. Alle Rechte vorbehalten.</p>
         </footer>

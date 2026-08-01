@@ -110,6 +110,7 @@ class WeatherService:
                 sun=cached_payload.sun,
                 current=cached_payload.current,
                 hourly=cached_payload.hourly,
+                daily=cached_payload.daily,
                 quality=WeatherQuality(freshness="fresh", source=cached_payload.provider, age_seconds=age_seconds),
                 warnings=[],
             )
@@ -128,6 +129,7 @@ class WeatherService:
                 sun=payload.sun,
                 current=payload.current,
                 hourly=payload.hourly,
+                daily=payload.daily,
                 quality=WeatherQuality(freshness="fresh", source=payload.provider, age_seconds=0),
                 warnings=[],
             )
@@ -146,6 +148,7 @@ class WeatherService:
                     sun=cached_payload.sun,
                     current=cached_payload.current,
                     hourly=cached_payload.hourly,
+                    daily=cached_payload.daily,
                     quality=WeatherQuality(freshness="stale", source=cached_payload.provider, age_seconds=age_seconds),
                     warnings=[
                         WeatherWarning(

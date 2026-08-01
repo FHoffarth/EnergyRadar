@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { ViewState, SystemStatus, ThemeMode, PowerData, TodayData, DeviceCardData, SettingsPayload, RawSettings, LocationCandidateData, WeatherReportData } from '../types';
+import { applyMotionPreference } from '../lib/motion';
 import { initBridge, QtBridge } from '../lib/bridge';
 import { nowData$, todayData$, startEnergyService } from '../lib/energyService';
 import { NumberLocale, DEFAULT_NUMBER_LOCALE } from '../lib/format';
@@ -374,7 +375,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const textSize = effective?.text_size || 'normal';
 
     root.setAttribute('data-theme', currentTheme);
-    root.setAttribute('data-motion', motionMode);
+    const motionQuery = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
+    const applyMotion = () => applyMotionPreference(motionMode, root, motionQuery?.matches ?? false);
+    applyMotion();
     root.setAttribute('data-text-size', textSize);
 
     const applyThemeClass = () => {
@@ -393,8 +398,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       const listener = () => applyThemeClass();
       mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
+      const motionListener = () => applyMotion();
+      motionQuery?.addEventListener('change', motionListener);
+      return () => {
+        mediaQuery.removeEventListener('change', listener);
+        motionQuery?.removeEventListener('change', motionListener);
+      };
     }
+    const motionListener = () => applyMotion();
+    motionQuery?.addEventListener('change', motionListener);
+    return () => motionQuery?.removeEventListener('change', motionListener);
   }, [theme, settingsPayload]);
 
   // ── Weather actions ──────────────────────────────────────────────

@@ -67,6 +67,16 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.queryByText('Datenanbieter')).toBeNull();
   });
 
+  it('uses the shared fluid desktop grid without narrowing the settings workspace', () => {
+    render(<SettingsView />);
+    const workspace = screen.getByTestId('settings-workspace');
+    expect(workspace.className).toContain('cockpit-page');
+    const grid = workspace.querySelector('.cockpit-grid');
+    expect(grid).toBeTruthy();
+    expect(grid?.querySelectorAll('section.xl\\:col-span-6')).toHaveLength(4);
+    expect(workspace.innerHTML).not.toContain('max-w-3xl');
+  });
+
   it('does not render "Demo-Modus" radio', () => {
     render(<SettingsView />);
     expect(screen.queryByText('Demo-Modus')).toBeNull();
@@ -271,6 +281,20 @@ describe('SettingsView - persisted dirty state', () => {
     expect(discard).toBeEnabled();
     fireEvent.click(save);
     expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_name: 'Florian' }));
+  });
+
+  it('applies motion immediately, persists it through save, and restores it on discard', () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole('button', { name: /Reduziert/ }));
+    expect(document.documentElement.dataset.motionSetting).toBe('reduced');
+    expect(document.documentElement.dataset.motion).toBe('reduced');
+
+    fireEvent.click(screen.getByRole('button', { name: /Änderungen speichern/ }));
+    expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ motion_mode: 'reduced' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Verwerfen/ }));
+    expect(document.documentElement.dataset.motionSetting).toBe('full');
+    expect(document.documentElement.dataset.motion).toBe('full');
   });
 
   it('keeps edits after a failed save and discard restores persisted values', () => {

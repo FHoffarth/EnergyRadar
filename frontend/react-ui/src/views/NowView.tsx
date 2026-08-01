@@ -2,6 +2,7 @@ import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Sun, Home, Zap } from 'lucide-react';
 import { useApp, useNumberLocale } from '../context/AppContext';
+import { useEffectiveMotionMode } from '../lib/motion';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
 import { WeatherIntelligence } from '../components/WeatherIntelligence';
 import { UNKNOWN_VALUE, formatKw, formatNumber } from '../lib/format';
@@ -20,7 +21,7 @@ export function NowView() {
   const locale = useNumberLocale();
 
   const motionMode = settingsPayload?.effective_settings?.motion_mode ?? 'full';
-  const animateCharts = motionMode === 'full';
+  const animateCharts = useEffectiveMotionMode(motionMode) === 'full';
   const greetingEnabled = Boolean(settingsPayload) && (settingsPayload?.effective_settings?.greeting_enabled ?? true);
   const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
 
@@ -127,10 +128,11 @@ export function NowView() {
   const forecast = snapshot.solarForecast;
 
   return (
-    <div className="flex flex-col gap-6 px-8 pt-10 pb-6">
+    <div className="cockpit-page flex flex-col gap-6" data-testid="now-workspace">
       {/* 1 — current assessment */}
-      <header>
-        <h1 className="text-[26px] leading-snug font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl">
+      <header className="max-w-3xl">
+        <p className="cockpit-eyebrow">Aktuelle Energielage</p>
+        <h1 className="cockpit-title mt-2 text-slate-900 dark:text-white">
           {greeting?.title ?? headline}
         </h1>
         {greeting && (
@@ -144,18 +146,22 @@ export function NowView() {
       </header>
 
       {/* 2 — PV / home / grid */}
-      <section aria-label="Momentane Leistungswerte">
-        <div className="flex flex-wrap items-start gap-x-10 gap-y-6">
+      <section aria-label="Momentane Leistungswerte" className="cockpit-surface px-6 py-5 lg:px-8 lg:py-6">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <h2 className="cockpit-section-title">Energiefluss</h2>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Live-Messwerte</span>
+        </div>
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
           {flowItems.map((item, index) => {
             const Icon = item.icon;
             return (
               <React.Fragment key={item.key}>
                 {index > 0 && (
-                  <span aria-hidden="true" className="self-center text-slate-400 dark:text-slate-600 text-lg">
+                  <span aria-hidden="true" className="hidden self-center text-center text-lg text-sky-600 dark:text-sky-400 sm:block">
                     →
                   </span>
                 )}
-                <div className="min-w-[7rem]">
+                <div className="min-w-0 rounded-xl bg-slate-50/70 px-4 py-4 dark:bg-slate-800/45">
                   <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <Icon className="w-3.5 h-3.5" />
                     {item.label}
@@ -174,12 +180,12 @@ export function NowView() {
         </div>
       </section>
 
-      {weatherEnabled && <WeatherIntelligence report={weatherReport} locale={locale} />}
+      <div className="cockpit-grid">
 
       {/* 3 — day trend */}
-      <section aria-label="Tagesverlauf" className="border-t border-slate-200/70 dark:border-slate-800 pt-5">
+      <section aria-label="Tagesverlauf" className="cockpit-surface col-span-12 p-5 lg:col-span-8 lg:p-6">
         <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-sm font-medium text-slate-600 dark:text-slate-300">Tagesverlauf PV</h2>
+          <h2 className="cockpit-section-title">Tagesverlauf PV</h2>
           {showTrend && (
             <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
               {formatNumber(trendPoints.length, locale)} Messpunkte
@@ -188,7 +194,7 @@ export function NowView() {
         </div>
         {showTrend ? (
           <div className="mt-2">
-            <DayTrendChart timeline={timeline} locale={locale} animate={animateCharts} />
+            <DayTrendChart timeline={timeline} locale={locale} animate={animateCharts} size="workspace" />
           </div>
         ) : (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
@@ -203,12 +209,17 @@ export function NowView() {
       </section>
 
       {/* 4 — device and data-source status */}
+      <aside className="col-span-12 flex min-w-0 flex-col gap-4 lg:col-span-4">
+        {weatherEnabled && <WeatherIntelligence report={weatherReport} locale={locale} compact />}
       <section
         aria-label="Systemstatus"
-        className="border-t border-slate-200/70 dark:border-slate-800 pt-4 text-xs text-slate-500 dark:text-slate-400"
+        className="cockpit-surface-muted px-5 py-4 text-xs text-slate-500 dark:text-slate-400"
       >
-        <p data-testid="system-status-row">{statusChips.join(' · ')}</p>
+        <h2 className="cockpit-section-title mb-2">Datenquellen</h2>
+        <p data-testid="system-status-row" className="leading-relaxed">{statusChips.join(' · ')}</p>
       </section>
+      </aside>
+      </div>
     </div>
   );
 }

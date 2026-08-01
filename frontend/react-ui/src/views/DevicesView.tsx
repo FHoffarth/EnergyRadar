@@ -40,16 +40,17 @@ export function DevicesView() {
   };
 
   return (
-    <div className="flex flex-col h-full pt-12 pb-8 overflow-y-auto">
-      <header className="px-12 pb-8">
-        <h1 className="text-4xl font-semibold text-[#1C1C1E] dark:text-white leading-tight max-w-2xl">
+    <div className="cockpit-page flex flex-col h-full overflow-y-auto" data-testid="devices-workspace">
+      <header className="pb-7 max-w-3xl">
+        <p className="cockpit-eyebrow">Verbindungen</p>
+        <h1 className="cockpit-title mt-2 text-[#1C1C1E] dark:text-white">
           {isDemo
             ? 'Demo-Geräte (Simuliert)'
             : hasBridgeDevices
             ? `${devices.length} Gerät${devices.length > 1 ? 'e' : ''}`
             : 'Keine Geräte verbunden'}
         </h1>
-        <p className="text-[#6E6E6E] dark:text-slate-400 mt-3 text-lg">
+        <p className="text-[#6E6E6E] dark:text-slate-400 mt-2 text-base">
           {isDemo
             ? 'Demo-Geräte, Status- und Leistungswerte sind Teil des aktiven Testszenarios.'
             : hasBridgeDevices
@@ -59,28 +60,28 @@ export function DevicesView() {
       </header>
 
       {isDemo && (
-        <div className="mx-12 mb-8 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300">
+        <div className="cockpit-surface-muted mb-6 p-3 px-4 text-xs flex items-center gap-2 text-slate-700 dark:text-slate-300">
           <Info className="w-4 h-4 shrink-0" />
           <span>Alle Geräte-, Status- und Leistungswerte in dieser Ansicht sind simuliert.</span>
         </div>
       )}
 
       {!hasBridgeDevices && !isDemo && (
-        <section className="px-12">
-          <div className="bg-white dark:bg-slate-800/90 rounded-3xl border border-[#E5E5E3] dark:border-slate-700 p-8">
+        <section>
+          <div className="cockpit-surface p-8">
             <p className="text-slate-700 dark:text-slate-300">
               Es werden keine erfundenen Messwerte angezeigt. Echte Gerätedaten sind verfügbar, sobald die Desktop-Bridge verbundene Geräte meldet.
             </p>
             <button type="button" onClick={() => setView('settings')}
-              className="mt-5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors">
+              className="mt-5 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-semibold transition-colors">
               Datenquelle einrichten
             </button>
           </div>
         </section>
       )}
 
-      <section className="px-12 space-y-6 pb-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="space-y-6 pb-8">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           {devices.map((device) => {
             const isTesting = testingId === device.id;
             const testResult = testResults[device.id];
@@ -96,7 +97,7 @@ export function DevicesView() {
 
             return (
               <div key={device.id}
-                className="bg-white dark:bg-slate-800/90 rounded-2xl border border-[#E5E5E3] dark:border-slate-700 p-5 space-y-4 shadow-sm hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+                className="cockpit-surface p-6 space-y-4 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 border border-[#E5E5E3] dark:border-slate-600">
@@ -175,7 +176,7 @@ export function DevicesView() {
                       aria-busy={isTesting}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
                         presentation.online
-                          ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                          ? 'bg-sky-700 hover:bg-sky-800 text-white'
                           : 'bg-amber-500 hover:bg-amber-600 text-white'
                       }`}
                     >
