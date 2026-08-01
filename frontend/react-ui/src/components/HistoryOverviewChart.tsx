@@ -1,9 +1,9 @@
 import React from 'react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { TimelineEntry } from '../types';
 import { NumberLocale, formatNumber } from '../lib/format';
 import { EnergyChartTooltip } from './EnergyChartTooltip';
-import { formatTimelineTime, hasFiniteTimelineValue, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
+import { formatTimelineTime, hasFiniteTimelineValue, timelineGaps, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
 export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenceSeconds }: {
   timeline: TimelineEntry[]; locale: NumberLocale; animate: boolean; expectedCadenceSeconds: number;
@@ -11,7 +11,8 @@ export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenc
   const measured = timeline.filter(hasFiniteTimelineValue);
   if (!measured.length) return <p className="text-sm text-slate-500">Für den geladenen Verlauf liegen keine Messwerte vor.</p>;
   const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
-  const gapCount = chartTimeline.filter(point => point.isGapMarker).length;
+  const gaps = timelineGaps(timeline, expectedCadenceSeconds);
+  const gapCount = gaps.length;
   const sparseDots = measured.length <= 3 ? { r: 2, strokeWidth: 0 } : false;
   return (
     <div>
@@ -19,10 +20,11 @@ export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenc
         <span><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-amber-600" />Solar</span>
         <span><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-indigo-600" />Verbrauch</span>
         <span><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-orange-600" />Netz (+ Bezug / − Einspeisung)</span>
+        {gapCount > 0 && <span><span className="mr-1.5 inline-block w-4 border-t border-dashed border-slate-500" />Datenlücke (keine Messwerte)</span>}
       </div>
       <div className="h-72 w-full" role="img"
         aria-label={`Gespeicherter Energieverlauf mit ${gapCount} sichtbaren ${gapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Netzbezug liegt über, Einspeisung unter null.`}>
-        <p className="sr-only">Fehlende Messperioden werden nicht verbunden. Gültige Nullwerte bleiben sichtbar.</p>
+        <p className="sr-only">Fehlende Messperioden sind schattiert und nur durch eine gestrichelte, nicht gemessene Orientierungshilfe überbrückt. Gültige Nullwerte bleiben sichtbar.</p>
         <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartTimeline} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.22} vertical={false} />
@@ -34,6 +36,24 @@ export function HistoryOverviewChart({ timeline, locale, animate, expectedCadenc
             tickFormatter={(value: number) => formatNumber(value, locale, { maximumFractionDigits: 1 })} />
           <Tooltip content={<EnergyChartTooltip locale={locale} />} isAnimationActive={animate} />
           <ReferenceLine y={0} stroke="#94A3B8" strokeDasharray="3 3" />
+          {gaps.map((gap, index) => (
+            <React.Fragment key={`gap-area-${index}`}>
+              <ReferenceArea x1={gap.before.timestampMs} x2={gap.after.timestampMs}
+                ifOverflow="hidden" shape={({ x, y, width, height }) => (
+                  <rect x={x} y={y} width={width} height={height} fill="#64748B" fillOpacity={0.09} />
+                )} />
+            </React.Fragment>
+          ))}
+          {gaps.flatMap((gap, gapIndex) => ([
+            ['solarKw', '#D97706'], ['homeLoadKw', '#4F46E5'], ['gridKw', '#EA580C'],
+          ] as const).map(([key, color]) => {
+            const before = gap.before[key];
+            const after = gap.after[key];
+            if (typeof before !== 'number' || !Number.isFinite(before) || typeof after !== 'number' || !Number.isFinite(after)) return null;
+            return <ReferenceLine key={`gap-bridge-${gapIndex}-${key}`}
+              segment={[{ x: gap.before.timestampMs, y: before }, { x: gap.after.timestampMs, y: after }]}
+              stroke={color} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="hidden" />;
+          }))}
           <Line type="linear" dataKey="solarKw" name="Solar" stroke="#D97706" strokeWidth={2} dot={sparseDots} connectNulls={false} isAnimationActive={animate} />
           <Line type="linear" dataKey="homeLoadKw" name="Verbrauch" stroke="#4F46E5" strokeWidth={2} dot={sparseDots} connectNulls={false} isAnimationActive={animate} />
           <Line type="linear" dataKey="gridKw" name="Netz" stroke="#EA580C" strokeWidth={1.75} dot={sparseDots} connectNulls={false} isAnimationActive={animate} />

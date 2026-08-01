@@ -7,6 +7,14 @@ import { TimelineEntry } from '../types';
  */
 export const CADENCE_JITTER_RATIO = 0.5;
 
+export interface TimelineGap {
+  /** Last observed sample before the missing interval. */
+  before: TimelineEntry & { timestampMs: number };
+  /** First observed sample after the missing interval. */
+  after: TimelineEntry & { timestampMs: number };
+  durationMs: number;
+}
+
 export function gapThresholdMs(expectedCadenceSeconds: number): number {
   const cadenceMs = Math.max(1, expectedCadenceSeconds) * 1000;
   return cadenceMs * (1 + CADENCE_JITTER_RATIO);
@@ -40,6 +48,32 @@ function gapMarker(timestampMs: number): TimelineEntry {
   };
 }
 
+function orderedTimeline(timeline: TimelineEntry[]): Array<TimelineEntry & { timestampMs: number }> {
+  return timeline
+    .map((point, index) => ({ point, index, timestampMs: timelineTimeMs(point) }))
+    .filter((entry): entry is { point: TimelineEntry; index: number; timestampMs: number } => entry.timestampMs !== null)
+    .sort((a, b) => a.timestampMs - b.timestampMs || a.index - b.index)
+    .map(entry => ({ ...entry.point, timestampMs: entry.timestampMs }));
+}
+
+/**
+ * Return only observed boundary samples. Consumers may shade the elapsed time
+ * and draw an explicitly non-measured dashed bridge between these boundaries;
+ * no midpoint value is derived or inserted.
+ */
+export function timelineGaps(
+  timeline: TimelineEntry[],
+  expectedCadenceSeconds: number,
+): TimelineGap[] {
+  const ordered = orderedTimeline(timeline);
+  const threshold = gapThresholdMs(expectedCadenceSeconds);
+  return ordered.slice(1).flatMap((after, index) => {
+    const before = ordered[index];
+    const durationMs = after.timestampMs - before.timestampMs;
+    return durationMs > threshold ? [{ before, after, durationMs }] : [];
+  });
+}
+
 /**
  * Prepare samples for a numeric time axis. A single null marker is sufficient
  * to break every Recharts series while the numeric x value preserves elapsed
@@ -50,12 +84,9 @@ export function withVisibleTimelineGaps(
   timeline: TimelineEntry[],
   expectedCadenceSeconds: number,
 ): TimelineEntry[] {
-  const ordered = timeline
-    .map((point, index) => ({ point, index, timestampMs: timelineTimeMs(point) }))
-    .filter((entry): entry is { point: TimelineEntry; index: number; timestampMs: number } => entry.timestampMs !== null)
-    .sort((a, b) => a.timestampMs - b.timestampMs || a.index - b.index);
+  const ordered = orderedTimeline(timeline);
 
-  if (ordered.length < 2) return ordered.map(entry => ({ ...entry.point, timestampMs: entry.timestampMs }));
+  if (ordered.length < 2) return ordered;
 
   const threshold = gapThresholdMs(expectedCadenceSeconds);
   const prepared: TimelineEntry[] = [];
@@ -65,7 +96,7 @@ export function withVisibleTimelineGaps(
       const elapsed = entry.timestampMs - previous.timestampMs;
       if (elapsed > threshold) prepared.push(gapMarker(previous.timestampMs + elapsed / 2));
     }
-    prepared.push({ ...entry.point, timestampMs: entry.timestampMs });
+    prepared.push(entry);
   });
   return prepared;
 }

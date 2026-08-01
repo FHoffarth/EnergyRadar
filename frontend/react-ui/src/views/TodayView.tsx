@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line } from 'recharts';
+import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea, ReferenceLine } from 'recharts';
 import { Info } from 'lucide-react';
 import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
@@ -12,7 +12,7 @@ import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
-import { formatTimelineTime, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
+import { formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 2;
@@ -57,7 +57,8 @@ export function TodayView() {
   });
   const statements = dailyStatements(timeline, coverage, snapshot);
   const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
-  const chartGapCount = chartTimeline.filter(point => point.isGapMarker).length;
+  const gaps = timelineGaps(timeline, expectedCadenceSeconds);
+  const chartGapCount = gaps.length;
 
   // Per-series evidence thresholds: a series that the devices never
   // delivered must not appear as a flat line or an empty legend entry.
@@ -128,13 +129,19 @@ export function TodayView() {
                   <span className="text-slate-500 dark:text-slate-400">{entry.name}</span>
                 </div>
               ))}
+              {chartGapCount > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t border-dashed border-slate-500" />
+                  <span className="text-slate-500 dark:text-slate-400">Datenlücke (keine Messwerte)</span>
+                </div>
+              )}
             </div>
           </div>
 
           {hasChartableSeries ? (
             <div className="h-[clamp(20rem,48vh,34rem)] w-full" role="img"
               aria-label={`Energieverlauf mit ${chartGapCount} sichtbaren ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Solar und Verbrauch in Kilowatt.`}>
-              <p className="sr-only">Fehlende Messperioden werden nicht verbunden. Gültige Nullwerte bleiben Teil der Kurve.</p>
+              <p className="sr-only">Fehlende Messperioden sind schattiert und nur durch eine gestrichelte, nicht gemessene Orientierungshilfe überbrückt. Gültige Nullwerte bleiben Teil der Kurve.</p>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartTimeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
@@ -170,6 +177,22 @@ export function TodayView() {
                       fontSize: '12px',
                       padding: '4px 8px',
                     }} />
+                  {gaps.map((gap, index) => (
+                    <React.Fragment key={`gap-area-${index}`}>
+                      <ReferenceArea x1={gap.before.timestampMs} x2={gap.after.timestampMs}
+                        ifOverflow="hidden" shape={({ x, y, width, height }) => (
+                          <rect x={x} y={y} width={width} height={height} fill="#64748B" fillOpacity={0.09} />
+                        )} />
+                    </React.Fragment>
+                  ))}
+                  {gaps.flatMap((gap, gapIndex) => series.map(entry => {
+                    const before = gap.before[entry.key];
+                    const after = gap.after[entry.key];
+                    if (typeof before !== 'number' || !Number.isFinite(before) || typeof after !== 'number' || !Number.isFinite(after)) return null;
+                    return <ReferenceLine key={`gap-bridge-${gapIndex}-${entry.key}`} yAxisId={entry.axis}
+                      segment={[{ x: gap.before.timestampMs, y: before }, { x: gap.after.timestampMs, y: after }]}
+                      stroke={entry.color} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="hidden" />;
+                  }))}
                   {series.map(entry => (
                     entry.key === 'batteryPct' ? (
                       <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
