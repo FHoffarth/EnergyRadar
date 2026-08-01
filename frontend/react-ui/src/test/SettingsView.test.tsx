@@ -107,6 +107,21 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.getByText('Darstellung')).toBeInTheDocument();
   });
 
+  it('keeps light, dark and system appearance without a Living Sky control', () => {
+    render(<SettingsView />);
+    const dark = screen.getByRole('button', { name: 'Dunkel' });
+    const light = screen.getByRole('button', { name: 'Hell' });
+    const system = screen.getByRole('button', { name: 'System' });
+    fireEvent.click(dark);
+    fireEvent.click(light);
+    fireEvent.click(system);
+    expect(mockAppContext.setTheme).toHaveBeenNthCalledWith(1, 'dark');
+    expect(mockAppContext.setTheme).toHaveBeenNthCalledWith(2, 'light');
+    expect(mockAppContext.setTheme).toHaveBeenNthCalledWith(3, 'system');
+    expect(screen.queryByText(/Living Sky/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Dynamischen Hintergrund/i })).toBeNull();
+  });
+
   it('renders Standort & Wetter section', () => {
     render(<SettingsView />);
     expect(screen.getByText('Standort & Wetter')).toBeInTheDocument();
@@ -133,7 +148,6 @@ describe('SettingsView - no provider selection', () => {
       },
       effective_settings: {
         theme: 'dark',
-        dynamic_bg_enabled: true,
         motion_mode: 'full',
         text_size: 'normal',
         number_format: 'de-DE',
@@ -255,7 +269,7 @@ describe('SettingsView - persisted dirty state', () => {
   const payload = {
     settings: { preferred_name: 'Flo', greeting_enabled: true, theme: 'dark' },
     effective_settings: {
-      preferred_name: 'Flo', greeting_enabled: true, theme: 'dark', dynamic_bg_enabled: true,
+      preferred_name: 'Flo', greeting_enabled: true, theme: 'dark',
       motion_mode: 'full', text_size: 'normal', number_format: 'de-DE', weather_enabled: false,
       fronius_address: '192.0.2.1', mt175_address: '',
     },

@@ -64,7 +64,6 @@ export interface DeviceCardData {
 export interface RawSettings {
   refresh_seconds?: number | null;
   theme?: 'dark' | 'light' | 'system' | null;
-  dynamic_bg_enabled?: boolean | null;
   motion_mode?: 'full' | 'reduced' | 'none' | null;
   text_size?: 'normal' | 'large' | null;
   number_format?: 'de-DE' | 'en-US' | null;
@@ -85,7 +84,6 @@ export interface RawSettings {
 export interface EffectiveSettings {
   refresh_seconds: number;
   theme: 'dark' | 'light' | 'system';
-  dynamic_bg_enabled: boolean;
   motion_mode: 'full' | 'reduced' | 'none';
   text_size: 'normal' | 'large';
   number_format: 'de-DE' | 'en-US';

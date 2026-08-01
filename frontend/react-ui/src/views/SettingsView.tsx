@@ -293,27 +293,6 @@ export function SettingsView() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/60">
-            <div>
-              <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">Dynamischer Hintergrund (Living Sky)</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Passt Farben und Atmosphäre an Tageszeit und Wetterlage an.</p>
-            </div>
-            <button type="button"
-              aria-label="Dynamischen Hintergrund umschalten"
-              aria-pressed={Boolean(getEff('dynamic_bg_enabled'))}
-              onClick={() => {
-                const nextVal = !getEff('dynamic_bg_enabled');
-                updateDraft('dynamic_bg_enabled', nextVal);
-              }}
-              className={`w-12 h-7 rounded-full p-0.5 transition-colors duration-200 ${
-                getEff('dynamic_bg_enabled') ? 'bg-sky-700' : 'bg-slate-300 dark:bg-slate-700'
-              }`}>
-              <div className={`w-6 h-6 rounded-full bg-white transition-transform duration-200 ${
-                getEff('dynamic_bg_enabled') ? 'translate-x-5' : 'translate-x-0'
-              }`} />
-            </button>
-          </div>
-
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Animationsmodus</label>
             <div className="grid grid-cols-3 gap-3">
