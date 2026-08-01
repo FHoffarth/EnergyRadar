@@ -44,7 +44,11 @@ def macos_marketing_version(app_version: str) -> str:
     return app_version.partition("-")[0]
 
 
-def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
+def validate_structure(
+    app: Path,
+    project_root: Path,
+    expected_source_commit: str | None = None,
+) -> dict[str, Path]:
     """Validate required files, local-data exclusions, and UI defaults."""
     _require(app.is_dir(), f"Application bundle is missing: {app}")
 
@@ -99,7 +103,6 @@ def validate_structure(app: Path, project_root: Path) -> dict[str, Path]:
         re.fullmatch(r"[0-9a-f]{40}", str(build_info.get("source_commit", ""))) is not None,
         "BUILDINFO source commit is missing or invalid.",
     )
-    expected_source_commit = os.environ.get("GITHUB_SHA")
     if expected_source_commit:
         _require(
             build_info.get("source_commit") == expected_source_commit,
@@ -242,7 +245,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    paths = validate_structure(args.app.resolve(), args.project_root.resolve())
+    paths = validate_structure(
+        args.app.resolve(),
+        args.project_root.resolve(),
+        expected_source_commit=os.environ.get("GITHUB_SHA"),
+    )
     audited = validate_architectures(paths["app"])
     print(f"Validated application: {paths['app']}")
     print("Main executable architecture: arm64")

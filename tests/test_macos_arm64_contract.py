@@ -193,6 +193,16 @@ class MacOSArm64BundleContractTests(unittest.TestCase):
         ):
             validator.validate_structure(self.app, self.root)
 
+    def test_buildinfo_must_match_explicit_workflow_commit(self):
+        with self.assertRaisesRegex(
+            validator.BundleValidationError, "workflow commit"
+        ):
+            validator.validate_structure(
+                self.app,
+                self.root,
+                expected_source_commit="2" * 40,
+            )
+
 
 class MacOSArm64WorkflowContractTests(unittest.TestCase):
     def test_buildinfo_records_authoritative_version_commit_and_architecture(self):
