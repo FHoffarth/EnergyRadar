@@ -8,6 +8,7 @@ import { formatNumber } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
 import { HourlyWeatherForecast, MultiDayWeatherForecast } from '../components/WeatherIntelligence';
 import { useEffectiveMotionMode } from '../lib/motion';
+import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 3;
@@ -147,10 +148,7 @@ export function TodayView() {
                   )}
                   <Tooltip
                     isAnimationActive={animate}
-                    formatter={(value: number, name: string) => [
-                      name === 'Speicher %' ? formatNumber(value, locale) : formatAxisKw(value),
-                      name,
-                    ]}
+                    content={<EnergyChartTooltip locale={locale} />}
                     cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
                     contentStyle={{
                       borderRadius: '0.625rem',

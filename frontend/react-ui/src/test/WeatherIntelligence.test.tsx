@@ -2,7 +2,15 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
-import { WeatherReportData } from '../types';
+import { EnergySnapshot, WeatherReportData } from '../types';
+
+const freshSnapshot: EnergySnapshot = {
+  timestamp: '12:00', quality: 'live',
+  solar: { valueKw: 2.4, origin: 'observed' },
+  homeLoad: { valueKw: 1.2, origin: 'observed' },
+  grid: { valueKw: -1.2, origin: 'observed' },
+  battery: null, assessment: null, warnings: [],
+};
 
 function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherReportData {
   return {
@@ -63,7 +71,7 @@ function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherRepo
 
 describe('WeatherIntelligence', () => {
   it('renders complete current weather, PV context, sun data, and hourly depth', () => {
-    render(<WeatherIntelligence report={completeReport()} locale="de-DE" />);
+    render(<WeatherIntelligence report={completeReport()} locale="de-DE" snapshot={freshSnapshot} now={new Date('2099-07-29T12:00:00+02:00')} />);
     const section = screen.getByRole('region', { name: 'Wetter und Solarbedingungen' });
 
     expect(within(section).getByText('Teststadt')).toBeTruthy();
@@ -73,7 +81,7 @@ describe('WeatherIntelligence', () => {
     expect(within(section).getByText(/12,5 km\/h/)).toBeTruthy();
     expect(within(section).getByText(/Sonnenaufgang:/)).toBeTruthy();
     expect(within(section).getByText(/Sonnenuntergang:/)).toBeTruthy();
-    expect(within(section).getByText('Gute Solarbedingungen für die nächste Stunde.')).toBeTruthy();
+    expect(within(section).getByText('Die aktuellen Bedingungen für Solarstrom sind günstig.')).toBeTruthy();
     expect(within(section).getAllByRole('listitem')).toHaveLength(7);
   });
 
@@ -121,11 +129,12 @@ describe('WeatherIntelligence', () => {
       current: { ...completeReport().current!, cloud_cover_percent: null },
     });
 
-    const { rerender } = render(<WeatherIntelligence report={night} locale="de-DE" />);
-    expect(screen.queryByText(/Solarbedingungen|Solarerzeugung|PV-Leistung/)).toBeNull();
+    const { rerender } = render(<WeatherIntelligence report={night} locale="de-DE" snapshot={freshSnapshot} now={new Date('2099-07-29T22:00:00+02:00')} />);
+    expect(screen.getByText('Die Solarerzeugung ist für heute beendet.')).toBeTruthy();
+    expect(screen.queryByText(/Bewölkung.*Solarbedingungen/)).toBeNull();
 
-    rerender(<WeatherIntelligence report={noCloudEvidence} locale="de-DE" />);
-    expect(screen.queryByText(/Solarbedingungen|Solarerzeugung|PV-Leistung/)).toBeNull();
+    rerender(<WeatherIntelligence report={noCloudEvidence} locale="de-DE" snapshot={freshSnapshot} now={new Date('2099-07-29T12:00:00+02:00')} />);
+    expect(screen.getByText('Die aktuelle Solarleistung wird zuverlässig gemessen.')).toBeTruthy();
   });
 
   it('does not render an empty forecast section for malformed hourly points', () => {

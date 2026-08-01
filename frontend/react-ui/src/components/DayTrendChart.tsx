@@ -1,8 +1,9 @@
 import React from 'react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { TimelineEntry } from '../types';
-import { NumberLocale, formatKw } from '../lib/format';
+import { NumberLocale } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
+import { EnergyChartTooltip } from './EnergyChartTooltip';
 
 interface DayTrendChartProps {
   timeline: TimelineEntry[];
@@ -61,8 +62,7 @@ export function DayTrendChart({ timeline, locale, animate, size = 'compact' }: D
           <Tooltip
             cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
             isAnimationActive={animate}
-            labelFormatter={(label) => String(label)}
-            formatter={(value: number) => [`${formatKw(value, locale)} kW`, 'PV']}
+            content={<EnergyChartTooltip locale={locale} />}
             contentStyle={{
               borderRadius: '0.625rem',
               border: '1px solid rgba(148,163,184,0.35)',
