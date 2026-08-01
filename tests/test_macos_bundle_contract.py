@@ -131,6 +131,20 @@ class MacOSBundleContractTests(unittest.TestCase):
                 audit_linkage=False,
             )
 
+    @mock.patch.object(validator.subprocess, "run")
+    def test_linkage_audit_ignores_otool_input_header_but_rejects_runtime_path(self, run):
+        run.side_effect = [
+            mock.Mock(stdout="/Users/runner/work/repo/EnergyRadar.app/Contents/MacOS/EnergyRadar:\n\t@rpath/QtCore\n"),
+            mock.Mock(stdout="/Users/runner/work/repo/EnergyRadar.app/Contents/MacOS/EnergyRadar:\n          cmd LC_RPATH\n         path @loader_path (offset 12)\n"),
+        ]
+        self.assertEqual(validator._audit_linkage(self.executable), [])
+
+        run.side_effect = [
+            mock.Mock(stdout=f"{self.executable}:\n\t/Users/alice/Desktop/private/lib.dylib\n"),
+            mock.Mock(stdout=f"{self.executable}:\n"),
+        ]
+        self.assertTrue(validator._audit_linkage(self.executable))
+
     def test_private_configuration_and_database_are_rejected(self):
         private_config = self.app / "Contents" / "Resources" / "data-source.json"
         private_config.write_text("{}", encoding="utf-8")

@@ -190,8 +190,11 @@ def _audit_linkage(path: Path) -> list[str]:
     linked = subprocess.run(["otool", "-L", str(path)], check=True, capture_output=True, text=True).stdout
     load_commands = subprocess.run(["otool", "-l", str(path)], check=True, capture_output=True, text=True).stdout
     for output in (linked, load_commands):
+        # Both otool modes begin with the inspected input path itself. It is
+        # provenance from the CI workspace, not bundled linkage metadata.
+        metadata = "\n".join(output.splitlines()[1:])
         for pattern in DEVELOPER_PATH_PATTERNS:
-            if pattern.search(output):
+            if pattern.search(metadata):
                 findings.append(f"developer path in Mach-O metadata: {pattern.pattern}")
     return findings
 
