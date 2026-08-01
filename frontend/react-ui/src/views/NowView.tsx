@@ -5,8 +5,10 @@ import { useApp, useNumberLocale } from '../context/AppContext';
 import { useEffectiveMotionMode } from '../lib/motion';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
 import { WeatherIntelligence } from '../components/WeatherIntelligence';
+import { CurrentEnergyBriefing } from '../components/CurrentEnergyBriefing';
 import { UNKNOWN_VALUE, formatKw, formatNumber } from '../lib/format';
-import { greetingTitle, trustworthyEnergySummary } from '../lib/greeting';
+import { greetingTitle } from '../lib/greeting';
+import { currentEnergyVerdict, recentSolarTrend } from '../lib/energyContext';
 
 /**
  * Colour for a channel the devices have not delivered. Legible enough to read
@@ -65,10 +67,11 @@ export function NowView() {
   })();
   const greeting = greetingEnabled ? {
     title: greetingTitle(new Date().getHours(), preferredName),
-    summary: trustworthyEnergySummary(snapshot, locale),
+    summary: currentEnergyVerdict(snapshot, devices, locale),
   } : null;
 
   // ── 2. PV / home / grid ──────────────────────────────────────────────
+  const solarTrend = recentSolarTrend(timeline);
   const gridKw = snapshot.grid.valueKw;
   const gridDetail = !hasGrid
     ? null
@@ -85,14 +88,14 @@ export function NowView() {
       label: 'PV',
       value: hasSolar ? formatKw(snapshot.solar.valueKw, locale) : UNKNOWN_VALUE,
       accent: hasSolar ? 'text-amber-600 dark:text-amber-400' : UNKNOWN_ACCENT,
-      detail: hasSolar ? 'Gemessen' : 'Nicht verfügbar',
+      detail: hasSolar ? `Gemessen${solarTrend ? ` · ${solarTrend}` : ''}` : 'Nicht verfügbar',
     },
     {
       key: 'home',
       icon: Home,
       label: 'Haus',
       value: hasHome ? formatKw(snapshot.homeLoad.valueKw, locale) : UNKNOWN_VALUE,
-      accent: hasHome ? 'text-sky-600 dark:text-sky-400' : UNKNOWN_ACCENT,
+      accent: hasHome ? 'text-indigo-600 dark:text-indigo-400' : UNKNOWN_ACCENT,
       detail: hasHome ? 'Gemessen' : 'Nicht verfügbar',
     },
     {
@@ -100,7 +103,10 @@ export function NowView() {
       icon: Zap,
       label: 'Netz',
       value: hasGrid && gridKw !== null ? formatKw(Math.abs(gridKw), locale) : UNKNOWN_VALUE,
-      accent: hasGrid ? 'text-slate-700 dark:text-slate-200' : UNKNOWN_ACCENT,
+      accent: !hasGrid ? UNKNOWN_ACCENT
+        : gridKw !== null && gridKw > 0 ? 'text-orange-600 dark:text-orange-400'
+        : gridKw !== null && gridKw < 0 ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-slate-700 dark:text-slate-200',
       detail: gridDetail ?? 'Nicht verfügbar',
     },
   ];
@@ -130,20 +136,11 @@ export function NowView() {
   return (
     <div className="cockpit-page flex flex-col gap-6" data-testid="now-workspace">
       {/* 1 — current assessment */}
-      <header className="max-w-3xl">
-        <p className="cockpit-eyebrow">Aktuelle Energielage</p>
-        <h1 className="cockpit-title mt-2 text-slate-900 dark:text-white">
-          {greeting?.title ?? headline}
-        </h1>
-        {greeting && (
-          <p className="mt-2 text-base text-slate-700 dark:text-slate-300 max-w-2xl">
-            {greeting.summary}
-          </p>
-        )}
-        {subline && (
-          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{subline}</p>
-        )}
-      </header>
+      <CurrentEnergyBriefing
+        title={greeting?.title ?? headline}
+        verdict={greeting?.summary}
+        timestamp={subline}
+      />
 
       {/* 2 — PV / home / grid */}
       <section aria-label="Momentane Leistungswerte" className="cockpit-surface px-6 py-5 lg:px-8 lg:py-6">
@@ -210,7 +207,7 @@ export function NowView() {
 
       {/* 4 — device and data-source status */}
       <aside className="col-span-12 flex min-w-0 flex-col gap-4 lg:col-span-4">
-        {weatherEnabled && <WeatherIntelligence report={weatherReport} locale={locale} compact />}
+        {weatherEnabled && <WeatherIntelligence report={weatherReport} locale={locale} compact snapshot={snapshot} />}
       <section
         aria-label="Systemstatus"
         className="cockpit-surface-muted px-5 py-4 text-xs text-slate-500 dark:text-slate-400"

@@ -4,7 +4,8 @@ import {
   Droplets, Moon, Sun, Sunrise, Sunset, Wind,
 } from 'lucide-react';
 import { NumberLocale, formatNumber, formatTemperature } from '../lib/format';
-import { DailyWeatherData, HourlyWeatherData, WeatherReportData } from '../types';
+import { DailyWeatherData, EnergySnapshot, HourlyWeatherData, WeatherReportData } from '../types';
+import { energyWeatherInsight } from '../lib/energyContext';
 
 const CONDITION_LABELS: Record<string, string> = {
   clear: 'Klar',
@@ -86,21 +87,6 @@ function formatForecastDay(value: string, locale: NumberLocale): string | null {
   if (!match) return null;
   const parsed = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   return new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(parsed);
-}
-
-function solarContext(report: WeatherReportData): string | null {
-  const current = report.current;
-  if (!current || current.is_day !== true || !isFiniteNumber(current.cloud_cover_percent)) return null;
-  if (current.cloud_cover_percent >= 75) {
-    return 'Begrenzte Solarerzeugung aufgrund dichter Bewölkung zu erwarten.';
-  }
-  if (current.cloud_cover_percent >= 45) {
-    return 'Die PV-Leistung dürfte mit zunehmender Bewölkung sinken.';
-  }
-  if (current.cloud_cover_percent <= 25) {
-    return 'Gute Solarbedingungen für die nächste Stunde.';
-  }
-  return null;
 }
 
 function SunEvent({ report, locale }: { report: WeatherReportData; locale: NumberLocale }) {
@@ -223,9 +209,10 @@ export function MultiDayWeatherForecast({ report, locale }: { report: WeatherRep
 }
 
 export function WeatherIntelligence({
-  report, locale, compact = false,
+  report, locale, compact = false, snapshot, now = new Date(),
 }: {
   report: WeatherReportData | null; locale: NumberLocale; compact?: boolean;
+  snapshot?: EnergySnapshot | null; now?: Date;
 }) {
   if (!report || report.status !== 'available' || !report.current) {
     return (
@@ -239,7 +226,7 @@ export function WeatherIntelligence({
   const { current } = report;
   const CurrentIcon = iconForCondition(current.condition, current.is_day);
   const temperature = formatTemperature(current.temperature_c, locale);
-  const context = solarContext(report);
+  const context = snapshot ? energyWeatherInsight({ now, sun: report.sun, current, snapshot }) : null;
   const location = cleanDisplayText(report.location?.display_name);
 
   return (
