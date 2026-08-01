@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyMotionPreference, resolveEffectiveMotionMode } from '../lib/motion';
-import { resolveLivingSky } from '../lib/livingSky';
 
 describe('effective motion mode', () => {
   afterEach(() => {
@@ -23,16 +22,6 @@ describe('effective motion mode', () => {
     applyMotionPreference('full', document.documentElement, true);
     expect(document.documentElement.dataset.motionSetting).toBe('full');
     expect(document.documentElement.dataset.motion).toBe('reduced');
-  });
-
-  it('caps Living Sky full motion when the operating system requests reduced motion', () => {
-    const state = resolveLivingSky({
-      dynamicBackgroundEnabled: true,
-      userMotionMode: 'full',
-      osPrefersReducedMotion: true,
-      now: new Date('2026-08-01T12:00:00Z'),
-    });
-    expect(state.motion).toBe('reduced');
   });
 
   it('defines materially different effective motion tokens for all three modes', () => {

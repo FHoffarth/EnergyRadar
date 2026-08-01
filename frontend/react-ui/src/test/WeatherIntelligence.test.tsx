@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
 import { EnergySnapshot, WeatherReportData } from '../types';
@@ -82,7 +82,7 @@ describe('WeatherIntelligence', () => {
     expect(within(section).getByText(/Sonnenaufgang:/)).toBeTruthy();
     expect(within(section).getByText(/Sonnenuntergang:/)).toBeTruthy();
     expect(within(section).getByText('Die aktuellen Bedingungen für Solarstrom sind günstig.')).toBeTruthy();
-    expect(within(section).getAllByRole('listitem')).toHaveLength(7);
+    expect(within(section).getAllByRole('listitem')).toHaveLength(6);
   });
 
   it('renders partial weather without raw null-like values', () => {
@@ -114,6 +114,32 @@ describe('WeatherIntelligence', () => {
       expect(screen.getByText('Wetterdaten aktuell nicht verfügbar')).toBeTruthy();
     },
   );
+
+  it('labels stale cached weather and suppresses current energy implications', () => {
+    const report = completeReport({
+      served_from_cache: true,
+      provider_status: 'unreachable',
+      quality: { freshness: 'stale', source: 'open_meteo', age_seconds: 7_200 },
+      warnings: [{ code: 'provider_unreachable', message: 'Wetterdienst aktuell nicht erreichbar.' }],
+    });
+    render(<WeatherIntelligence report={report} locale="de-DE" snapshot={freshSnapshot}
+      now={new Date('2099-07-29T12:00:00+02:00')} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Wetterdaten sind derzeit nicht aktuell');
+    expect(screen.getByText('22,4 °C')).toBeTruthy();
+    expect(screen.queryByText(/Bedingungen für Solarstrom sind günstig/)).toBeNull();
+    expect(screen.queryByText(/aktuelle Solarleistung/)).toBeNull();
+  });
+
+  it('does not generate a present-tense solar claim from stale weather after sunset', () => {
+    const report = completeReport({
+      served_from_cache: true,
+      quality: { freshness: 'stale', source: 'open_meteo', age_seconds: 7_200 },
+    });
+    render(<WeatherIntelligence report={report} locale="de-DE" snapshot={freshSnapshot}
+      now={new Date('2099-07-29T22:00:00+02:00')} />);
+    expect(screen.getByText(/zuletzt verfügbaren Wetterdaten/)).toBeTruthy();
+    expect(screen.queryByText('Die Solarerzeugung ist für heute beendet.')).toBeNull();
+  });
 
   it('omits the forecast and sun event when those fields are missing', () => {
     render(<WeatherIntelligence report={completeReport({ hourly: [], sun: null })} locale="de-DE" />);
@@ -212,6 +238,8 @@ describe('WeatherIntelligence', () => {
     rerender(<><HourlyWeatherForecast report={report} locale="de-DE" /><MultiDayWeatherForecast report={report} locale="de-DE" /></>);
     expect(screen.getByRole('region', { name: 'Stündliche Wettervorhersage' })).toBeTruthy();
     expect(screen.getByText('5–7-Tage-Ausblick')).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(13);
+    fireEvent.click(screen.getByRole('button', { name: '1 weitere Stunden anzeigen' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(14);
   });
 });

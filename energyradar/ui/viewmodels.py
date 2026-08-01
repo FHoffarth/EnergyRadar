@@ -671,6 +671,9 @@ def build_settings_vm() -> SettingsViewModel:
     from energyradar.services import data_source as ds
 
     raw_dict = ui_settings.load_raw_dict()
+    # Do not expose the removed Living Sky preference to current clients.
+    # Keeping the on-disk value untouched makes rollback safe.
+    raw_dict.pop("dynamic_bg_enabled", None)
     effective_dict = ui_settings.resolve_effective(raw_dict)
 
     src = ds.effective()
@@ -695,6 +698,7 @@ def build_settings_vm() -> SettingsViewModel:
         "app_version": config.APP_VERSION,
         "build": config.APP_BUILD,
         "database_schema_version": config.SCHEMA_VERSION,
+        "recording_interval_seconds": config.STORE_INTERVAL_SECONDS,
         "database_path": str(config.DB_PATH),
         "log_path": str(config.DATA_DIR / "energyradar.log"),
         "export_directory": export_directory,

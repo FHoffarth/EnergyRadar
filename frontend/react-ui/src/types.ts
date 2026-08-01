@@ -22,6 +22,7 @@ export interface PowerData {
 
 export interface TodayHistoryPoint {
   time: string;
+  timestampMs: number | null;
   solar: number | null;
   home: number | null;
   gridImport: number | null;
@@ -64,7 +65,6 @@ export interface DeviceCardData {
 export interface RawSettings {
   refresh_seconds?: number | null;
   theme?: 'dark' | 'light' | 'system' | null;
-  dynamic_bg_enabled?: boolean | null;
   motion_mode?: 'full' | 'reduced' | 'none' | null;
   text_size?: 'normal' | 'large' | null;
   number_format?: 'de-DE' | 'en-US' | null;
@@ -85,7 +85,6 @@ export interface RawSettings {
 export interface EffectiveSettings {
   refresh_seconds: number;
   theme: 'dark' | 'light' | 'system';
-  dynamic_bg_enabled: boolean;
   motion_mode: 'full' | 'reduced' | 'none';
   text_size: 'normal' | 'large';
   number_format: 'de-DE' | 'en-US';
@@ -106,6 +105,8 @@ export interface SystemInfo {
   app_version: string;
   build: string;
   database_schema_version: number;
+  /** Expected cadence of persisted history, distinct from live polling. */
+  recording_interval_seconds: number;
   database_path: string;
   log_path: string;
   export_directory: string;
@@ -289,11 +290,17 @@ export interface EnergySnapshot {
 
 export interface TimelineEntry {
   time: string;
+  /** Exact sample time used by time-scaled charts and coverage checks. */
+  timestampMs?: number | null;
   solarKw: number | null;
   homeLoadKw: number | null;
   gridKw: number | null;
   batteryPct: number | null;
   origin: DataOrigin;
+  solarOrigin?: DataOrigin;
+  homeLoadOrigin?: DataOrigin;
+  gridOrigin?: DataOrigin;
+  isGapMarker?: boolean;
 }
 
 export interface DemoDeviceSummary {

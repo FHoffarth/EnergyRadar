@@ -40,15 +40,34 @@ def test_defaults_not_persisted(tmp_path, monkeypatch):
     raw_json = json.loads(settings_file.read_text(encoding="utf-8"))
     assert "theme" in raw_json
     # System defaults MUST NOT be written into the file
-    assert "dynamic_bg_enabled" not in raw_json
     assert "motion_mode" not in raw_json
     assert "app_version" not in raw_json
 
     # Effective settings resolve defaults at runtime
     effective = ui_settings.resolve_effective(raw_json)
     assert effective["theme"] == "light"
-    assert effective["dynamic_bg_enabled"] is True
+    assert "dynamic_bg_enabled" not in effective
     assert effective["motion_mode"] == "full"
+
+
+def test_removed_dynamic_background_setting_is_ignored_safely(tmp_path, monkeypatch):
+    settings_file = tmp_path / "ui-settings.json"
+    monkeypatch.setattr(ui_settings, "_settings_path", lambda: settings_file)
+    settings_file.write_text(
+        json.dumps({"theme": "system", "dynamic_bg_enabled": False}),
+        encoding="utf-8",
+    )
+
+    effective = ui_settings.resolve_effective(ui_settings.load_raw_dict())
+    assert effective["theme"] == "system"
+    assert "dynamic_bg_enabled" not in effective
+    assert ui_settings.validate_patch({"dynamic_bg_enabled": True}) == {}
+
+    vm = viewmodels.build_settings_vm()
+    assert vm.settings == {"theme": "system"}
+    assert "dynamic_bg_enabled" not in vm.effective_settings
+    # Compatibility: reading the legacy value does not rewrite user storage.
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["dynamic_bg_enabled"] is False
 
 
 def test_corrupt_settings_fallback(tmp_path, monkeypatch):
@@ -103,9 +122,10 @@ def test_viewmodel_separation(tmp_path, monkeypatch):
 
     assert vm.settings == {"theme": "light"}
     assert vm.effective_settings["theme"] == "light"
-    assert vm.effective_settings["dynamic_bg_enabled"] is True
+    assert "dynamic_bg_enabled" not in vm.effective_settings
     assert "app_version" in vm.system
     assert "database_schema_version" in vm.system
+    assert vm.system["recording_interval_seconds"] == config.STORE_INTERVAL_SECONDS
     assert "database_path" in vm.system
 
 
