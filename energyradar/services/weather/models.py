@@ -52,6 +52,18 @@ class HourlyWeatherPoint:
 
 
 @dataclass
+class DailyWeatherPoint:
+    date: str
+    condition: str = "unknown"
+    weather_code: Optional[int] = None
+    temperature_min_c: Optional[float] = None
+    temperature_max_c: Optional[float] = None
+    precipitation_probability_percent: Optional[float] = None
+    sunrise: Optional[str] = None
+    sunset: Optional[str] = None
+
+
+@dataclass
 class CurrentWeather:
     condition: str = "unknown"
     weather_code: Optional[int] = None
@@ -74,6 +86,7 @@ class ProviderWeatherPayload:
     sun: SunData
     current: CurrentWeather
     hourly: List[HourlyWeatherPoint] = field(default_factory=list)
+    daily: List[DailyWeatherPoint] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +113,7 @@ class WeatherReport:
     sun: Optional[SunData] = None
     current: Optional[CurrentWeather] = None
     hourly: List[HourlyWeatherPoint] = field(default_factory=list)
+    daily: List[DailyWeatherPoint] = field(default_factory=list)
     quality: Optional[WeatherQuality] = None
     warnings: List[WeatherWarning] = field(default_factory=list)
 

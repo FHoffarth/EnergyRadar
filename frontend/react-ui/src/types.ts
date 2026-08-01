@@ -183,6 +183,17 @@ export interface HourlyWeatherData {
   precipitation_probability_percent?: number | null;
 }
 
+export interface DailyWeatherData {
+  date: string;
+  condition: string;
+  weather_code: number | null;
+  temperature_min_c: number | null;
+  temperature_max_c: number | null;
+  precipitation_probability_percent?: number | null;
+  sunrise?: string | null;
+  sunset?: string | null;
+}
+
 export interface WeatherQualityData {
   freshness: 'fresh' | 'stale' | 'expired' | 'unknown';
   source: string;
@@ -204,6 +215,7 @@ export interface WeatherReportData {
   sun: SunData | null;
   current: CurrentWeatherData | null;
   hourly?: HourlyWeatherData[];
+  daily?: DailyWeatherData[];
   quality: WeatherQualityData | null;
   warnings: WeatherWarningData[];
 }

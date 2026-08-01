@@ -283,6 +283,20 @@ describe('SettingsView - persisted dirty state', () => {
     expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_name: 'Florian' }));
   });
 
+  it('applies motion immediately, persists it through save, and restores it on discard', () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole('button', { name: /Reduziert/ }));
+    expect(document.documentElement.dataset.motionSetting).toBe('reduced');
+    expect(document.documentElement.dataset.motion).toBe('reduced');
+
+    fireEvent.click(screen.getByRole('button', { name: /Änderungen speichern/ }));
+    expect(mockAppContext.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ motion_mode: 'reduced' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Verwerfen/ }));
+    expect(document.documentElement.dataset.motionSetting).toBe('full');
+    expect(document.documentElement.dataset.motion).toBe('full');
+  });
+
   it('keeps edits after a failed save and discard restores persisted values', () => {
     const { rerender } = render(<SettingsView />);
     const input = screen.getByLabelText('Bevorzugter Name');

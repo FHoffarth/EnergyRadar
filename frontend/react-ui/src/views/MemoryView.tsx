@@ -64,7 +64,7 @@ export function MemoryView() {
       <div className="cockpit-grid">
         <div className="col-span-12 space-y-6 lg:col-span-8">
           <div className="cockpit-surface p-6">
-            <h2 className="text-lg font-semibold mb-6 flex items-center gap-2"><Database className="w-5 h-5 text-teal-600 dark:text-teal-400" /> Export-Format</h2>
+            <h2 className="text-lg font-semibold mb-6 flex items-center gap-2"><Database className="w-5 h-5 text-sky-600 dark:text-sky-400" /> Export-Format</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 { id: 'pdf', label: 'PDF Bericht', icon: FileText, desc: 'Visuell' },
@@ -75,10 +75,10 @@ export function MemoryView() {
                 <button key={f.id} onClick={() => setExportType(f.id as any)}
                   className={`flex flex-col p-4 rounded-xl border text-left transition-colors ${
                     exportType === f.id
-                      ? 'bg-teal-50 dark:bg-teal-950/30 border-teal-600'
-                      : 'border-[#E5E5E3] dark:border-slate-700 hover:border-teal-400'
+                      ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600'
+                      : 'border-[#E5E5E3] dark:border-slate-700 hover:border-sky-400'
                   }`}>
-                  <f.icon className={`w-8 h-8 mb-3 ${exportType === f.id ? 'text-teal-700 dark:text-teal-300' : 'text-slate-500'}`} />
+                  <f.icon className={`w-8 h-8 mb-3 ${exportType === f.id ? 'text-sky-700 dark:text-sky-300' : 'text-slate-500'}`} />
                   <span className="font-medium text-slate-900 dark:text-slate-100">{f.label}</span>
                   <span className="text-xs text-slate-500 mt-1">{f.desc}</span>
                 </button>
@@ -117,14 +117,14 @@ export function MemoryView() {
             <h2 className="text-lg font-semibold mb-6">Aktionen</h2>
             <div className="space-y-4 flex-1">
               <button onClick={handleExport} disabled={exportStatus.status === 'running'}
-                className="w-full py-4 px-4 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
+                className="w-full py-4 px-4 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
                 {exportStatus.status === 'running' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                 Export Speichern
               </button>
 
               {!isZip && exportType === 'pdf' && (
                 <button onClick={handleMailShare} disabled={exportStatus.status === 'running'}
-                  className="w-full py-4 px-4 bg-white dark:bg-slate-800 border border-teal-700 dark:border-teal-500 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-slate-700 disabled:opacity-50 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
+                  className="w-full py-4 px-4 bg-white dark:bg-slate-800 border border-sky-700 dark:border-sky-500 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-700 disabled:opacity-50 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
                   <Mail className="w-5 h-5" />
                   Per E-Mail teilen
                 </button>

@@ -67,7 +67,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           />
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
-            <span className="text-[10px] font-medium text-teal-700 dark:text-teal-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
+            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
           </div>
         </div>
       </div>
@@ -83,7 +83,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors",
                 isActive
-                  ? "bg-white dark:bg-slate-800 text-teal-800 dark:text-teal-300 font-semibold ring-1 ring-slate-200/70 dark:ring-slate-700"
+                  ? "bg-white dark:bg-slate-800 text-sky-800 dark:text-sky-300 font-semibold ring-1 ring-slate-200/70 dark:ring-slate-700"
                   : "text-[#6E6E6E] dark:text-slate-400 hover:text-[#1C1C1E] dark:hover:text-slate-200"
               )}
             >
@@ -107,7 +107,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
         {onOpenSetupWizard && !hasConfiguredSource && (
           <button
             onClick={onOpenSetupWizard}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             Datenquelle einrichten

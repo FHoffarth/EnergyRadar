@@ -167,13 +167,10 @@ export function getSkyGradient(phase: SkyPhase, weather?: WeatherEffect | null):
  * Pure, deterministic Living Sky Resolver Function (Directive 2).
  */
 export function resolveLivingSky(input: LivingSkyInput): LivingSkyState {
-  // Determine effective motion mode (User choice overrides OS preference)
-  let motion: MotionMode = 'full';
-  if (input.userMotionMode) {
-    motion = input.userMotionMode;
-  } else if (input.osPrefersReducedMotion) {
-    motion = 'reduced';
-  }
+  // The operating-system preference is a safety ceiling: an app preference
+  // may reduce motion further, but can never opt back into full movement.
+  let motion: MotionMode = input.userMotionMode ?? 'full';
+  if (input.osPrefersReducedMotion && motion === 'full') motion = 'reduced';
 
   // 1. Static Theme Fallback (Disabled or Motion = 'none' or Dynamic BG = false)
   if (!input.dynamicBackgroundEnabled || motion === 'none') {

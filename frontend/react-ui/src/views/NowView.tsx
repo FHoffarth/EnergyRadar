@@ -2,6 +2,7 @@ import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Sun, Home, Zap } from 'lucide-react';
 import { useApp, useNumberLocale } from '../context/AppContext';
+import { useEffectiveMotionMode } from '../lib/motion';
 import { DayTrendChart, hasEnoughEvidence, measuredPoints } from '../components/DayTrendChart';
 import { WeatherIntelligence } from '../components/WeatherIntelligence';
 import { UNKNOWN_VALUE, formatKw, formatNumber } from '../lib/format';
@@ -20,7 +21,7 @@ export function NowView() {
   const locale = useNumberLocale();
 
   const motionMode = settingsPayload?.effective_settings?.motion_mode ?? 'full';
-  const animateCharts = motionMode === 'full';
+  const animateCharts = useEffectiveMotionMode(motionMode) === 'full';
   const greetingEnabled = Boolean(settingsPayload) && (settingsPayload?.effective_settings?.greeting_enabled ?? true);
   const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
 
@@ -156,7 +157,7 @@ export function NowView() {
             return (
               <React.Fragment key={item.key}>
                 {index > 0 && (
-                  <span aria-hidden="true" className="hidden self-center text-center text-lg text-teal-600 dark:text-teal-400 sm:block">
+                  <span aria-hidden="true" className="hidden self-center text-center text-lg text-sky-600 dark:text-sky-400 sm:block">
                     →
                   </span>
                 )}

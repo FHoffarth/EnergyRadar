@@ -73,7 +73,7 @@ export function DevicesView() {
               Es werden keine erfundenen Messwerte angezeigt. Echte Gerätedaten sind verfügbar, sobald die Desktop-Bridge verbundene Geräte meldet.
             </p>
             <button type="button" onClick={() => setView('settings')}
-              className="mt-5 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold transition-colors">
+              className="mt-5 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-semibold transition-colors">
               Datenquelle einrichten
             </button>
           </div>
@@ -176,7 +176,7 @@ export function DevicesView() {
                       aria-busy={isTesting}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
                         presentation.online
-                          ? 'bg-teal-700 hover:bg-teal-800 text-white'
+                          ? 'bg-sky-700 hover:bg-sky-800 text-white'
                           : 'bg-amber-500 hover:bg-amber-600 text-white'
                       }`}
                     >

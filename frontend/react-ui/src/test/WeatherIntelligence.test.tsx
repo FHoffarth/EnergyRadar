@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { WeatherIntelligence } from '../components/WeatherIntelligence';
+import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
 import { WeatherReportData } from '../types';
 
 function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherReportData {
@@ -45,6 +45,16 @@ function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherRepo
       precipitation_mm: 0,
       precipitation_probability_percent: index * 10,
     })),
+    daily: Array.from({ length: 7 }, (_, index) => ({
+      date: `2099-0${index < 3 ? '7' : '8'}-${String(29 + index > 31 ? 29 + index - 31 : 29 + index).padStart(2, '0')}`,
+      condition: index > 2 ? 'rain' : 'partly_cloudy',
+      weather_code: index > 2 ? 61 : 2,
+      temperature_min_c: 14 + index,
+      temperature_max_c: 22 + index,
+      precipitation_probability_percent: index * 10,
+      sunrise: null,
+      sunset: null,
+    })),
     quality: { freshness: 'fresh', source: 'open_meteo', age_seconds: 0 },
     warnings: [],
     ...overrides,
@@ -52,7 +62,7 @@ function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherRepo
 }
 
 describe('WeatherIntelligence', () => {
-  it('renders complete current weather, PV context, sun data, and at most six hours', () => {
+  it('renders complete current weather, PV context, sun data, and hourly depth', () => {
     render(<WeatherIntelligence report={completeReport()} locale="de-DE" />);
     const section = screen.getByRole('region', { name: 'Wetter und Solarbedingungen' });
 
@@ -61,8 +71,10 @@ describe('WeatherIntelligence', () => {
     expect(within(section).getByText('Teilweise bewölkt')).toBeTruthy();
     expect(within(section).getByText(/Gefühlt 21,8 °C/)).toBeTruthy();
     expect(within(section).getByText(/12,5 km\/h/)).toBeTruthy();
+    expect(within(section).getByText(/Sonnenaufgang:/)).toBeTruthy();
+    expect(within(section).getByText(/Sonnenuntergang:/)).toBeTruthy();
     expect(within(section).getByText('Gute Solarbedingungen für die nächste Stunde.')).toBeTruthy();
-    expect(within(section).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(section).getAllByRole('listitem')).toHaveLength(7);
   });
 
   it('renders partial weather without raw null-like values', () => {
@@ -179,5 +191,18 @@ describe('WeatherIntelligence', () => {
     const list = screen.getByRole('list');
     expect(list.className).toContain('auto-fit');
     expect(list.className).not.toContain('overflow-x');
+  });
+
+  it('keeps Home compact while Today can render hourly and a secondary seven-day outlook', () => {
+    const report = completeReport();
+    const { rerender } = render(<WeatherIntelligence report={report} locale="de-DE" compact />);
+    expect(screen.queryByRole('region', { name: 'Stündliche Wettervorhersage' })).toBeNull();
+    expect(screen.getByText(/12,5 km\/h/)).toBeTruthy();
+    expect(screen.getByText('15 %')).toBeTruthy();
+
+    rerender(<><HourlyWeatherForecast report={report} locale="de-DE" /><MultiDayWeatherForecast report={report} locale="de-DE" /></>);
+    expect(screen.getByRole('region', { name: 'Stündliche Wettervorhersage' })).toBeTruthy();
+    expect(screen.getByText('5–7-Tage-Ausblick')).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(14);
   });
 });

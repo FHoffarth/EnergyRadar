@@ -6,6 +6,8 @@ import { TimelineEntry } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { dedupeTickFormatter } from '../lib/chartAxis';
+import { HourlyWeatherForecast, MultiDayWeatherForecast } from '../components/WeatherIntelligence';
+import { useEffectiveMotionMode } from '../lib/motion';
 
 /** A series needs this many measured points before it is charted or listed. */
 const MIN_SERIES_POINTS = 3;
@@ -25,9 +27,10 @@ function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
 
 export function TodayView() {
   const { timeline, sourceType } = useEnergyProvider();
-  const { settingsPayload } = useApp();
+  const { settingsPayload, weatherReport } = useApp();
   const locale = useNumberLocale();
-  const animate = (settingsPayload?.effective_settings?.motion_mode ?? 'full') === 'full';
+  const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
+  const animate = useEffectiveMotionMode(requestedMotion) === 'full';
 
   const noData = timeline.length === 0;
   const isDemo = sourceType === 'demo';
@@ -183,6 +186,10 @@ export function TodayView() {
           )}
         </section>
       )}
+      <div className="mt-6 grid gap-4" aria-label="Wettervorschau">
+        <HourlyWeatherForecast report={weatherReport} locale={locale} />
+        <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+      </div>
     </div>
   );
 }
