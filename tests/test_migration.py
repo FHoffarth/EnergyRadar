@@ -148,7 +148,8 @@ def test_fresh_database_creation_has_complete_versioned_schema(database_path):
     with sqlite3.connect(database_path) as con:
         assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION
         assert con.execute("SELECT version FROM schema_info").fetchone()[0] == config.SCHEMA_VERSION
-        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3]
+        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4]
+        assert "tariff_periods" in _tables(database_path)
         database_uuid = json.loads(
             con.execute(
                 "SELECT value_json FROM application_metadata WHERE key = 'database_uuid'"
@@ -172,7 +173,7 @@ def test_upgrade_from_v2_is_additive_and_preserves_live_samples(database_path):
             "SELECT * FROM energy_samples_v1 ORDER BY id"
         ).fetchall()
         assert after == before
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION
 
         raw = con.execute(
             """
@@ -464,7 +465,7 @@ def test_concurrent_startup_applies_pending_migration_once(database_path):
 
     assert results == [None, None]
     with sqlite3.connect(database_path) as con:
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION
         assert con.execute(
             "SELECT COUNT(*) FROM schema_migrations WHERE version = 3"
         ).fetchone()[0] == 1
@@ -596,4 +597,4 @@ def test_packaged_windows_data_path_supports_spaces_and_non_ascii(
     assert database.exists()
     assert not database.is_relative_to(config.BASE_DIR)
     with sqlite3.connect(database) as con:
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION

@@ -49,3 +49,10 @@ Schema v3 introduces only foundations:
 - `raw_samples`, without changing the live writer or frontend readers.
 
 It does not add historical UI, aggregation, retention cleanup, exports, greetings, Fronius detail/archive behavior, polling changes, or calculation changes. The existing Today history continues to read `energy_samples_v1`.
+
+## Schema v4: Solar Economy tariffs
+
+Schema v4 adds the `tariff_periods` ledger without rewriting energy history.
+Rates and annual prices are decimal text, validity dates have documented
+inclusive boundaries, and the tariff service prevents overlap transactionally.
+See `docs/solar-economy-foundation.md` for formulas and the trust contract.

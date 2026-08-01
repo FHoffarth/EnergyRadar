@@ -8,7 +8,7 @@ import {
   Trash2, CheckCircle2, AlertCircle, AlertTriangle, Search, Globe, Server
 } from 'lucide-react';
 import { greetingTitle } from '../lib/greeting';
-import { applyMotionPreference, MotionMode } from '../lib/motion';
+import { TariffSettings } from '../components/TariffSettings';
 
 /**
  * Reduce a pasted address to "host" or "host:port".
@@ -89,7 +89,6 @@ export function SettingsView() {
     setFroniusAddr(effective?.fronius_address || '');
     setMt175Addr(effective?.mt175_address || '');
     setTheme((effective?.theme || 'dark') as ThemeMode);
-    applyMotionPreference((effective?.motion_mode || 'full') as MotionMode);
     setIsDirty(false);
   };
 
@@ -189,7 +188,7 @@ export function SettingsView() {
         <div className="flex flex-wrap items-center gap-3">
           {settingsSaveState.status === 'saving' && (
             <span className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
-              <Loader2 className="w-4 h-4 animate-spin" /> Wird gespeichert…
+              <Loader2 className="w-4 h-4" /> Wird gespeichert…
             </span>
           )}
           {settingsSaveState.status === 'saved' && (
@@ -214,7 +213,7 @@ export function SettingsView() {
                     : 'text-slate-600 dark:text-slate-300'
               }`}
             >
-              {systemActionState.status === 'loading' && <Loader2 className="inline w-4 h-4 mr-1.5 animate-spin" />}
+              {systemActionState.status === 'loading' && <Loader2 className="inline w-4 h-4 mr-1.5" />}
               {systemActionState.message}
             </span>
           )}
@@ -224,13 +223,14 @@ export function SettingsView() {
           </button>
           <button onClick={handleSave} disabled={!isDirty || settingsSaveState.status === 'saving'}
             className="px-5 py-2 bg-sky-700 hover:bg-sky-800 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            {settingsSaveState.status === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {settingsSaveState.status === 'saving' ? <Loader2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
             Änderungen speichern
           </button>
         </div>
       </header>
 
       <div className="cockpit-grid items-start">
+        <TariffSettings />
         {/* Theme */}
         <section className="cockpit-surface order-3 col-span-12 p-6 space-y-5 xl:col-span-6">
           <div className="flex items-center gap-3 pb-3 border-b border-[#E5E5E3] dark:border-slate-800">
@@ -287,34 +287,6 @@ export function SettingsView() {
                     }`}>
                     <Icon className="w-4 h-4" />
                     <span className="text-sm">{t.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-            <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Animationsmodus</label>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { id: 'full', label: 'Normal', desc: 'Volle Effekte' },
-                { id: 'reduced', label: 'Reduziert', desc: 'Sanfte Übergänge' },
-                { id: 'none', label: 'Keine', desc: 'Statisch' },
-              ].map(m => {
-                const active = getEff('motion_mode') === m.id;
-                return (
-                  <button key={m.id} type="button"
-                    onClick={() => {
-                      updateDraft('motion_mode', m.id);
-                      applyMotionPreference(m.id as MotionMode);
-                    }}
-                    className={`flex flex-col p-3 rounded-xl border text-left transition-all ${
-                      active
-                        ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-600 text-sky-700 dark:text-sky-300 font-semibold'
-                        : 'border-[#E5E5E3] dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}>
-                    <span className="font-semibold text-sm">{m.label}</span>
-                    <span className="text-xs text-slate-500 mt-0.5">{m.desc}</span>
                   </button>
                 );
               })}
@@ -380,14 +352,14 @@ export function SettingsView() {
               </div>
               <button type="submit" disabled={searchState === 'loading' || !locationInput.trim()}
                 className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50">
-                {searchState === 'loading' ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Suchen...</span></> : <span>Suchen</span>}
+                {searchState === 'loading' ? <><Loader2 className="w-4 h-4" /><span>Suchen...</span></> : <span>Suchen</span>}
               </button>
             </div>
           </form>
 
           {searchState === 'loading' && (
             <div className="text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Suche läuft...
+              <Loader2 className="w-3.5 h-3.5" /> Suche läuft...
             </div>
           )}
 
@@ -490,7 +462,7 @@ export function SettingsView() {
             <div className="flex items-center justify-between">
               <button onClick={testWeatherConnection} disabled={weatherTestLoading || !resLoc}
                 className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50 shadow-sm">
-                {weatherTestLoading ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Wird aktualisiert …</span></>
+                {weatherTestLoading ? <><Loader2 className="w-4 h-4" /><span>Wird aktualisiert …</span></>
                   : <><CloudRain className="w-4 h-4" /><span>Wetterstatus aktualisieren</span></>}
               </button>
               <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -625,13 +597,13 @@ export function SettingsView() {
                 disabled={testConnectionStatus['fronius_primary']?.testing || !froniusAddr || froniusAddr !== (effective?.fronius_address || '')}
                 title={froniusAddr !== (effective?.fronius_address || '') ? 'Änderungen zuerst speichern' : undefined}
                 className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('fronius_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
-                {testConnectionStatus['fronius_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {testConnectionStatus['fronius_primary']?.testing ? <Loader2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                 {deviceOnline('fronius_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
               </button>
             </div>
             {testConnectionStatus['fronius_primary']?.testing && (
               <div role="status" aria-live="polite" className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird aktualisiert …
+                <Loader2 className="w-3.5 h-3.5" /> Verbindung wird aktualisiert …
               </div>
             )}
             {testConnectionStatus['fronius_primary']?.result && (
@@ -673,13 +645,13 @@ export function SettingsView() {
                     disabled={testConnectionStatus['mt175_primary']?.testing || !mt175Addr || mt175Addr !== (effective?.mt175_address || '')}
                     title={mt175Addr !== (effective?.mt175_address || '') ? 'Änderungen zuerst speichern' : undefined}
                     className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('mt175_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
-                    {testConnectionStatus['mt175_primary']?.testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {testConnectionStatus['mt175_primary']?.testing ? <Loader2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                     {deviceOnline('mt175_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
                   </button>
                 </div>
                 {testConnectionStatus['mt175_primary']?.testing && (
                   <div role="status" aria-live="polite" className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verbindung wird aktualisiert …
+                    <Loader2 className="w-3.5 h-3.5" /> Verbindung wird aktualisiert …
                   </div>
                 )}
                 {testConnectionStatus['mt175_primary']?.result && (

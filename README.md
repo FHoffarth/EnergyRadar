@@ -180,11 +180,11 @@ Rohtelemetrie und UI. Sie publiziert unveränderliche Snapshots mit:
 - `phase`, `production`, `trend`, `connection` und `source`
 - einem faktenbasierten `assessment`
 - zentralen `appearance`-Tokens für Akzent und Diagramme
-- einem zentralen `motion`-Profil einschließlich Reduced Motion
 
 `app.js` reicht API-Werte über `updateTelemetry(...)` hinein. Energy Presence,
-Verbindungsstatus, Farbakzente und Animationen abonnieren
-denselben State und enthalten keine eigenen Leistungsschwellen. Aussagen über
+Verbindungsstatus und Farbakzente abonnieren denselben State und enthalten keine
+eigenen Leistungsschwellen. Reduced Motion folgt ausschließlich der
+Betriebssystemeinstellung `prefers-reduced-motion`. Aussagen über
 Wetter, zukünftige Peaks, Batterien oder Geräte werden ohne entsprechende
 Datenquelle nicht erzeugt.
 

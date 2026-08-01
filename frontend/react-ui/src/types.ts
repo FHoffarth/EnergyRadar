@@ -32,12 +32,49 @@ export interface TodayHistoryPoint {
 export interface TodayData {
   solarTotal: DataState<number>;
   homeTotal: DataState<number>;
+  homeTotalReason?: string | null;
   gridFeedInTotal: DataState<number>;
   gridDrawTotal: DataState<number>;
   selfSufficiency: DataState<number>;
   selfConsumption: DataState<number>;
   history: TodayHistoryPoint[];
+  economy?: EconomyReportData | null;
   solar_forecast?: SolarForecastReportData | null;
+}
+
+export type EconomyCoverageState = 'complete' | 'partial' | 'sparse' | 'unavailable';
+
+export interface TariffRecordData {
+  id?: number;
+  tariff_type: 'grid_work_price' | 'feed_in_tariff' | 'base_price';
+  value_ct_per_kwh: string | null;
+  annual_eur: string | null;
+  valid_from: string;
+  valid_until: string | null;
+  label: string | null;
+  source_type: string;
+  provisional: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface EconomyMoneyResultData {
+  value_eur: string | null;
+  coverage_state: EconomyCoverageState;
+  formula: string;
+  reason: string | null;
+}
+
+export interface EconomyReportData {
+  period: Record<string, string>;
+  calculated_at: string;
+  coverage_state: EconomyCoverageState;
+  provisional: boolean;
+  energy_basis: Record<string, any>;
+  tariffs: Record<string, TariffRecordData | null>;
+  results: Record<'grid_import_cost' | 'feed_in_remuneration' | 'avoided_grid_cost' | 'solar_economic_value' | 'net_variable_energy_position', EconomyMoneyResultData>;
+  exclusions: string[];
+  reason?: string | null;
 }
 
 export interface DeviceCardData {
@@ -65,7 +102,6 @@ export interface DeviceCardData {
 export interface RawSettings {
   refresh_seconds?: number | null;
   theme?: 'dark' | 'light' | 'system' | null;
-  motion_mode?: 'full' | 'reduced' | 'none' | null;
   text_size?: 'normal' | 'large' | null;
   number_format?: 'de-DE' | 'en-US' | null;
   location_mode?: 'manual' | 'none' | null;
@@ -85,7 +121,6 @@ export interface RawSettings {
 export interface EffectiveSettings {
   refresh_seconds: number;
   theme: 'dark' | 'light' | 'system';
-  motion_mode: 'full' | 'reduced' | 'none';
   text_size: 'normal' | 'large';
   number_format: 'de-DE' | 'en-US';
   location_mode: 'manual' | 'none';
@@ -128,6 +163,7 @@ export interface SettingsPayload {
   refresh_seconds: number;
   timezone: string;
   theme: ThemeMode;
+  tariffs: TariffRecordData[];
 }
 
 export interface LocationCandidateData {

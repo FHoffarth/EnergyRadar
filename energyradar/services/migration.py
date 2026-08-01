@@ -528,6 +528,50 @@ def _migration_3(con: sqlite3.Connection) -> None:
     _migrate_v2_samples_additively(con, now)
 
 
+def _migration_4(con: sqlite3.Connection) -> None:
+    """Add non-overwriting tariff periods for auditable economy estimates."""
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tariff_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tariff_type TEXT NOT NULL CHECK(
+                tariff_type IN ('grid_work_price', 'feed_in_tariff', 'base_price')
+            ),
+            value_ct_per_kwh TEXT,
+            annual_eur TEXT,
+            valid_from TEXT NOT NULL CHECK(length(valid_from) = 10),
+            valid_until TEXT CHECK(valid_until IS NULL OR length(valid_until) = 10),
+            label TEXT,
+            source_type TEXT NOT NULL,
+            provisional INTEGER NOT NULL DEFAULT 0 CHECK(provisional IN (0, 1)),
+            created_at TEXT NOT NULL CHECK(substr(created_at, -1) = 'Z'),
+            updated_at TEXT NOT NULL CHECK(substr(updated_at, -1) = 'Z'),
+            CHECK(valid_until IS NULL OR valid_until >= valid_from),
+            CHECK(
+                (tariff_type = 'base_price' AND annual_eur IS NOT NULL AND value_ct_per_kwh IS NULL)
+                OR
+                (tariff_type != 'base_price' AND value_ct_per_kwh IS NOT NULL AND annual_eur IS NULL)
+            )
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tariff_periods_type_validity
+        ON tariff_periods(tariff_type, valid_from, valid_until)
+        """
+    )
+    _require_columns(
+        con,
+        "tariff_periods",
+        {
+            "id", "tariff_type", "value_ct_per_kwh", "annual_eur",
+            "valid_from", "valid_until", "label", "source_type",
+            "provisional", "created_at", "updated_at",
+        },
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "legacy-production", "production-v1-columns", _migration_1),
     Migration(2, "combined-energy-samples", "energy-samples-v1-additive", _migration_2),
@@ -536,6 +580,12 @@ MIGRATIONS: tuple[Migration, ...] = (
         "energy-memory-schema-foundation",
         "schema-ledger-metadata-sources-state-backfill-raw-v1",
         _migration_3,
+    ),
+    Migration(
+        4,
+        "solar-economy-tariff-periods",
+        "additive-tariff-periods-v1-decimal-text-inclusive-date-ranges",
+        _migration_4,
     ),
 )
 

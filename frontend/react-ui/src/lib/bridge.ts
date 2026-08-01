@@ -22,6 +22,8 @@ export interface QtBridge {
   updateSettings: (patchJson: string) => void;
   saveSettings: (json: string) => void;
   saveFroniusAddress: (address: string) => void;
+  saveTariff?: (tariffJson: string) => void;
+  deleteTariff?: (recordId: number) => void;
   chooseExportDirectory: () => void;
   openExportDirectory: () => void;
   validateWeatherConfiguration: () => void;
@@ -40,6 +42,8 @@ export interface QtBridge {
   mailHandoffPrepared: { connect: (cb: (operationId: string) => void) => void };
   settingsSaveSucceeded: { connect: (cb: (resultJson: string) => void) => void };
   settingsSaveFailed: { connect: (cb: (errorJson: string) => void) => void };
+  tariffOperationSucceeded?: { connect: (cb: (resultJson: string) => void) => void };
+  tariffOperationFailed?: { connect: (cb: (errorJson: string) => void) => void };
   directorySelected: { connect: (cb: (path: string) => void) => void };
   weatherConfigurationResult: { connect: (cb: (resultJson: string) => void) => void };
   systemActionResult: { connect: (cb: (resultJson: string) => void) => void };

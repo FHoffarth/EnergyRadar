@@ -6,11 +6,12 @@ import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
-import { useEffectiveMotionMode } from '../lib/motion';
+import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
+import { EconomySummary } from '../components/EconomySummary';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
@@ -44,8 +45,7 @@ export function TodayView() {
   const { timeline, sourceType, snapshot } = useEnergyProvider();
   const { settingsPayload, weatherReport, todayData } = useApp();
   const locale = useNumberLocale();
-  const requestedMotion = settingsPayload?.effective_settings?.motion_mode ?? 'full';
-  const animate = useEffectiveMotionMode(requestedMotion) === 'full';
+  const animate = !usePrefersReducedMotion();
   const expectedCadenceSeconds = isDemoSource(sourceType)
     ? 2 * 60 * 60
     : settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
@@ -98,6 +98,7 @@ export function TodayView() {
 
       <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
       <DailyInterpretation statements={statements} />
+      <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">
