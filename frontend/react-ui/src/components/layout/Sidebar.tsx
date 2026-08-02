@@ -1,6 +1,7 @@
 import React from 'react';
-import { useApp } from '../../context/AppContext';
+import { useApp, useNumberLocale } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
+import { localClock } from '../../lib/freshness';
 import { Activity, BarChart2, Cpu, Settings, Zap, Database, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import markDark from '../../assets/icons/energyradar-mark.svg';
@@ -13,6 +14,9 @@ interface SidebarProps {
 export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
   const { view, setView, status, settingsPayload } = useApp();
   const { snapshot, sourceType } = useEnergyProvider();
+  const locale = useNumberLocale();
+  // Freshness reaches the user as a local-time feeling, never a raw timestamp.
+  const observedClock = localClock(snapshot.timestamp, locale);
 
   // The setup CTA is only offered while no data source is actually working.
   const hasConfiguredSource =
@@ -27,13 +31,13 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
   const anyObserved = hasObservedSolar || hasObservedHome || hasObservedGrid;
 
   const qualityPresentation = solarOnly
-    ? { label: 'Solar aktiv', detail: 'PV-Daten live · Zähler nicht verfügbar', dot: 'bg-emerald-500' }
+    ? { label: 'Solar aktiv', detail: 'PV-Daten aktuell · Zähler nicht verfügbar', dot: 'bg-emerald-500' }
     : anyObserved
-    ? { label: 'Live', detail: snapshot.timestamp || 'Aktuelle Messwerte', dot: 'bg-emerald-500' }
+    ? { label: 'Aktuell', detail: observedClock ? `Aktualisiert ${observedClock} Uhr` : 'Aktuelle Messwerte', dot: 'bg-emerald-500' }
     : snapshot.quality === 'stale'
-    ? { label: 'Veraltet', detail: snapshot.timestamp || 'Letzte Messung ist veraltet', dot: 'bg-amber-500' }
+    ? { label: 'Veraltet', detail: observedClock ? `Letzte Messung ${observedClock} Uhr` : 'Letzte Messung ist veraltet', dot: 'bg-amber-500' }
     : snapshot.quality === 'error'
-    ? { label: 'Nicht erreichbar', detail: 'Verbindung fehlgeschlagen', dot: 'bg-rose-500' }
+    ? { label: 'Nicht erreichbar', detail: 'Verbindung unterbrochen', dot: 'bg-rose-500' }
     : { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
 
   const navItems = [
@@ -67,7 +71,7 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
           />
           <div>
             <span className="text-xl font-semibold tracking-tight text-[#1C1C1E] dark:text-slate-100 block leading-tight">EnergyRadar</span>
-            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Desktop-Bridge'}</span>
+            <span className="text-[10px] font-medium text-sky-700 dark:text-sky-400">{sourceType === 'demo' ? 'Demo-Modus' : sourceType === 'offline' ? 'Nicht verbunden' : 'Verbunden'}</span>
           </div>
         </div>
       </div>

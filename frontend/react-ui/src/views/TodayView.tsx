@@ -5,13 +5,15 @@ import { Info } from 'lucide-react';
 import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
-import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
+import { MultiDayWeatherForecast, WeatherIntelligence, nearTermSolarOutlook } from '../components/WeatherIntelligence';
 import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { EconomySummary } from '../components/EconomySummary';
+import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
+import { describeRecording } from '../lib/freshness';
 import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
@@ -83,46 +85,44 @@ export function TodayView() {
   const hasRightAxis = series.some(entry => entry.axis === 'right');
   const hasChartableSeries = series.length > 0;
 
-  return (
-    <div className="cockpit-page h-full flex flex-col overflow-y-auto" data-testid="today-workspace">
-      <header className="mb-6 max-w-3xl">
-      <p className="cockpit-eyebrow">Tagesanalyse</p>
-      <h1 className="cockpit-title mt-2 text-slate-900 dark:text-white">
-        {isDemo
-          ? 'Heutiger Energieverlauf (Demo)'
-          : noData
-          ? 'Tagesverlauf noch nicht verfügbar'
-          : 'Heutiger Energieverlauf'}
-      </h1>
-      </header>
+  const recording = describeRecording(settingsPayload?.system, { locale });
+  const coverageLabel = { complete: 'Vollständig', partial: 'Teilweise', sparse: 'Wenige Daten', unavailable: 'Nicht verfügbar' }[coverage.level];
+  const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
+  // Cautious near-term outlook that binds the forecast to the day arc.
+  const nearTermOutlook = weatherEnabled ? nearTermSolarOutlook(weatherReport ?? null) : null;
 
-      <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
+  return (
+    <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
+      {/* 1 — Assessment: how is today developing? */}
       <DailyInterpretation statements={statements} />
-      <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
 
       {isDemo && (
-        <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300 mb-8">
+        <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300">
           <Info className="w-4 h-4 shrink-0" />
-          <span>Verlauf und Ereignisse stammen aus dem aktiven Demo-Szenario. Bridge-Modus zeigt echte Tagesdaten.</span>
+          <span>Verlauf und Ereignisse stammen aus dem aktiven Demo-Szenario. Im verbundenen Modus werden echte Tagesdaten angezeigt.</span>
         </div>
       )}
 
       {noData && !isDemo && (
-        <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-6 mb-8">
+        <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-6">
           <p className="text-slate-700 dark:text-slate-300">
-            Der Tagesverlauf steht erst zur Verfügung, wenn eine Datenquelle über die Desktop-Bridge verbunden ist und Tagesdaten liefert.
+            Der Tagesverlauf steht zur Verfügung, sobald eine lokale Datenquelle verbunden ist und Tagesdaten liefert.
           </p>
         </div>
       )}
 
       {noData && isDemo && (
-        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-6 mb-8">
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-6">
           <p className="text-amber-800 dark:text-amber-300">
             Demo-Daten werden geladen. Bitte wählen Sie ein Demo-Szenario in den Einstellungen.
           </p>
         </div>
       )}
 
+      {/* 2 — Evidence: the figures that quantify the assessment */}
+      <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
+
+      {/* 3 — Day arc */}
       {!noData && (
         <section className="cockpit-surface space-y-4 p-5 lg:p-6">
           <div className="flex items-baseline justify-between gap-4">
@@ -227,20 +227,44 @@ export function TodayView() {
               Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
             </p>
           )}
+          {nearTermOutlook && (
+            <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="near-term-outlook">
+              <span className="font-medium text-slate-700 dark:text-slate-200">Ausblick:</span> {nearTermOutlook}
+            </p>
+          )}
         </section>
       )}
-      <div className="mt-6 grid gap-4" aria-label="Wettervorschau">
-        <WeatherIntelligence report={weatherReport} locale={locale} compact snapshot={snapshot} />
-        <CompactHourlyForecast report={weatherReport} locale={locale} />
-        <MultiDayWeatherForecast report={weatherReport} locale={locale} />
-      </div>
-      <details className="mt-6 text-sm text-slate-600 dark:text-slate-300">
-        <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Datendetails</summary>
+      {/* 4 — Solar Economy (assessment refined in Phase 4) */}
+      <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
+
+      {/* 5 — Weather as energy context: one surface (current + hourly, current
+          hour reads 'Jetzt', expired hours drop at the boundary), with the
+          multi-day outlook secondary behind its own disclosure. */}
+      {weatherEnabled && (
+        <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-4">
+          <WeatherIntelligence report={weatherReport} locale={locale} snapshot={snapshot} />
+          <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+        </section>
+      )}
+
+      {/* 6 — Recording and coverage context */}
+      <section aria-label="Aufzeichnung und Abdeckung" className="flex flex-col gap-2">
+        {recording && <RecordingHeartbeat descriptor={recording} />}
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Datenabdeckung: {coverageLabel}
+          {coverage.firstTime && coverage.lastTime ? ` · erfasst ${coverage.firstTime}–${coverage.lastTime} Uhr` : ''}
+          {chartGapCount > 0 ? ` · ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}` : ''}
+        </p>
+      </section>
+
+      {/* 7 — Technical details */}
+      <details className="text-sm text-slate-600 dark:text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Technische Details</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
           <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
-          <div className="cockpit-surface-muted px-4 py-3 text-xs">
-            <p>Gespeicherte Messpunkte: <strong>{formatNumber(timeline.length, locale)}</strong></p>
-            <p className="mt-1">Darstellbare Messreihen: <strong>{formatNumber(series.length, locale)}</strong></p>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            <p>Gespeicherte Messpunkte: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(timeline.length, locale)}</strong></p>
+            <p className="mt-1">Darstellbare Messreihen: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(series.length, locale)}</strong></p>
           </div>
         </div>
       </details>

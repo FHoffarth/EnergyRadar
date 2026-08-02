@@ -3,15 +3,20 @@ import { TodayData } from '../types';
 import { NumberLocale, UNKNOWN_VALUE, formatNumber } from '../lib/format';
 import { CoverageResult } from '../lib/storytelling';
 
-function energy(state: TodayData['solarTotal'], locale: NumberLocale): string {
+/** Numeric part only; the unit is rendered subordinately by the caller. Null = unavailable. */
+function energyNumber(state: TodayData['solarTotal'], locale: NumberLocale): string | null {
   return state.state === 'available' && Number.isFinite(state.value)
-    ? `${formatNumber(state.value, locale, { maximumFractionDigits: 2 })} kWh`
-    : UNKNOWN_VALUE;
+    ? formatNumber(state.value, locale, { maximumFractionDigits: 2 })
+    : null;
 }
 
+/**
+ * The day's evidence — the figures that quantify the assessment. A typographic
+ * zone, not a grid of equal cards: labels are quiet, figures are the weight,
+ * whitespace does the separating. Unavailable metrics stay in place with a
+ * precise reason rather than vanishing or collapsing to zero.
+ */
 export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayData; coverage: CoverageResult; locale: NumberLocale }) {
-  const complete = coverage.level === 'complete';
-  const periodLabel = (daily: string, captured: string) => complete ? daily : captured;
   const houseReasonCopy: Record<string, string> = {
     house_energy_period_mismatch: 'PV, Netzbezug und Einspeisung beziehen sich nicht auf denselben Zeitraum.',
     house_energy_source_mismatch: 'Die Energiesummen stammen aus nicht kompatiblen Messgrundlagen.',
@@ -19,29 +24,38 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
     house_energy_balance_negative: 'Die Energiebilanz ist negativ und damit nicht konsistent.',
     house_consumption_negative: 'Die Zählerbilanz ergibt einen negativen Verbrauch und ist nicht konsistent.',
     battery_free_topology_not_confirmed: 'Die Anlagenstruktur ist für diese Verbrauchsformel nicht bestätigt.',
-    house_dependency_two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zähleranker erforderlich.',
-    house_dependency_grid_import_total_provider_unavailable: 'Der Smart Meter war an einem erforderlichen Zähleranker nicht erreichbar.',
+    house_dependency_two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zählerstände erforderlich.',
+    house_dependency_grid_import_total_provider_unavailable: 'Der Netzzähler war zu einem erforderlichen Zeitpunkt nicht erreichbar.',
     house_dependency_pv_total_counter_epoch_changed: 'Der PV-Zähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
   };
   const houseReason = data.homeTotal.state === 'available' || !data.homeTotalReason
     ? null
     : houseReasonCopy[data.homeTotalReason] ?? 'Mindestens eine erforderliche Energiesumme ist nicht belastbar.';
-  const metrics = [
-    [periodLabel('Solar heute', 'Solar im erfassten Zeitraum'), energy(data.solarTotal, locale), 'text-amber-600 dark:text-amber-400'],
-    [periodLabel('Verbrauch heute', 'Verbrauch im erfassten Zeitraum'), energy(data.homeTotal, locale), 'text-indigo-600 dark:text-indigo-400', houseReason],
-    [periodLabel('Netzbezug heute', 'Netzbezug im erfassten Zeitraum'), energy(data.gridDrawTotal, locale), 'text-orange-600 dark:text-orange-400'],
-    [periodLabel('Einspeisung heute', 'Einspeisung im erfassten Zeitraum'), energy(data.gridFeedInTotal, locale), 'text-emerald-600 dark:text-emerald-400'],
-    ['Datenabdeckung', coverage.level === 'complete' ? 'Vollständig' : coverage.level === 'partial' ? 'Teilweise' : coverage.level === 'sparse' ? 'Wenige Daten' : UNKNOWN_VALUE, 'text-slate-700 dark:text-slate-200'],
+
+  const periodNote = coverage.level === 'complete' ? 'heute' : 'im erfassten Zeitraum';
+  const metrics: Array<{ label: string; value: string | null; tone: string; reason?: string | null }> = [
+    { label: 'Solarertrag', value: energyNumber(data.solarTotal, locale), tone: 'tone-solar' },
+    { label: 'Hausverbrauch', value: energyNumber(data.homeTotal, locale), tone: 'tone-house', reason: houseReason },
+    { label: 'Netzbezug', value: energyNumber(data.gridDrawTotal, locale), tone: 'tone-import' },
+    { label: 'Einspeisung', value: energyNumber(data.gridFeedInTotal, locale), tone: 'tone-export' },
   ];
+
   return (
-    <section aria-label="Tagesübersicht" className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-      {metrics.map(([label, value, color, reason]) => (
-        <div className="cockpit-surface-muted px-4 py-3" key={label}>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-          <p className={`mt-1 text-lg font-semibold tabular-nums ${color}`}>{value}</p>
-          {reason && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reason}</p>}
-        </div>
-      ))}
+    <section aria-label="Tagesbilanz">
+      <p className="cockpit-eyebrow mb-3">Tagesbilanz · {periodNote}</p>
+      <div className="evidence-zone">
+        {metrics.map(metric => (
+          <div className="evidence-item" key={metric.label}>
+            <p className="evidence-item__label">{metric.label}</p>
+            {metric.value === null ? (
+              <p className="evidence-item__value tabular-nums tone-unknown">{UNKNOWN_VALUE}</p>
+            ) : (
+              <p className={`evidence-item__value tabular-nums ${metric.tone}`}>{metric.value}<span className="metric-unit">kWh</span></p>
+            )}
+            {metric.reason && <p className="evidence-item__reason">{metric.reason}</p>}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

@@ -95,6 +95,30 @@ export function hourlyForecastState(time: string, now: Date, timezone?: string):
   return pointKey === nowKey ? 'current' : 'future';
 }
 
+/**
+ * A cautious, forward-looking solar outlook for the next few hours, derived
+ * only from forecast cloud-cover / precipitation data. Returns null unless the
+ * weather is fresh and the forecast actually supports a statement. It never
+ * claims direct causality on PV output — only what the forecast suggests for
+ * conditions — so it can be shown beside the day arc without overreaching.
+ */
+export function nearTermSolarOutlook(report: WeatherReportData | null, now: Date = new Date()): string | null {
+  if (!report || report.status !== 'available' || !hasFreshWeather(report)) return null;
+  const timezone = report.location?.timezone;
+  const future = (report.hourly ?? []).filter(point => (
+    typeof point?.time === 'string' && hourlyForecastState(point.time, now, timezone) !== 'expired'
+  )).slice(0, 4);
+  const clouds = future.map(point => point.cloud_cover_percent).filter(isFiniteNumber);
+  if (clouds.length < 2) return null; // not enough supported evidence
+  const averageCloud = clouds.reduce((sum, value) => sum + value, 0) / clouds.length;
+  const precipitation = future.map(point => point.precipitation_probability_percent).filter(isFiniteNumber);
+  const maxPrecipitation = precipitation.length ? Math.max(...precipitation) : null;
+  if (maxPrecipitation !== null && maxPrecipitation >= 60) return 'Für die nächsten Stunden ist Niederschlag wahrscheinlich.';
+  if (averageCloud >= 60) return 'Die Vorhersage zeigt für die nächsten Stunden mehr Wolken.';
+  if (averageCloud <= 25) return 'Die nächsten Stunden bleiben überwiegend klar.';
+  return null;
+}
+
 function formatLocalTime(value: string, locale: NumberLocale, timezone?: string): string | null {
   // Open-Meteo returns local timestamps without an offset when `timezone` is
   // requested. Preserve that wall-clock time instead of parsing it in the
@@ -165,8 +189,8 @@ function ForecastItem({
   const probability = point.precipitation_probability_percent;
 
   return (
-    <li className="min-w-0 rounded-xl border border-sky-200/70 bg-white/55 px-3 py-2.5 text-center dark:border-sky-900/70 dark:bg-slate-950/25">
-      <time className="block text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">{current ? 'Jetzt' : time}</time>
+    <li className="min-w-0 px-2 py-1.5 text-center">
+      <time className={`block text-xs font-medium tabular-nums ${current ? 'text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-300'}`}>{current ? 'Jetzt' : time}</time>
       <Icon className="mx-auto my-2 h-5 w-5 text-sky-700 dark:text-sky-300" aria-hidden />
       <span className="block text-sm font-semibold tabular-nums text-slate-900 dark:text-white">{temperature}</span>
       {probability !== null && probability !== undefined && (
@@ -203,7 +227,7 @@ export function CompactHourlyForecast({ report, locale, now: fixedNow }: { repor
   if (!forecast.length) return null;
   const visible = expanded ? forecast : forecast.slice(0, 6);
   return (
-    <section aria-label="Stündliche Wettervorhersage" className="cockpit-surface-muted px-5 py-4 sm:px-6">
+    <section aria-label="Stündliche Wettervorhersage">
       <p className="cockpit-eyebrow">Wetter heute</p>
       <h2 className="cockpit-section-title mt-1">
         {hasFreshWeather(report) ? 'Stündliche Vorhersage' : 'Stündliche Vorhersage · zuletzt verfügbar'}
@@ -233,7 +257,7 @@ function DailyForecastItem({ point, locale }: { point: DailyWeatherData; locale:
   if (!day) return null;
   const Icon = iconForCondition(point.condition);
   return (
-    <li className="rounded-xl border border-slate-200/80 bg-white/55 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-950/25">
+    <li className="px-1 py-1">
       <time dateTime={point.date} className="text-xs font-semibold text-slate-700 dark:text-slate-200">{day}</time>
       <div className="mt-2 flex items-center justify-between gap-2">
         <Icon className="h-5 w-5 text-sky-700 dark:text-sky-300" aria-hidden />
@@ -256,7 +280,7 @@ export function MultiDayWeatherForecast({ report, locale }: { report: WeatherRep
   const forecast = (report.daily ?? []).filter(point => formatForecastDay(point.date, locale)).slice(0, 7);
   if (!forecast.length) return null;
   return (
-    <details className="cockpit-surface-muted px-5 py-4 sm:px-6">
+    <details className="border-t border-slate-200/70 pt-3 dark:border-slate-800">
       <summary className="cursor-pointer text-sm font-semibold text-slate-700 marker:text-sky-600 dark:text-slate-200 dark:marker:text-sky-300">
         {hasFreshWeather(report) ? '5–7-Tage-Ausblick' : '5–7-Tage-Ausblick · zuletzt verfügbar'}
       </summary>
@@ -279,8 +303,8 @@ export function WeatherIntelligence({
 }) {
   if (!report || report.status !== 'available' || !report.current) {
     return (
-      <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted px-5 py-4">
-        <h2 className="cockpit-section-title">Energie-Kontext</h2>
+      <section aria-label="Wetter und Solarbedingungen">
+        <p className="cockpit-eyebrow">Energie-Kontext</p>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Wetterdaten aktuell nicht verfügbar</p>
       </section>
     );
@@ -294,8 +318,8 @@ export function WeatherIntelligence({
   const location = cleanDisplayText(report.location?.display_name);
 
   return (
-    <section aria-label="Wetter und Solarbedingungen" className="cockpit-surface-muted overflow-hidden">
-      <div className="px-5 py-5 sm:px-6">
+    <section aria-label="Wetter und Solarbedingungen" className="overflow-hidden">
+      <div className="min-w-0">
         <p className="cockpit-eyebrow">Energie-Kontext</p>
         <WeatherFreshnessNotice report={report} />
         {location && <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300" title={location}>{location}</p>}
@@ -323,7 +347,7 @@ export function WeatherIntelligence({
         {context && <p className="mt-4 border-l-2 border-amber-500 pl-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{context}</p>}
       </div>
 
-      {!compact && <div className="border-t border-sky-200/70 dark:border-sky-900/70"><CompactHourlyForecast report={report} locale={locale} /></div>}
+      {!compact && <div className="mt-4 border-t border-slate-200/70 pt-4 dark:border-slate-800"><CompactHourlyForecast report={report} locale={locale} /></div>}
     </section>
   );
 }

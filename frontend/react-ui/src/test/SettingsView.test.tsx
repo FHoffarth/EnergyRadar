@@ -102,6 +102,26 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.getByText('Fronius Wechselrichter')).toBeInTheDocument();
   });
 
+  // Responsive regression guard (jsdom cannot measure pixel overflow, so we
+  // assert the class contract that keeps device rows inside the content
+  // column at narrow desktop widths): the address input must be allowed to
+  // shrink (min-w-0) and its row must wrap the action button (flex-wrap)
+  // instead of pushing it off the right edge.
+  it('keeps device address rows overflow-safe (input shrinks, action wraps)', () => {
+    render(<SettingsView />);
+    const froniusInput = document.getElementById('fronius-address') as HTMLElement;
+    expect(froniusInput).toBeTruthy();
+    expect(froniusInput.className).toContain('min-w-0');
+    expect((froniusInput.parentElement as HTMLElement).className).toContain('flex-wrap');
+  });
+
+  it('keeps the export-directory row overflow-safe (field shrinks, buttons wrap)', () => {
+    render(<SettingsView />);
+    const exportField = screen.getByText('Dokumente');
+    expect(exportField.className).toContain('min-w-0');
+    expect((exportField.parentElement as HTMLElement).className).toContain('flex-wrap');
+  });
+
   it('renders Theme section', () => {
     render(<SettingsView />);
     expect(screen.getByText('Darstellung')).toBeInTheDocument();
@@ -326,7 +346,7 @@ describe('SettingsView - persisted dirty state', () => {
   it('requires changed device addresses to be saved before checking', () => {
     render(<SettingsView />);
     const address = screen.getByDisplayValue('192.0.2.1');
-    const check = screen.getByRole('button', { name: 'Verbindung prüfen' });
+    const check = screen.getByRole('button', { name: 'Verbindung testen' });
     fireEvent.change(address, { target: { value: '192.0.2.2' } });
     expect(check).toBeDisabled();
     expect(check).toHaveAttribute('title', 'Änderungen zuerst speichern');
@@ -336,10 +356,10 @@ describe('SettingsView - persisted dirty state', () => {
 
   it('programmatically labels both device address fields', () => {
     render(<SettingsView />);
-    expect(screen.getByLabelText('Fronius Wechselrichter')).toHaveValue('192.0.2.1');
+    expect(screen.getByLabelText(/Fronius Wechselrichter/)).toHaveValue('192.0.2.1');
 
-    fireEvent.click(screen.getByRole('button', { name: /Iskra MT631/ }));
-    expect(screen.getByLabelText('IP oder Hostname des SmartMeterReaders')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Zählerleser/ }));
+    expect(screen.getByLabelText(/Zählerleser/)).toBeInTheDocument();
   });
 
   it('invokes every visible file and system control', () => {

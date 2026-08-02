@@ -53,17 +53,6 @@ function solarOnlySnapshot(kw: number): EnergySnapshot {
   };
 }
 
-function solarTimeline(values: (number | null)[]): TimelineEntry[] {
-  return values.map((value, index) => ({
-    time: `0${index}:00`,
-    solarKw: value,
-    homeLoadKw: null,
-    gridKw: null,
-    batteryPct: null,
-    origin: 'observed',
-  }));
-}
-
 describe('NowView - top-level statement', () => {
   beforeEach(() => {
     providerState.snapshot = emptySnapshot();
@@ -183,7 +172,7 @@ describe('NowView - number format setting', () => {
   });
 });
 
-describe('NowView - day trend evidence threshold', () => {
+describe('NowView - one story, present tense', () => {
   beforeEach(() => {
     providerState.snapshot = solarOnlySnapshot(0.3);
     providerState.devices = [];
@@ -192,26 +181,30 @@ describe('NowView - day trend evidence threshold', () => {
     appState.weatherReport = null;
   });
 
-  it('hides the trend when too few points were measured', () => {
-    providerState.timeline = solarTimeline([0.1, 0.2]);
+  it('does not carry the day-history chart — that is Heute\'s story', () => {
     render(<NowView />);
-    expect(screen.getByText('Noch nicht genug Messpunkte für einen Tagesverlauf.')).toBeTruthy();
-  });
-
-  it('does not count null samples towards the evidence threshold', () => {
-    providerState.timeline = solarTimeline([0.1, null, null, null]);
-    render(<NowView />);
-    expect(screen.getByText('Noch nicht genug Messpunkte für einen Tagesverlauf.')).toBeTruthy();
-  });
-
-  it('shows the trend once enough points were measured', () => {
-    providerState.timeline = solarTimeline([0.1, 0.2, 0.3]);
-    render(<NowView />);
-    expect(screen.queryByText('Noch nicht genug Messpunkte für einen Tagesverlauf.')).toBeNull();
-    const chart = screen.getByLabelText('Gemessener PV-Tagesverlauf');
-    expect(chart).toBeTruthy();
-    expect(chart.className).toContain('h-[clamp(17rem,34vh,24rem)]');
+    expect(screen.queryByLabelText('Gemessener PV-Tagesverlauf')).toBeNull();
+    expect(screen.queryByText(/Messpunkte für einen Tagesverlauf/)).toBeNull();
     expect(screen.getByTestId('now-workspace').className).toContain('cockpit-page');
+  });
+
+  it('provides a non-visual summary of the live energy state', () => {
+    providerState.snapshot = {
+      ...solarOnlySnapshot(2.4),
+      homeLoad: { valueKw: 1.1, origin: 'observed' },
+      grid: { valueKw: -1.3, origin: 'observed' },
+    };
+    render(<NowView />);
+    const summary = screen.getByTestId('flow-summary').textContent ?? '';
+    expect(summary).toContain('Solar erzeugt 2,4 kW');
+    expect(summary).toContain('das Haus verbraucht 1,1 kW');
+    expect(summary).toContain('1,3 kW werden ins Netz eingespeist');
+  });
+
+  it('does not render a raw ISO observed-at timestamp on the primary surface', () => {
+    providerState.snapshot = { ...solarOnlySnapshot(0.3), timestamp: '2026-08-02T11:14:56.803858+00:00' };
+    render(<NowView />);
+    expect(screen.queryByText(/2026-08-02T11:14:56/)).toBeNull();
   });
 });
 

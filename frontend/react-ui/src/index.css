@@ -21,14 +21,43 @@
   --font-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
+/* ── Semantic design tokens ───────────────────────────────────────────
+   One source of truth for both themes. Surfaces stay warm-neutral (light) and
+   quietly differentiated (dark); text steps from primary → faint; energy and
+   trust colours are defined once and adapt per theme. Light and dark are the
+   same product — only these values change between them. */
 :root {
+  /* Surfaces */
   --radar-canvas: #eef2f3;
   --radar-surface: rgba(255, 255, 255, 0.92);
   --radar-surface-muted: rgba(248, 250, 252, 0.82);
   --radar-border: rgba(148, 163, 184, 0.28);
   --radar-accent: #0369a1;
   --radar-accent-strong: #075985;
+  --surface-alert: rgba(245, 158, 11, 0.10);
+  --border-alert: rgba(245, 158, 11, 0.35);
   --radar-gutter: clamp(1.5rem, 2.5vw, 2.75rem);
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  /* Energy semantics */
+  --energy-solar: #d97706;
+  --energy-house: #4f46e5;
+  --energy-import: #ea580c;
+  --energy-export: #059669;
+  --energy-battery: #0d9488;
+  /* Trust states */
+  --trust-fresh: #059669;
+  --trust-fresh-dot: #10b981;
+  --trust-stale: #b45309;
+  --trust-stale-dot: #f59e0b;
+  --trust-unavailable: #94a3b8;
+  --trust-error: #e11d48;
+  --trust-provisional: #b45309;
+  /* Interaction */
+  --focus: #0284c7;
 }
 
 .dark {
@@ -38,6 +67,25 @@
   --radar-border: rgba(148, 163, 184, 0.18);
   --radar-accent: #38bdf8;
   --radar-accent-strong: #7dd3fc;
+  --surface-alert: rgba(245, 158, 11, 0.12);
+  --border-alert: rgba(245, 158, 11, 0.30);
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+  --energy-solar: #fbbf24;
+  --energy-house: #a5b4fc;
+  --energy-import: #fb923c;
+  --energy-export: #34d399;
+  --energy-battery: #2dd4bf;
+  --trust-fresh: #34d399;
+  --trust-fresh-dot: #10b981;
+  --trust-stale: #fcd34d;
+  --trust-stale-dot: #f59e0b;
+  --trust-unavailable: #94a3b8;
+  --trust-error: #fb7185;
+  --trust-provisional: #fcd34d;
+  --focus: #38bdf8;
 }
 
 @layer components {
@@ -74,17 +122,19 @@
     background: var(--radar-surface-muted);
   }
 
+  /* A quiet section kicker — muted rather than accent-loud, so sections do not
+     all shout at equal volume and the hero can dominate. */
   .cockpit-eyebrow {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--radar-accent);
+    color: var(--text-muted);
   }
 
   .cockpit-title {
-    font-size: clamp(1.625rem, 2vw, 2.125rem);
-    line-height: 1.18;
+    font-size: clamp(1.7rem, 2.1vw, 2.25rem);
+    line-height: 1.16;
     font-weight: 650;
     letter-spacing: -0.025em;
   }
@@ -93,11 +143,7 @@
     font-size: 0.875rem;
     line-height: 1.25rem;
     font-weight: 600;
-    color: rgb(71 85 105);
-  }
-
-  .dark .cockpit-section-title {
-    color: rgb(203 213 225);
+    color: var(--text-secondary);
   }
 }
 
@@ -171,6 +217,159 @@
 .recharts-tooltip-item-value {
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Energy flow (Jetzt centrepiece) ──────────────────────────────────
+   A calm diagram, not a card grid. Structure lives here; colour/tone is
+   applied per node in the component. Direction is carried by arrow geometry
+   and a word, so the diagram remains legible without colour. */
+.flow-diagram { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.flow-row { display: flex; align-items: center; justify-content: center; gap: clamp(0.75rem, 2.5vw, 2.25rem); min-width: 0; }
+.flow-row--main { width: 100%; }
+/* Balances the house to the true centre when there is no battery. */
+.flow-mirror { display: flex; align-items: center; gap: clamp(0.75rem, 2.5vw, 2.25rem); visibility: hidden; }
+
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  text-align: center;
+}
+
+/* Sentence-case, quiet node labels — not shouty uppercase micro-labels. */
+.flow-node__label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.flow-node__value {
+  font-size: clamp(1.75rem, 3.4vw, 2.6rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-node__unit {
+  margin-left: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgb(148 163 184);
+}
+
+.flow-node__caption { font-size: 0.72rem; color: var(--text-muted); }
+
+/* The house is the protagonist: it earns a subtle surface; the others stay
+   borderless typography. */
+.flow-node--protagonist {
+  padding: clamp(0.9rem, 2vw, 1.35rem) clamp(1.1rem, 2.5vw, 1.9rem);
+  border-radius: 1.25rem;
+  background: var(--radar-surface-muted);
+  border: 1px solid var(--radar-border);
+}
+.flow-node--protagonist .flow-node__value { font-size: clamp(2rem, 4vw, 3rem); }
+
+/* Connectors */
+.flow-conn { display: flex; align-items: center; justify-content: center; color: rgb(148 163 184); }
+.flow-conn--vertical { flex-direction: column; }
+.flow-conn__line { background: currentColor; border-radius: 9999px; }
+.flow-conn--vertical .flow-conn__line { width: 2px; height: clamp(1.25rem, 3.5vh, 2.25rem); }
+/* Fixed width so a labelled (active) connector and an unlabelled one balance,
+   keeping the house exactly centred. The label floats below and out of flow. */
+.flow-conn--horizontal { position: relative; width: clamp(3rem, 7vw, 4.5rem); }
+.flow-conn--horizontal .flow-conn__line { height: 2px; flex: 1 1 auto; }
+.flow-conn--horizontal .flow-conn__label {
+  position: absolute;
+  top: calc(100% + 0.15rem);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.flow-conn--idle { opacity: 0.4; }
+.flow-conn--idle .flow-conn__line { opacity: 0.5; }
+.flow-conn--active { color: var(--radar-accent-strong); }
+.flow-conn__arrow { display: flex; align-items: center; justify-content: center; }
+.flow-conn__label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Extremely subtle, non-essential motion; the global reduced-motion rule
+   below neutralises it entirely. */
+.flow-conn__arrow--active { animation: flow-pulse 2.6s ease-in-out infinite; }
+@keyframes flow-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* Stack the diagram on very narrow widths so nothing overflows. */
+@media (max-width: 640px) {
+  .flow-row--main { flex-direction: column; }
+  .flow-mirror { display: none; }
+  .flow-conn--horizontal { flex-direction: column; }
+  .flow-conn--horizontal .flow-conn__line { height: clamp(1rem, 3vh, 1.75rem); width: 2px; }
+}
+
+/* ── Recording heartbeat ──────────────────────────────────────────────
+   Whisper when healthy; loud when broken. */
+.heartbeat { display: inline-flex; align-items: center; gap: 0.55rem; font-size: 0.8rem; }
+.heartbeat__dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex: none; }
+.heartbeat__label { font-weight: 500; }
+.heartbeat__detail { color: var(--text-muted); }
+
+.heartbeat--healthy { color: var(--text-muted); }
+.heartbeat--healthy .heartbeat__dot { background: var(--trust-fresh-dot); animation: heartbeat-pulse 2.8s ease-in-out infinite; }
+@keyframes heartbeat-pulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+
+.heartbeat--warn {
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.75rem;
+  background: var(--surface-alert);
+  border: 1px solid var(--border-alert);
+  color: var(--trust-stale);
+  font-weight: 500;
+}
+.heartbeat--warn .heartbeat__dot { background: var(--trust-stale-dot); }
+.heartbeat--warn .heartbeat__detail { color: inherit; opacity: 0.85; }
+
+/* ── Day evidence zone (Heute) ────────────────────────────────────────
+   Figures separated by whitespace, not borders. Labels quiet, numbers the
+   weight. */
+.evidence-zone { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 2.5rem); }
+.evidence-item { min-width: 0; }
+.evidence-item__label { font-size: 0.72rem; color: var(--text-muted); }
+.evidence-item__value { margin-top: 0.2rem; font-size: clamp(1.3rem, 2vw, 1.7rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+.evidence-item__reason { margin-top: 0.4rem; font-size: 0.7rem; line-height: 1.4; color: var(--text-muted); }
+@media (max-width: 720px) { .evidence-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
+
+/* A unit is subordinate to its figure — quieter and smaller, never competing. */
+.metric-unit { margin-left: 0.25em; font-size: 0.6em; font-weight: 500; letter-spacing: 0; color: var(--text-faint); }
+
+/* Energy semantics — one palette, defined once, adapting per theme. Direction
+   and labels carry meaning too, so colour is reinforcement, never the sole cue. */
+.tone-solar { color: var(--energy-solar); }
+.tone-house { color: var(--energy-house); }
+.tone-import { color: var(--energy-import); }
+.tone-export { color: var(--energy-export); }
+.tone-neutral { color: var(--text-secondary); }
+.tone-unknown { color: var(--text-muted); }
+
+/* Certainty carried by weight + contrast, not colour alone.
+   measured = default strong · derived = quieter · projected = softest. */
+.certainty-derived { font-weight: 500; color: var(--text-secondary); }
+.certainty-projected { font-weight: 400; color: var(--text-muted); }
+
+/* ── Solar Economy value ──────────────────────────────────────────────
+   The verdict's figure. A provisional value reads visibly softer than a
+   confirmed one. */
+.economy-value { font-size: clamp(2rem, 3.5vw, 2.75rem); font-weight: 600; line-height: 1.05; letter-spacing: -0.02em; }
+.economy-value--soft { font-weight: 500; color: var(--text-muted); }
+.economy-tag { margin-left: 0.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--trust-provisional); vertical-align: middle; }
 
 [data-text-size="large"] {
   font-size: 112.5%;
