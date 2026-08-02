@@ -346,7 +346,7 @@ describe('SettingsView - persisted dirty state', () => {
   it('requires changed device addresses to be saved before checking', () => {
     render(<SettingsView />);
     const address = screen.getByDisplayValue('192.0.2.1');
-    const check = screen.getByRole('button', { name: 'Verbindung prüfen' });
+    const check = screen.getByRole('button', { name: 'Verbindung testen' });
     fireEvent.change(address, { target: { value: '192.0.2.2' } });
     expect(check).toBeDisabled();
     expect(check).toHaveAttribute('title', 'Änderungen zuerst speichern');
@@ -356,10 +356,10 @@ describe('SettingsView - persisted dirty state', () => {
 
   it('programmatically labels both device address fields', () => {
     render(<SettingsView />);
-    expect(screen.getByLabelText('Fronius Wechselrichter')).toHaveValue('192.0.2.1');
+    expect(screen.getByLabelText(/Fronius Wechselrichter/)).toHaveValue('192.0.2.1');
 
-    fireEvent.click(screen.getByRole('button', { name: /Iskra MT631/ }));
-    expect(screen.getByLabelText('IP oder Hostname des SmartMeterReaders')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Zählerleser/ }));
+    expect(screen.getByLabelText(/Zählerleser/)).toBeInTheDocument();
   });
 
   it('invokes every visible file and system control', () => {

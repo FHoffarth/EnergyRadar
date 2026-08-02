@@ -166,7 +166,6 @@ export function SettingsView() {
     if (!bytes) return '0 MB';
     return `${formatNumber(bytes / 1024 / 1024, numberLocale, { maximumFractionDigits: 1 })} MB`;
   };
-  const deviceOnline = (id: string) => (devices ?? []).find(device => device.device_id === id)?.connection_status === 'connected';
   const systemActionBusy = systemActionState?.status === 'loading';
   const deviceSystemStatus = (id: string): [string, boolean] => {
     const device = (devices ?? []).find(candidate => candidate.device_id === id);
@@ -579,14 +578,17 @@ export function SettingsView() {
             Nur IP-Adresse oder Hostname eingeben (z.B. <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">192.168.178.75</code> oder <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">wechselrichter.local</code>).
           </p>
 
-          {/* Fronius — Primary */}
+          {/* Primary energy source — Fronius */}
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <label htmlFor="fronius-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">Fronius Wechselrichter</label>
-              <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Hauptgerät</span>
+            <p className="cockpit-eyebrow">Primäre Energiequelle</p>
+            <div className="flex items-baseline gap-2">
+              <span id="fronius-name" className="text-sm font-semibold text-slate-800 dark:text-slate-200">Fronius Wechselrichter</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">Hauptgerät</span>
             </div>
+            <label id="fronius-field" htmlFor="fronius-address" className="block text-xs text-slate-500 dark:text-slate-400">Adresse oder Hostname</label>
             <div className="flex flex-wrap gap-2">
-              <input id="fronius-address" type="text" placeholder="IP oder Hostname"
+              <input id="fronius-address" type="text" placeholder="z.B. 192.168.178.75"
+                aria-labelledby="fronius-name fronius-field"
                 value={froniusAddr}
                 onChange={(e) => {
                   const value = normalizeHost(e.target.value);
@@ -594,14 +596,14 @@ export function SettingsView() {
                   updateDraft('fronius_address', value);
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFronius(); }}
-                className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
               <button type="button"
                 onClick={handleSaveFronius}
                 disabled={testConnectionStatus['fronius_primary']?.testing || !froniusAddr || froniusAddr !== (effective?.fronius_address || '')}
                 title={froniusAddr !== (effective?.fronius_address || '') ? 'Änderungen zuerst speichern' : undefined}
-                className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('fronius_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
+                className="shrink-0 flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-transparent px-3.5 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed">
                 {testConnectionStatus['fronius_primary']?.testing ? <Loader2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-                {deviceOnline('fronius_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
+                Verbindung testen
               </button>
             </div>
             {testConnectionStatus['fronius_primary']?.testing && (
@@ -621,20 +623,23 @@ export function SettingsView() {
             )}
           </div>
 
-          {/* MT175 — Optional, collapsed by default */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60">
-            <button type="button" onClick={() => setMt175Expanded(!mt175Expanded)}
-              className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors w-full">
-              <span className={`transition-transform duration-200 ${mt175Expanded ? 'rotate-90' : ''}`}>▶</span>
-              <span>Iskra MT631 / MT175 · Tasmota Lesekopf</span>
-              <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">Optional</span>
+          {/* Grid meter — optional */}
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60">
+            <p className="cockpit-eyebrow">Netzzähler <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-500">· Optional</span></p>
+            <button type="button" onClick={() => setMt175Expanded(!mt175Expanded)} aria-expanded={mt175Expanded}
+              className="mt-2 flex w-full items-center gap-2 rounded text-sm font-semibold text-slate-800 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+              <span aria-hidden className={`text-slate-400 transition-transform duration-200 ${mt175Expanded ? 'rotate-90' : ''}`}>▶</span>
+              <span>Zählerleser (Tasmota) für ISKRA-Zähler</span>
             </button>
+            <p className="mt-1 pl-5 text-xs text-slate-400 dark:text-slate-500">Iskra MT631 / MT175 · Tasmota Lesekopf</p>
 
             {mt175Expanded && (
               <div className="mt-3 space-y-2">
-                <label htmlFor="smart-meter-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">IP oder Hostname des SmartMeterReaders</label>
+                <span id="mt175-name" className="sr-only">Zählerleser für ISKRA-Zähler</span>
+                <label id="mt175-field" htmlFor="smart-meter-address" className="block text-xs text-slate-500 dark:text-slate-400">Adresse oder Hostname</label>
                 <div className="flex flex-wrap gap-2">
                   <input id="smart-meter-address" type="text" placeholder="z.B. 192.168.178.83"
+                    aria-labelledby="mt175-name mt175-field"
                     value={mt175Addr}
                     onChange={(e) => {
                       const value = normalizeHost(e.target.value);
@@ -642,14 +647,14 @@ export function SettingsView() {
                       updateDraft('mt175_address', value);
                     }}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveMt175(); }}
-                    className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
                   <button type="button"
                     onClick={handleSaveMt175}
                     disabled={testConnectionStatus['mt175_primary']?.testing || !mt175Addr || mt175Addr !== (effective?.mt175_address || '')}
                     title={mt175Addr !== (effective?.mt175_address || '') ? 'Änderungen zuerst speichern' : undefined}
-                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 ${deviceOnline('mt175_primary') ? 'bg-sky-700 hover:bg-sky-800' : 'bg-amber-500 hover:bg-amber-600'}`}>
+                    className="shrink-0 flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-transparent px-3.5 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed">
                     {testConnectionStatus['mt175_primary']?.testing ? <Loader2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-                    {deviceOnline('mt175_primary') ? 'Jetzt prüfen' : 'Verbindung prüfen'}
+                    Verbindung testen
                   </button>
                 </div>
                 {testConnectionStatus['mt175_primary']?.testing && (
