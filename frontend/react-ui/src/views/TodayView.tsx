@@ -262,9 +262,9 @@ export function TodayView() {
         <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Technische Details</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
           <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
-          <div className="cockpit-surface-muted px-4 py-3 text-xs">
-            <p>Gespeicherte Messpunkte: <strong>{formatNumber(timeline.length, locale)}</strong></p>
-            <p className="mt-1">Darstellbare Messreihen: <strong>{formatNumber(series.length, locale)}</strong></p>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            <p>Gespeicherte Messpunkte: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(timeline.length, locale)}</strong></p>
+            <p className="mt-1">Darstellbare Messreihen: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(series.length, locale)}</strong></p>
           </div>
         </div>
       </details>
