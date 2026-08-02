@@ -54,42 +54,60 @@ export function EconomySummary({ report, locale, scope = 'today' }: {
   const partial = report?.coverage_state === 'partial';
   const provisional = Boolean(report?.provisional);
   const rejectionReason = total?.reason ?? report?.reason ?? 'required_component_unavailable';
-  const title = partial
-    ? 'Wirtschaftlicher Solarwert im erfassten Zeitraum'
-    : scope === 'today'
-      ? 'Wirtschaftlicher Solarwert heute'
-      : 'Wirtschaftlicher Solarwert';
+
+  // 1 — a calm human verdict, never profit/earnings/payout/ROI language.
+  const verdict = !available
+    ? 'Für diesen Zeitraum ist keine belastbare Berechnung möglich.'
+    : partial
+      ? 'Im bisher erfassten Zeitraum hat deine Solaranlage einen wirtschaftlichen Wert erzeugt.'
+      : scope === 'today'
+        ? 'Heute hat deine Solaranlage einen wirtschaftlichen Wert erzeugt.'
+        : 'Deine Solaranlage hat einen wirtschaftlichen Wert erzeugt.';
 
   return (
-    <section className="cockpit-surface my-5 p-5 lg:p-6" aria-labelledby={`economy-title-${scope}`} data-testid="economy-summary">
+    <section className="max-w-3xl" aria-labelledby={`economy-title-${scope}`} data-testid="economy-summary">
       <p className="cockpit-eyebrow">Solar Economy</p>
-      <h2 id={`economy-title-${scope}`} className="mt-2 text-xl font-semibold text-slate-900 dark:text-white">
-        {title}
-      </h2>
+      {/* 1 — verdict */}
+      <h3 id={`economy-title-${scope}`} className="mt-2 text-lg font-medium text-slate-800 dark:text-slate-100">
+        {verdict}
+      </h3>
       {available ? (
         <>
-          <p className="mt-3 text-3xl font-semibold text-slate-900 dark:text-white">{euros(total.value_eur, locale)}</p>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            {partial ? 'Keine Hochrechnung auf nicht erfasste Zeiträume.' : 'Geschätzter wirtschaftlicher Solarwert im erfassten Zeitraum.'}
+          {/* 2 — economic value: the strongest figure */}
+          <p className={`economy-value tabular-nums mt-3 ${provisional ? 'economy-value--soft' : 'text-slate-900 dark:text-white'}`}>
+            {euros(total.value_eur, locale)}
+            {provisional && <span className="economy-tag">vorläufig</span>}
           </p>
-          <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="cockpit-surface-muted p-3"><dt className="text-xs text-slate-500">Vermiedene Stromkosten</dt><dd className="mt-1 font-semibold">{euros(report?.results?.avoided_grid_cost?.value_eur, locale)}</dd></div>
-            <div className="cockpit-surface-muted p-3"><dt className="text-xs text-slate-500">Geschätzte Einspeisevergütung</dt><dd className="mt-1 font-semibold">{euros(report?.results?.feed_in_remuneration?.value_eur, locale)}</dd></div>
-            <div className="cockpit-surface-muted p-3"><dt className="text-xs text-slate-500">Netzbezugskosten</dt><dd className="mt-1 font-semibold">{euros(report?.results?.grid_import_cost?.value_eur, locale)}</dd></div>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {partial ? 'Keine Hochrechnung auf nicht erfasste Zeiträume.' : 'Geschätzter Solarwert, keine Abrechnung.'}
+          </p>
+
+          {/* 3 — evidence breakdown, flat: measured avoided cost, softer estimated remuneration */}
+          <dl className="mt-5 flex flex-wrap gap-x-12 gap-y-4">
+            <div>
+              <dt className="text-xs text-slate-500 dark:text-slate-400">Vermiedene Stromkosten</dt>
+              <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-800 dark:text-slate-100">{euros(report?.results?.avoided_grid_cost?.value_eur, locale)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500 dark:text-slate-400">Geschätzte Einspeisevergütung</dt>
+              <dd className="mt-0.5 text-lg font-medium tabular-nums text-slate-500 dark:text-slate-400">{euros(report?.results?.feed_in_remuneration?.value_eur, locale)}</dd>
+            </div>
           </dl>
+
+          {provisional && (
+            <p className="mt-4 text-sm text-amber-700 dark:text-amber-300">Vorläufiger Wert – noch nicht durch Abrechnung bestätigt.</p>
+          )}
+
+          {/* 4 — data confidence / period context */}
+          <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+            Datenabdeckung: {coverageCopy[report?.coverage_state ?? 'unavailable']}. Die Berechnung ist eine Schätzung, keine Abrechnung.
+          </p>
         </>
       ) : (
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-          Für diesen Zeitraum ist keine belastbare Berechnung möglich.
-          <p className="mt-1 text-xs text-slate-500">{rejectionCopy[rejectionReason] ?? `Berechnungsgrund: ${rejectionReason}`}</p>
-        </div>
+        /* Unavailable: one concise verdict (above) and the precise reason — no large empty panel. */
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{rejectionCopy[rejectionReason] ?? `Berechnungsgrund: ${rejectionReason}`}</p>
       )}
-      {provisional && (
-        <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          Vorläufiger Wert – noch nicht durch Abrechnung bestätigt.
-        </p>
-      )}
-      <p className="mt-4 text-xs text-slate-500">Datenabdeckung: {coverageCopy[report?.coverage_state ?? 'unavailable']}. Die Berechnung ist eine Schätzung, keine Abrechnung.</p>
+      {/* 5 — technical details behind disclosure */}
       <details className="mt-4 text-sm text-slate-600 dark:text-slate-300">
         <summary className="cursor-pointer font-medium">Berechnungsdetails</summary>
         <div className="mt-3 space-y-2 text-xs">

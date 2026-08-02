@@ -308,6 +308,15 @@
 .dark .evidence-item__reason { color: rgb(148 163 184); }
 @media (max-width: 720px) { .evidence-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
 
+/* ── Solar Economy value ──────────────────────────────────────────────
+   The verdict's figure. A provisional value reads visibly softer than a
+   confirmed one. */
+.economy-value { font-size: clamp(2rem, 3.5vw, 2.75rem); font-weight: 600; line-height: 1.05; letter-spacing: -0.02em; }
+.economy-value--soft { font-weight: 500; color: rgb(100 116 139); }
+.dark .economy-value--soft { color: rgb(148 163 184); }
+.economy-tag { margin-left: 0.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: rgb(180 83 9); vertical-align: middle; }
+.dark .economy-tag { color: rgb(252 211 77); }
+
 [data-text-size="large"] {
   font-size: 112.5%;
 }

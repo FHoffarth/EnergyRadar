@@ -31,7 +31,7 @@ describe('EconomySummary', () => {
     expect(screen.getByText(/2,14\s*€/)).toBeInTheDocument();
     expect(screen.getByText('Vermiedene Stromkosten')).toBeInTheDocument();
     screen.getByText('Berechnungsdetails').click();
-    expect(screen.getByRole('heading', { name: 'Wirtschaftlicher Solarwert heute' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Heute hat deine Solaranlage einen wirtschaftlichen Wert erzeugt.' })).toBeInTheDocument();
     expect(screen.getByText('Der Grundpreis bleibt unberücksichtigt, weil er unabhängig vom Verbrauch anfällt.')).toBeInTheDocument();
     expect(screen.getByText(/Formel Solarwert: vermiedene Stromkosten \+ geschätzte Einspeisevergütung/)).toBeInTheDocument();
     expect(screen.getByText('Grundpreis (nur Kontext)')).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe('EconomySummary', () => {
 
   it('uses partial wording and visibly labels provisional tariffs', () => {
     render(<EconomySummary report={report({ coverage_state: 'partial', provisional: true })} locale="de-DE" />);
-    expect(screen.getByRole('heading', { name: 'Wirtschaftlicher Solarwert im erfassten Zeitraum' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Im bisher erfassten Zeitraum hat deine Solaranlage einen wirtschaftlichen Wert erzeugt.' })).toBeInTheDocument();
     expect(screen.getByText('Keine Hochrechnung auf nicht erfasste Zeiträume.')).toBeInTheDocument();
     expect(screen.getByText(/Vorläufiger Wert/)).toBeInTheDocument();
   });
