@@ -172,6 +172,130 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Energy flow (Jetzt centrepiece) ──────────────────────────────────
+   A calm diagram, not a card grid. Structure lives here; colour/tone is
+   applied per node in the component. Direction is carried by arrow geometry
+   and a word, so the diagram remains legible without colour. */
+.flow-diagram { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.flow-row { display: flex; align-items: center; justify-content: center; gap: clamp(0.75rem, 2.5vw, 2.25rem); min-width: 0; }
+.flow-row--main { width: 100%; }
+/* Balances the house to the true centre when there is no battery. */
+.flow-mirror { display: flex; align-items: center; gap: clamp(0.75rem, 2.5vw, 2.25rem); visibility: hidden; }
+
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.flow-node__label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(100 116 139);
+}
+.dark .flow-node__label { color: rgb(148 163 184); }
+
+.flow-node__value {
+  font-size: clamp(1.75rem, 3.4vw, 2.6rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-node__unit {
+  margin-left: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgb(148 163 184);
+}
+
+.flow-node__caption { font-size: 0.72rem; color: rgb(100 116 139); }
+.dark .flow-node__caption { color: rgb(148 163 184); }
+
+/* The house is the protagonist: it earns a subtle surface; the others stay
+   borderless typography. */
+.flow-node--protagonist {
+  padding: clamp(0.9rem, 2vw, 1.35rem) clamp(1.1rem, 2.5vw, 1.9rem);
+  border-radius: 1.25rem;
+  background: var(--radar-surface-muted);
+  border: 1px solid var(--radar-border);
+}
+.flow-node--protagonist .flow-node__value { font-size: clamp(2rem, 4vw, 3rem); }
+
+/* Connectors */
+.flow-conn { display: flex; align-items: center; justify-content: center; color: rgb(148 163 184); }
+.flow-conn--vertical { flex-direction: column; }
+.flow-conn__line { background: currentColor; border-radius: 9999px; }
+.flow-conn--vertical .flow-conn__line { width: 2px; height: clamp(1.25rem, 3.5vh, 2.25rem); }
+/* Fixed width so a labelled (active) connector and an unlabelled one balance,
+   keeping the house exactly centred. The label floats below and out of flow. */
+.flow-conn--horizontal { position: relative; width: clamp(3rem, 7vw, 4.5rem); }
+.flow-conn--horizontal .flow-conn__line { height: 2px; flex: 1 1 auto; }
+.flow-conn--horizontal .flow-conn__label {
+  position: absolute;
+  top: calc(100% + 0.15rem);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.flow-conn--idle { opacity: 0.4; }
+.flow-conn--idle .flow-conn__line { opacity: 0.5; }
+.flow-conn--active { color: var(--radar-accent-strong); }
+.flow-conn__arrow { display: flex; align-items: center; justify-content: center; }
+.flow-conn__label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Extremely subtle, non-essential motion; the global reduced-motion rule
+   below neutralises it entirely. */
+.flow-conn__arrow--active { animation: flow-pulse 2.6s ease-in-out infinite; }
+@keyframes flow-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* Stack the diagram on very narrow widths so nothing overflows. */
+@media (max-width: 640px) {
+  .flow-row--main { flex-direction: column; }
+  .flow-mirror { display: none; }
+  .flow-conn--horizontal { flex-direction: column; }
+  .flow-conn--horizontal .flow-conn__line { height: clamp(1rem, 3vh, 1.75rem); width: 2px; }
+}
+
+/* ── Recording heartbeat ──────────────────────────────────────────────
+   Whisper when healthy; loud when broken. */
+.heartbeat { display: inline-flex; align-items: center; gap: 0.55rem; font-size: 0.8rem; }
+.heartbeat__dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex: none; }
+.heartbeat__label { font-weight: 500; }
+.heartbeat__detail { color: rgb(100 116 139); }
+.dark .heartbeat__detail { color: rgb(148 163 184); }
+
+.heartbeat--healthy { color: rgb(71 85 105); }
+.dark .heartbeat--healthy { color: rgb(148 163 184); }
+.heartbeat--healthy .heartbeat__dot { background: #10b981; animation: heartbeat-pulse 2.8s ease-in-out infinite; }
+@keyframes heartbeat-pulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
+
+.heartbeat--warn {
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: rgb(146 64 14);
+  font-weight: 500;
+}
+.dark .heartbeat--warn { color: rgb(252 211 77); background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.3); }
+.heartbeat--warn .heartbeat__dot { background: #f59e0b; }
+.heartbeat--warn .heartbeat__detail { color: inherit; opacity: 0.85; }
+
 [data-text-size="large"] {
   font-size: 112.5%;
 }
