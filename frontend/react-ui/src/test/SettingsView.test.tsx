@@ -102,6 +102,26 @@ describe('SettingsView - no provider selection', () => {
     expect(screen.getByText('Fronius Wechselrichter')).toBeInTheDocument();
   });
 
+  // Responsive regression guard (jsdom cannot measure pixel overflow, so we
+  // assert the class contract that keeps device rows inside the content
+  // column at narrow desktop widths): the address input must be allowed to
+  // shrink (min-w-0) and its row must wrap the action button (flex-wrap)
+  // instead of pushing it off the right edge.
+  it('keeps device address rows overflow-safe (input shrinks, action wraps)', () => {
+    render(<SettingsView />);
+    const froniusInput = document.getElementById('fronius-address') as HTMLElement;
+    expect(froniusInput).toBeTruthy();
+    expect(froniusInput.className).toContain('min-w-0');
+    expect((froniusInput.parentElement as HTMLElement).className).toContain('flex-wrap');
+  });
+
+  it('keeps the export-directory row overflow-safe (field shrinks, buttons wrap)', () => {
+    render(<SettingsView />);
+    const exportField = screen.getByText('Dokumente');
+    expect(exportField.className).toContain('min-w-0');
+    expect((exportField.parentElement as HTMLElement).className).toContain('flex-wrap');
+  });
+
   it('renders Theme section', () => {
     render(<SettingsView />);
     expect(screen.getByText('Darstellung')).toBeInTheDocument();

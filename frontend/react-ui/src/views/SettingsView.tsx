@@ -296,7 +296,7 @@ export function SettingsView() {
           <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <div className="space-y-1.5">
               <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Schriftgröße</label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {[{ id: 'normal', label: 'Normal' }, { id: 'large', label: 'Groß' }].map(s => (
                   <button key={s.id} type="button"
                     onClick={() => updateDraft('text_size', s.id)}
@@ -310,7 +310,7 @@ export function SettingsView() {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Zahlenformat</label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {[{ id: 'de-DE', label: '1.234,56' }, { id: 'en-US', label: '1,234.56' }].map(n => (
                   <button key={n.id} type="button"
                     onClick={() => updateDraft('number_format', n.id)}
@@ -343,8 +343,8 @@ export function SettingsView() {
 
           <form onSubmit={handleSearchLocations} className="space-y-2">
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Ort oder PLZ suchen</label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative min-w-0 flex-1 basis-48">
                 <input type="text" placeholder="Ort oder Postleitzahl" value={locationInput}
                   onChange={(e) => setLocationInput(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
@@ -503,7 +503,7 @@ export function SettingsView() {
                 </div>
               ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button type="button" onClick={openDiagnosticLog} disabled={systemActionBusy}
                 className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-medium text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                 <FileText className="w-3.5 h-3.5" /> Systemprotokoll öffnen
@@ -544,8 +544,8 @@ export function SettingsView() {
 
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-800 dark:text-slate-200">Exportordner</label>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-xs truncate">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-xs truncate">
                 {getEff('export_directory') || system?.export_directory || 'Dokumente'}
               </div>
               <button onClick={chooseExportDirectory} disabled={systemActionBusy}
@@ -585,7 +585,7 @@ export function SettingsView() {
               <label htmlFor="fronius-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">Fronius Wechselrichter</label>
               <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Hauptgerät</span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input id="fronius-address" type="text" placeholder="IP oder Hostname"
                 value={froniusAddr}
                 onChange={(e) => {
@@ -594,7 +594,7 @@ export function SettingsView() {
                   updateDraft('fronius_address', value);
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFronius(); }}
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
               <button type="button"
                 onClick={handleSaveFronius}
                 disabled={testConnectionStatus['fronius_primary']?.testing || !froniusAddr || froniusAddr !== (effective?.fronius_address || '')}
@@ -633,7 +633,7 @@ export function SettingsView() {
             {mt175Expanded && (
               <div className="mt-3 space-y-2">
                 <label htmlFor="smart-meter-address" className="text-sm font-semibold text-slate-800 dark:text-slate-200">IP oder Hostname des SmartMeterReaders</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input id="smart-meter-address" type="text" placeholder="z.B. 192.168.178.83"
                     value={mt175Addr}
                     onChange={(e) => {
@@ -642,7 +642,7 @@ export function SettingsView() {
                       updateDraft('mt175_address', value);
                     }}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveMt175(); }}
-                    className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    className="min-w-0 flex-1 basis-48 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <button type="button"
                     onClick={handleSaveMt175}
                     disabled={testConnectionStatus['mt175_primary']?.testing || !mt175Addr || mt175Addr !== (effective?.mt175_address || '')}
