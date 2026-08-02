@@ -75,7 +75,7 @@ export function powerDataToSnapshot(data: { power: PowerData; status: SystemStat
   }
 
   return {
-    timestamp: power.lastUpdated || null,
+    timestamp: power.observedAt || null,
     quality,
     solar,
     homeLoad,

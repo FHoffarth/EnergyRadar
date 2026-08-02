@@ -90,6 +90,9 @@ export function processNowViewModel(raw: Record<string, any>) {
     grid: toDataState(grid, forceUnknown),
     home: toDataState(home, forceUnknown),
     lastUpdated: raw.freshness_label || null,
+    observedAt: typeof raw.observed_at_utc === 'string' ? raw.observed_at_utc : null,
+    receivedAt: typeof raw.received_at_utc === 'string' ? raw.received_at_utc : null,
+    sourceStates: raw.source_states && typeof raw.source_states === 'object' ? raw.source_states : {},
     verdict: raw.verdict,
     verdict_kind: raw.verdict_kind,
   };

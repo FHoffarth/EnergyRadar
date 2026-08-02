@@ -68,6 +68,8 @@ def _open_connection(path: Path) -> sqlite3.Connection:
     con = sqlite3.connect(path)
     con.execute("PRAGMA foreign_keys = ON")
     con.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    con.execute("PRAGMA journal_mode = WAL")
+    con.execute("PRAGMA synchronous = FULL")
     return con
 
 
@@ -572,6 +574,103 @@ def _migration_4(con: sqlite3.Connection) -> None:
     )
 
 
+def _migration_5(con: sqlite3.Connection) -> None:
+    """Add recording runs, synchronized anchors, counter epochs and gaps."""
+    script = """
+        CREATE TABLE IF NOT EXISTS recording_runs (
+            run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at_utc TEXT NOT NULL CHECK(substr(started_at_utc, -1) = 'Z'),
+            clean_shutdown_at_utc TEXT CHECK(clean_shutdown_at_utc IS NULL OR substr(clean_shutdown_at_utc, -1) = 'Z'),
+            app_version TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            process_identity TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS counter_epochs (
+            epoch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            register_name TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            scale TEXT NOT NULL,
+            started_at_utc TEXT NOT NULL CHECK(substr(started_at_utc, -1) = 'Z'),
+            ended_at_utc TEXT CHECK(ended_at_utc IS NULL OR substr(ended_at_utc, -1) = 'Z'),
+            end_reason TEXT,
+            source_firmware TEXT,
+            source_counter_identity TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_counter_epoch_active
+            ON counter_epochs(source_id, register_name, source_counter_identity)
+            WHERE ended_at_utc IS NULL;
+
+        CREATE TABLE IF NOT EXISTS counter_anchors (
+            anchor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL REFERENCES recording_runs(run_id),
+            trigger TEXT NOT NULL,
+            requested_at_utc TEXT NOT NULL CHECK(substr(requested_at_utc, -1) = 'Z'),
+            completed_at_utc TEXT NOT NULL CHECK(substr(completed_at_utc, -1) = 'Z'),
+            status TEXT NOT NULL CHECK(status IN ('complete', 'partial', 'failed')),
+            skew_ms INTEGER CHECK(skew_ms IS NULL OR skew_ms >= 0),
+            sequence INTEGER NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            timing_state TEXT NOT NULL DEFAULT 'normal'
+        );
+
+        CREATE TABLE IF NOT EXISTS anchor_source_results (
+            anchor_id INTEGER NOT NULL REFERENCES counter_anchors(anchor_id) ON DELETE CASCADE,
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            observed_at_utc TEXT CHECK(observed_at_utc IS NULL OR substr(observed_at_utc, -1) = 'Z'),
+            received_at_utc TEXT NOT NULL CHECK(substr(received_at_utc, -1) = 'Z'),
+            status TEXT NOT NULL CHECK(status IN ('success', 'partial', 'failed', 'not_configured')),
+            error_code TEXT,
+            PRIMARY KEY(anchor_id, source_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS counter_readings (
+            reading_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anchor_id INTEGER NOT NULL REFERENCES counter_anchors(anchor_id) ON DELETE CASCADE,
+            epoch_id INTEGER NOT NULL REFERENCES counter_epochs(epoch_id),
+            source_id INTEGER NOT NULL REFERENCES device_sources(source_id),
+            register_name TEXT NOT NULL,
+            observed_at_utc TEXT NOT NULL CHECK(substr(observed_at_utc, -1) = 'Z'),
+            received_at_utc TEXT NOT NULL CHECK(substr(received_at_utc, -1) = 'Z'),
+            value_decimal TEXT NOT NULL,
+            source_sequence TEXT,
+            UNIQUE(anchor_id, source_id, register_name),
+            UNIQUE(epoch_id, observed_at_utc, value_decimal)
+        );
+        CREATE INDEX IF NOT EXISTS idx_counter_readings_register_anchor
+            ON counter_readings(source_id, register_name, anchor_id);
+
+        CREATE TABLE IF NOT EXISTS recording_gaps (
+            gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            source_id INTEGER REFERENCES device_sources(source_id),
+            from_utc TEXT NOT NULL CHECK(substr(from_utc, -1) = 'Z'),
+            to_utc TEXT NOT NULL CHECK(substr(to_utc, -1) = 'Z'),
+            reason TEXT NOT NULL,
+            detected_at_utc TEXT NOT NULL CHECK(substr(detected_at_utc, -1) = 'Z'),
+            details_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(scope, source_id, from_utc, to_utc, reason),
+            CHECK(to_utc >= from_utc)
+        );
+        CREATE INDEX IF NOT EXISTS idx_recording_gaps_time
+            ON recording_gaps(from_utc, to_utc);
+        """
+    for statement in script.split(";"):
+        if statement.strip():
+            con.execute(statement)
+    required = {
+        "recording_runs": {"run_id", "started_at_utc", "clean_shutdown_at_utc", "process_identity"},
+        "counter_epochs": {"epoch_id", "source_id", "register_name", "started_at_utc", "ended_at_utc"},
+        "counter_anchors": {"anchor_id", "run_id", "status", "skew_ms", "sequence", "idempotency_key"},
+        "anchor_source_results": {"anchor_id", "source_id", "observed_at_utc", "status"},
+        "counter_readings": {"reading_id", "anchor_id", "epoch_id", "register_name", "value_decimal"},
+        "recording_gaps": {"gap_id", "scope", "from_utc", "to_utc", "reason"},
+    }
+    for table, columns in required.items():
+        _require_columns(con, table, columns)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "legacy-production", "production-v1-columns", _migration_1),
     Migration(2, "combined-energy-samples", "energy-samples-v1-additive", _migration_2),
@@ -586,6 +685,12 @@ MIGRATIONS: tuple[Migration, ...] = (
         "solar-economy-tariff-periods",
         "additive-tariff-periods-v1-decimal-text-inclusive-date-ranges",
         _migration_4,
+    ),
+    Migration(
+        5,
+        "continuous-recording-counter-anchors",
+        "runs-epochs-anchors-readings-gaps-v1-decimal-text",
+        _migration_5,
     ),
 )
 

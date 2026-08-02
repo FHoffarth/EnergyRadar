@@ -6,7 +6,7 @@ Keine Bewertung, keine Speicherung.
 
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import requests
@@ -56,18 +56,32 @@ def read_url(url: str, *, require_local: bool = True) -> EnergyReading:
     response.raise_for_status()
     raw = response.json()
     site = raw["Body"]["Data"]["Site"]
+
+    def optional_number(name: str) -> float | None:
+        value = site.get(name)
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    power = optional_number("P_PV")
     return EnergyReading(
-        timestamp=datetime.now(),
-        power=site.get("P_PV") or 0,  # nachts liefert Fronius null
-        energy_today=site.get("E_Day") or 0,
-        energy_year=site.get("E_Year") or 0,
-        energy_total=site.get("E_Total") or 0,
+        timestamp=datetime.now(timezone.utc),
+        # Fronius documents a null current-power value at night. Counter
+        # absence has different semantics and therefore remains unknown.
+        power=0.0 if power is None else power,
+        energy_today=optional_number("E_Day"),
+        energy_year=optional_number("E_Year"),
+        energy_total=optional_number("E_Total"),
     )
 
 
 def read_demo() -> EnergyReading:
     """Demo-Quelle: plausible Werte ohne Wechselrichter (ENERGYRADAR_DEMO=1)."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     return EnergyReading(
         timestamp=now,
         power=_demo_power(now),

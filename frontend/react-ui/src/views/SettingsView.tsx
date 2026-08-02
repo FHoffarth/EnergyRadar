@@ -494,6 +494,7 @@ export function SettingsView() {
                 ['Fronius', ...deviceSystemStatus('fronius_primary')],
                 ['Smart Meter', ...deviceSystemStatus('mt175_primary')],
                 ['Letzter Messwert', formatDateTime(system?.last_recorded_sample_at), Boolean(system?.last_recorded_sample_at)],
+                ['Wetter aktualisiert', formatDateTime(system?.weather_fetched_at), Boolean(system?.weather_fetched_at)],
               ].map(([label, value, healthy]) => (
                 <div key={String(label)} className="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
                   <span className={`w-2 h-2 rounded-full ${healthy ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -531,6 +532,8 @@ export function SettingsView() {
               ['Datenbankgröße', formatBytes(system?.database_size_bytes)],
               ['Schema-Version', system?.database_schema_version != null ? String(system.database_schema_version) : 'Nicht verfügbar'],
               ['Letzter Messwert', formatDateTime(system?.last_recorded_sample_at)],
+              ['Wetter aktualisiert', formatDateTime(system?.weather_fetched_at)],
+              ['Letzte Lücke beendet', formatDateTime(system?.last_gap_ended_at)],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>

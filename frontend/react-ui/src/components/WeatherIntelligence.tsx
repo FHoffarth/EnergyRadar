@@ -71,6 +71,30 @@ function safeDate(value?: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function localHourKey(date: Date, timezone?: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find(item => item.type === type)?.value ?? '';
+    return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}`;
+  } catch {
+    return date.toISOString().slice(0, 13);
+  }
+}
+
+export function hourlyForecastState(time: string, now: Date, timezone?: string): 'expired' | 'current' | 'future' {
+  const local = time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):/);
+  const pointKey = local ? `${local[1]}T${local[2]}` : (() => {
+    const parsed = safeDate(time);
+    return parsed ? localHourKey(parsed, timezone) : '';
+  })();
+  if (!pointKey) return 'expired';
+  const nowKey = localHourKey(now, timezone);
+  if (pointKey < nowKey) return 'expired';
+  return pointKey === nowKey ? 'current' : 'future';
+}
+
 function formatLocalTime(value: string, locale: NumberLocale, timezone?: string): string | null {
   // Open-Meteo returns local timestamps without an offset when `timezone` is
   // requested. Preserve that wall-clock time instead of parsing it in the
@@ -130,9 +154,9 @@ function SunEvent({ report, locale }: { report: WeatherReportData; locale: Numbe
 }
 
 function ForecastItem({
-  point, locale, timezone,
+  point, locale, timezone, current = false,
 }: {
-  point: HourlyWeatherData; locale: NumberLocale; timezone?: string;
+  point: HourlyWeatherData; locale: NumberLocale; timezone?: string; current?: boolean;
 }) {
   const time = formatLocalTime(point.time, locale, timezone);
   const temperature = formatTemperature(point.temperature_c, locale);
@@ -142,7 +166,7 @@ function ForecastItem({
 
   return (
     <li className="min-w-0 rounded-xl border border-sky-200/70 bg-white/55 px-3 py-2.5 text-center dark:border-sky-900/70 dark:bg-slate-950/25">
-      <time className="block text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">{time}</time>
+      <time className="block text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">{current ? 'Jetzt' : time}</time>
       <Icon className="mx-auto my-2 h-5 w-5 text-sky-700 dark:text-sky-300" aria-hidden />
       <span className="block text-sm font-semibold tabular-nums text-slate-900 dark:text-white">{temperature}</span>
       {probability !== null && probability !== undefined && (
@@ -155,11 +179,24 @@ function ForecastItem({
   );
 }
 
-export function CompactHourlyForecast({ report, locale }: { report: WeatherReportData | null; locale: NumberLocale }) {
+export function CompactHourlyForecast({ report, locale, now: fixedNow }: { report: WeatherReportData | null; locale: NumberLocale; now?: Date }) {
   const [expanded, setExpanded] = React.useState(false);
+  const [clock, setClock] = React.useState(() => fixedNow ?? new Date());
+  React.useEffect(() => {
+    if (fixedNow) {
+      setClock(fixedNow);
+      return undefined;
+    }
+    const current = new Date();
+    const nextHour = new Date(current);
+    nextHour.setMinutes(60, 0, 0);
+    const timer = window.setTimeout(() => setClock(new Date()), Math.max(1, nextHour.getTime() - current.getTime()));
+    return () => window.clearTimeout(timer);
+  }, [fixedNow, clock]);
   if (!report || report.status !== 'available') return null;
   const forecast = (report.hourly ?? []).filter(point => (
     typeof point?.time === 'string'
+    && hourlyForecastState(point.time, clock, report.location?.timezone) !== 'expired'
     && formatLocalTime(point.time, locale, report.location?.timezone) !== null
     && isFiniteNumber(point.temperature_c)
   )).slice(0, 24);
@@ -174,7 +211,8 @@ export function CompactHourlyForecast({ report, locale }: { report: WeatherRepor
       <ul className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-2">
         {visible.map(point => (
           <React.Fragment key={point.time}>
-            <ForecastItem point={point} locale={locale} timezone={report.location?.timezone} />
+            <ForecastItem point={point} locale={locale} timezone={report.location?.timezone}
+              current={hourlyForecastState(point.time, clock, report.location?.timezone) === 'current'} />
           </React.Fragment>
         ))}
       </ul>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 
@@ -109,6 +110,7 @@ class WeatherReport:
     served_from_cache: bool = False
     observed_at: Optional[str] = None
     fetched_at: Optional[str] = None
+    issued_at: Optional[str] = None
     location: Optional[ResolvedLocation] = None
     sun: Optional[SunData] = None
     current: Optional[CurrentWeather] = None
@@ -118,4 +120,18 @@ class WeatherReport:
     warnings: List[WeatherWarning] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        # Open-Meteo does not expose a separate model-run timestamp. The
+        # provider fetch instant is the honest issuance boundary we possess.
+        result["issued_at"] = self.issued_at or self.fetched_at
+        if self.fetched_at and isinstance(result.get("quality"), dict):
+            try:
+                fetched = datetime.fromisoformat(self.fetched_at.replace("Z", "+00:00"))
+                if fetched.tzinfo is None:
+                    fetched = fetched.replace(tzinfo=timezone.utc)
+                age = max(0, int((datetime.now(timezone.utc) - fetched.astimezone(timezone.utc)).total_seconds()))
+                result["quality"]["age_seconds"] = age
+                result["quality"]["freshness"] = "fresh" if age <= 1200 else "stale" if age <= 21600 else "expired"
+            except (TypeError, ValueError):
+                pass
+        return result

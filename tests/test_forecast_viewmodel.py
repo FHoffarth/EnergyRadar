@@ -29,7 +29,7 @@ def test_today_viewmodel_forecast_integration():
     )
 
     with patch("energyradar.services.forecast.SolarForecastEngine.generate_forecast", return_value=mock_forecast):
-        today_vm = build_today_vm_with_mt175(fronius=None, mt175=None)
+        today_vm = build_today_vm_with_mt175(fronius=None, mt175=None, solar_forecast=mock_forecast.to_dict())
         assert today_vm.solar_forecast is not None
         assert today_vm.solar_forecast["status"] == "available"
         assert today_vm.solar_forecast["installed_kwp"] == 8.5
@@ -60,6 +60,7 @@ def test_now_viewmodel_forecast_integration():
             fronius_error=None,
             mt175_error=None,
             stale_threshold_s=30.0,
+            solar_forecast=mock_forecast.to_dict(),
         )
         assert now_vm.solar_forecast is not None
         assert now_vm.solar_forecast["status"] == "disabled"

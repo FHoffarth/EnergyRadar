@@ -33,6 +33,15 @@ const rejectionCopy: Record<string, string> = {
   feed_in_tariff_missing_or_boundary: 'Der Einspeisetarif ist nicht für den gesamten erfassten Zeitraum bestätigt.',
   energy_unavailable_or_sparse: 'Für den erfassten Zeitraum fehlt eine belastbare Energiemenge.',
   required_component_unavailable: 'Mindestens ein erforderlicher Berechnungswert ist nicht verfügbar.',
+  two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zähleranker erforderlich.',
+  pv_total_anchor_missing: 'An mindestens einer Zeitraumgrenze fehlt der PV-Gesamtzähler.',
+  grid_export_total_anchor_missing: 'An mindestens einer Zeitraumgrenze fehlt der Einspeisezähler.',
+  pv_total_provider_unavailable: 'Der Wechselrichter war an einer erforderlichen Zeitraumgrenze nicht erreichbar.',
+  grid_export_total_provider_unavailable: 'Der Smart Meter war an einer erforderlichen Zeitraumgrenze nicht erreichbar.',
+  pv_total_counter_epoch_changed: 'Der PV-Zähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
+  grid_export_total_counter_epoch_changed: 'Der Einspeisezähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
+  pv_total_source_identity_changed: 'Die PV-Zählerwerte stammen nicht von derselben Quelle.',
+  grid_export_total_source_identity_changed: 'Die Einspeisezählerwerte stammen nicht von derselben Quelle.',
 };
 
 export function EconomySummary({ report, locale, scope = 'today' }: {

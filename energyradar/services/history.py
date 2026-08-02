@@ -136,11 +136,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     last_grid_export = None
     last_home = None
 
-    pv_wh_integrated = 0.0
-    grid_import_wh_integrated = 0.0
-    grid_export_wh_integrated = 0.0
-    home_wh_integrated = 0.0
-
     # Zähler-Logik
     first_pv_counter: Optional[float] = None
     last_pv_counter: Optional[float] = None
@@ -162,7 +157,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     econ_last_pv = econ_last_import = econ_last_export = None
     econ_pv_integration_start = econ_pv_integration_end = None
     econ_grid_integration_start = econ_grid_integration_end = None
-    econ_pv_wh = econ_import_wh = econ_export_wh = 0.0
     econ_pv_covered_s = econ_grid_covered_s = 0.0
 
     for row in samples:
@@ -191,7 +185,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
                         econ_pv_integration_start = econ_last_pv["time"]
                     econ_pv_integration_end = dt
                     econ_pv_covered_s += diff
-                    econ_pv_wh += ((pv_w + econ_last_pv["val"]) / 2) * (diff / 3600.0)
             econ_last_pv = {"time": dt, "val": pv_w} if pv_w is not None else None
         else:
             econ_last_pv = None
@@ -218,8 +211,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
                         econ_grid_integration_start = econ_last_import["time"]
                     econ_grid_integration_end = dt
                     econ_grid_covered_s += diff
-                    econ_import_wh += ((import_w + econ_last_import["val"]) / 2) * (diff / 3600.0)
-                    econ_export_wh += ((export_w + econ_last_export["val"]) / 2) * (diff / 3600.0)
             econ_last_import = {"time": dt, "val": import_w} if import_w is not None else None
             econ_last_export = {"time": dt, "val": export_w} if export_w is not None else None
         else:
@@ -261,7 +252,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             dt_diff = (dt - last_pv["time"]).total_seconds()
             if 0 < dt_diff <= MAX_GAP_SECONDS:
                 pv_covered_s += dt_diff
-                pv_wh_integrated += ((pv_w + last_pv["val"]) / 2) * (dt_diff / 3600.0)
 
         if pv_w is not None:
             last_pv = {"time": dt, "val": pv_w}
@@ -272,8 +262,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             dt_diff = (dt - last_grid_import["time"]).total_seconds()
             if 0 < dt_diff <= MAX_GAP_SECONDS:
                 grid_covered_s += dt_diff
-                grid_import_wh_integrated += ((grid_import_w + last_grid_import["val"]) / 2) * (dt_diff / 3600.0)
-                grid_export_wh_integrated += ((grid_export_w + last_grid_export["val"]) / 2) * (dt_diff / 3600.0)
 
         if grid_import_w is not None:
             last_grid_import = {"time": dt, "val": grid_import_w}
@@ -286,7 +274,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
             dt_diff = (dt - last_home["time"]).total_seconds()
             if 0 < dt_diff <= MAX_GAP_SECONDS:
                 home_covered_s += dt_diff
-                home_wh_integrated += ((home_w + last_home["val"]) / 2) * (dt_diff / 3600.0)
 
         if home_w is not None:
             last_home = {"time": dt, "val": home_w}
@@ -302,24 +289,16 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
     solar_kwh = None
     if last_pv_counter is not None and first_pv_counter is not None:
         solar_kwh = (last_pv_counter - first_pv_counter) / 1000.0
-        # Fronius energy_today might reset, so if it's smaller, it means a reset happened. Just use the last value as fallback if it's just today.
         if solar_kwh < 0:
-            solar_kwh = last_pv_counter / 1000.0
-
-    if solar_kwh is None and cov_pv > 0.5:
-        solar_kwh = pv_wh_integrated / 1000.0
+            solar_kwh = None
 
     import_kwh = None
     if last_grid_import_counter is not None and first_grid_import_counter is not None:
         import_kwh = (last_grid_import_counter - first_grid_import_counter) / 1000.0
-    if import_kwh is None and cov_grid > 0.5:
-        import_kwh = grid_import_wh_integrated / 1000.0
 
     export_kwh = None
     if last_grid_export_counter is not None and first_grid_export_counter is not None:
         export_kwh = (last_grid_export_counter - first_grid_export_counter) / 1000.0
-    if export_kwh is None and cov_grid > 0.5:
-        export_kwh = grid_export_wh_integrated / 1000.0
 
     # House energy is derived below from the hardened, period-compatible
     # counter/integration evidence rather than from live-power coverage.
@@ -340,7 +319,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
         last_counter: Optional[float],
         first_counter_at: Optional[datetime],
         last_counter_at: Optional[datetime],
-        integrated_wh: float,
         coverage: float,
         integration_start: Optional[datetime],
         integration_end: Optional[datetime],
@@ -365,18 +343,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
                 evidence_start, evidence_end = first_counter_at, last_counter_at
             else:
                 reason = "counter_reset_or_negative_delta"
-        if (
-            value_kwh is None
-            and coverage >= 0.5
-            and integration_start is not None
-            and integration_end is not None
-            and integration_end > integration_start
-        ):
-            value_kwh = integrated_wh / 1000.0
-            source = "integrated_power_history"
-            provenance = "trusted_power_observations"
-            evidence_start, evidence_end = integration_start, integration_end
-            reason = "counter_unusable_fallback_to_covered_power_history" if reason else None
         state = coverage_state(coverage)
         if source == "counter_delta" and state in {"sparse", "unavailable"}:
             # A guarded counter delta is exact for its captured endpoints. Low
@@ -402,7 +368,7 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
 
     solar_energy = economy_energy(
         econ_first_pv_counter, econ_last_pv_counter,
-        econ_first_pv_counter_at, econ_last_pv_counter_at, econ_pv_wh,
+        econ_first_pv_counter_at, econ_last_pv_counter_at,
         min(1.0, econ_pv_covered_s / total_seconds_today),
         econ_pv_integration_start, econ_pv_integration_end,
     )
@@ -411,7 +377,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
         econ_last_import_counter,
         econ_first_import_counter_at,
         econ_last_import_counter_at,
-        econ_import_wh,
         min(1.0, econ_grid_covered_s / total_seconds_today),
         econ_grid_integration_start,
         econ_grid_integration_end,
@@ -421,7 +386,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
         econ_last_export_counter,
         econ_first_export_counter_at,
         econ_last_export_counter_at,
-        econ_export_wh,
         min(1.0, econ_grid_covered_s / total_seconds_today),
         econ_grid_integration_start,
         econ_grid_integration_end,
@@ -452,7 +416,6 @@ def get_today_history(tz: timezone) -> dict[str, Any]:
         "source_hierarchy": [
             "counter_delta",
             "provider_energy_total",
-            "integrated_power_history",
             "unavailable",
         ],
         "solar_generation": solar_energy,

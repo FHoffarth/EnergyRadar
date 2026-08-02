@@ -334,7 +334,7 @@ def test_weather_connection_error_is_delivered_with_identity(tmp_path, monkeypat
 
 
 def test_weather_report_is_delivered_after_bridge_connection(tmp_path, monkeypatch):
-    from energyradar.services.weather.service import WeatherService
+    from energyradar.services.runtime import get_runtime
 
     report = MagicMock()
     report.to_dict.return_value = {
@@ -349,7 +349,7 @@ def test_weather_report_is_delivered_after_bridge_connection(tmp_path, monkeypat
         "quality": {"freshness": "fresh", "source": "open_meteo", "age_seconds": 0},
         "warnings": [],
     }
-    monkeypatch.setattr(WeatherService, "get_weather_report", lambda self, force_fresh=False: report)
+    get_runtime().projection.update_weather(report)
     bridge = _make_bridge(tmp_path, monkeypatch)
     received = []
     bridge.weatherReportChanged.connect(lambda payload: received.append(json.loads(payload)))

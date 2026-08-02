@@ -15,6 +15,9 @@ export interface PowerData {
   grid: DataState<number>;  // positive = grid draw, negative = feed-in
   home: DataState<number>;
   lastUpdated: string | null;
+  observedAt?: string | null;
+  receivedAt?: string | null;
+  sourceStates?: Record<string, string>;
   verdict?: string;
   verdict_kind?: string;
   solar_forecast?: SolarForecastReportData | null;
@@ -151,6 +154,10 @@ export interface SystemInfo {
   stored_samples: number;
   database_size_bytes: number;
   last_recorded_sample_at: string | null;
+  last_gap_ended_at?: string | null;
+  weather_fetched_at?: string | null;
+  fronius_state?: string;
+  smart_meter_state?: string;
 }
 
 export interface SettingsPayload {
@@ -248,6 +255,7 @@ export interface WeatherReportData {
   served_from_cache: boolean;
   observed_at: string | null;
   fetched_at: string | null;
+  issued_at?: string | null;
   location: ResolvedLocationData | null;
   sun: SunData | null;
   current: CurrentWeatherData | null;
