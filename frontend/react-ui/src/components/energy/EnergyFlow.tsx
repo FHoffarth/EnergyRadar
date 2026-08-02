@@ -15,12 +15,12 @@ import { buildFlowModel, EnergyFlowModel, FlowNodeModel, GridDirection } from '.
 type Tone = 'solar' | 'house' | 'import' | 'export' | 'neutral' | 'unknown';
 
 const TONE_VALUE: Record<Tone, string> = {
-  solar: 'text-amber-600 dark:text-amber-400',
-  house: 'text-indigo-600 dark:text-indigo-300',
-  import: 'text-orange-600 dark:text-orange-400',
-  export: 'text-emerald-600 dark:text-emerald-400',
-  neutral: 'text-slate-700 dark:text-slate-200',
-  unknown: 'text-slate-500 dark:text-slate-500',
+  solar: 'tone-solar',
+  house: 'tone-house',
+  import: 'tone-import',
+  export: 'tone-export',
+  neutral: 'tone-neutral',
+  unknown: 'tone-unknown',
 };
 
 function NodeValue({ node, tone, locale }: { node: FlowNodeModel; tone: Tone; locale: NumberLocale }) {

@@ -34,10 +34,10 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
 
   const periodNote = coverage.level === 'complete' ? 'heute' : 'im erfassten Zeitraum';
   const metrics: Array<{ label: string; value: string | null; tone: string; reason?: string | null }> = [
-    { label: 'Solarertrag', value: energyNumber(data.solarTotal, locale), tone: 'text-amber-600 dark:text-amber-400' },
-    { label: 'Hausverbrauch', value: energyNumber(data.homeTotal, locale), tone: 'text-indigo-600 dark:text-indigo-300', reason: houseReason },
-    { label: 'Netzbezug', value: energyNumber(data.gridDrawTotal, locale), tone: 'text-orange-600 dark:text-orange-400' },
-    { label: 'Einspeisung', value: energyNumber(data.gridFeedInTotal, locale), tone: 'text-emerald-600 dark:text-emerald-400' },
+    { label: 'Solarertrag', value: energyNumber(data.solarTotal, locale), tone: 'tone-solar' },
+    { label: 'Hausverbrauch', value: energyNumber(data.homeTotal, locale), tone: 'tone-house', reason: houseReason },
+    { label: 'Netzbezug', value: energyNumber(data.gridDrawTotal, locale), tone: 'tone-import' },
+    { label: 'Einspeisung', value: energyNumber(data.gridFeedInTotal, locale), tone: 'tone-export' },
   ];
 
   return (
@@ -48,7 +48,7 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
           <div className="evidence-item" key={metric.label}>
             <p className="evidence-item__label">{metric.label}</p>
             {metric.value === null ? (
-              <p className="evidence-item__value tabular-nums text-slate-500 dark:text-slate-500">{UNKNOWN_VALUE}</p>
+              <p className="evidence-item__value tabular-nums tone-unknown">{UNKNOWN_VALUE}</p>
             ) : (
               <p className={`evidence-item__value tabular-nums ${metric.tone}`}>{metric.value}<span className="metric-unit">kWh</span></p>
             )}
