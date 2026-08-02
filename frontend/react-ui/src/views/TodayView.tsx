@@ -5,7 +5,7 @@ import { Info } from 'lucide-react';
 import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
-import { CompactHourlyForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
+import { MultiDayWeatherForecast, WeatherIntelligence, nearTermSolarOutlook } from '../components/WeatherIntelligence';
 import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
@@ -87,6 +87,9 @@ export function TodayView() {
 
   const recording = describeRecording(settingsPayload?.system, { locale });
   const coverageLabel = { complete: 'Vollständig', partial: 'Teilweise', sparse: 'Wenige Daten', unavailable: 'Nicht verfügbar' }[coverage.level];
+  const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
+  // Cautious near-term outlook that binds the forecast to the day arc.
+  const nearTermOutlook = weatherEnabled ? nearTermSolarOutlook(weatherReport ?? null) : null;
 
   return (
     <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
@@ -224,23 +227,25 @@ export function TodayView() {
               Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
             </p>
           )}
+          {nearTermOutlook && (
+            <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="near-term-outlook">
+              <span className="font-medium text-slate-700 dark:text-slate-200">Ausblick:</span> {nearTermOutlook}
+            </p>
+          )}
         </section>
       )}
       {/* 4 — Solar Economy (assessment refined in Phase 4) */}
       <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
 
-      {/* 5 — Weather as energy context */}
-      <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-4">
-        <h2 className="cockpit-section-title">Wetter als Energie-Kontext</h2>
-        <WeatherIntelligence report={weatherReport} locale={locale} compact snapshot={snapshot} />
-        <CompactHourlyForecast report={weatherReport} locale={locale} />
-        <details className="text-sm text-slate-600 dark:text-slate-300">
-          <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Mehrtägige Vorschau</summary>
-          <div className="mt-3">
-            <MultiDayWeatherForecast report={weatherReport} locale={locale} />
-          </div>
-        </details>
-      </section>
+      {/* 5 — Weather as energy context: one surface (current + hourly, current
+          hour reads 'Jetzt', expired hours drop at the boundary), with the
+          multi-day outlook secondary behind its own disclosure. */}
+      {weatherEnabled && (
+        <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-4">
+          <WeatherIntelligence report={weatherReport} locale={locale} snapshot={snapshot} />
+          <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+        </section>
+      )}
 
       {/* 6 — Recording and coverage context */}
       <section aria-label="Aufzeichnung und Abdeckung" className="flex flex-col gap-2">

@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence, hourlyForecastState } from '../components/WeatherIntelligence';
+import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence, hourlyForecastState, nearTermSolarOutlook } from '../components/WeatherIntelligence';
 import { EnergySnapshot, WeatherReportData } from '../types';
 
 const freshSnapshot: EnergySnapshot = {
@@ -247,5 +247,34 @@ describe('WeatherIntelligence', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(13);
     fireEvent.click(screen.getByRole('button', { name: '1 weitere Stunden anzeigen' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(14);
+  });
+});
+
+describe('nearTermSolarOutlook — cautious forecast binding', () => {
+  const now = new Date('2099-07-29T12:00:00+02:00');
+
+  it('reads clear conditions from a low-cloud forecast', () => {
+    // completeReport clouds are 0,10,20,30 over the next four hours → clear.
+    expect(nearTermSolarOutlook(completeReport(), now)).toBe('Die nächsten Stunden bleiben überwiegend klar.');
+  });
+
+  it('flags more clouds ahead without claiming a PV drop', () => {
+    const cloudy = completeReport({ hourly: completeReport().hourly!.map(point => ({ ...point, cloud_cover_percent: 75, precipitation_probability_percent: 10 })) });
+    expect(nearTermSolarOutlook(cloudy, now)).toBe('Die Vorhersage zeigt für die nächsten Stunden mehr Wolken.');
+  });
+
+  it('flags likely precipitation ahead of cloud cover', () => {
+    const wet = completeReport({ hourly: completeReport().hourly!.map(point => ({ ...point, cloud_cover_percent: 80, precipitation_probability_percent: 80 })) });
+    expect(nearTermSolarOutlook(wet, now)).toBe('Für die nächsten Stunden ist Niederschlag wahrscheinlich.');
+  });
+
+  it('makes no forward claim from stale or unavailable weather', () => {
+    expect(nearTermSolarOutlook(completeReport({ quality: { freshness: 'stale', source: 'open_meteo', age_seconds: 7200 } }), now)).toBeNull();
+    expect(nearTermSolarOutlook(null, now)).toBeNull();
+  });
+
+  it('stays silent without enough supported cloud evidence', () => {
+    const sparse = completeReport({ hourly: completeReport().hourly!.map(point => ({ ...point, cloud_cover_percent: null })) });
+    expect(nearTermSolarOutlook(sparse, now)).toBeNull();
   });
 });

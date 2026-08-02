@@ -95,6 +95,30 @@ export function hourlyForecastState(time: string, now: Date, timezone?: string):
   return pointKey === nowKey ? 'current' : 'future';
 }
 
+/**
+ * A cautious, forward-looking solar outlook for the next few hours, derived
+ * only from forecast cloud-cover / precipitation data. Returns null unless the
+ * weather is fresh and the forecast actually supports a statement. It never
+ * claims direct causality on PV output — only what the forecast suggests for
+ * conditions — so it can be shown beside the day arc without overreaching.
+ */
+export function nearTermSolarOutlook(report: WeatherReportData | null, now: Date = new Date()): string | null {
+  if (!report || report.status !== 'available' || !hasFreshWeather(report)) return null;
+  const timezone = report.location?.timezone;
+  const future = (report.hourly ?? []).filter(point => (
+    typeof point?.time === 'string' && hourlyForecastState(point.time, now, timezone) !== 'expired'
+  )).slice(0, 4);
+  const clouds = future.map(point => point.cloud_cover_percent).filter(isFiniteNumber);
+  if (clouds.length < 2) return null; // not enough supported evidence
+  const averageCloud = clouds.reduce((sum, value) => sum + value, 0) / clouds.length;
+  const precipitation = future.map(point => point.precipitation_probability_percent).filter(isFiniteNumber);
+  const maxPrecipitation = precipitation.length ? Math.max(...precipitation) : null;
+  if (maxPrecipitation !== null && maxPrecipitation >= 60) return 'Für die nächsten Stunden ist Niederschlag wahrscheinlich.';
+  if (averageCloud >= 60) return 'Die Vorhersage zeigt für die nächsten Stunden mehr Wolken.';
+  if (averageCloud <= 25) return 'Die nächsten Stunden bleiben überwiegend klar.';
+  return null;
+}
+
 function formatLocalTime(value: string, locale: NumberLocale, timezone?: string): string | null {
   // Open-Meteo returns local timestamps without an offset when `timezone` is
   // requested. Preserve that wall-clock time instead of parsing it in the
