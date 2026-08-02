@@ -33,11 +33,11 @@ const rejectionCopy: Record<string, string> = {
   feed_in_tariff_missing_or_boundary: 'Der Einspeisetarif ist nicht für den gesamten erfassten Zeitraum bestätigt.',
   energy_unavailable_or_sparse: 'Für den erfassten Zeitraum fehlt eine belastbare Energiemenge.',
   required_component_unavailable: 'Mindestens ein erforderlicher Berechnungswert ist nicht verfügbar.',
-  two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zähleranker erforderlich.',
+  two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zählerstände erforderlich.',
   pv_total_anchor_missing: 'An mindestens einer Zeitraumgrenze fehlt der PV-Gesamtzähler.',
   grid_export_total_anchor_missing: 'An mindestens einer Zeitraumgrenze fehlt der Einspeisezähler.',
   pv_total_provider_unavailable: 'Der Wechselrichter war an einer erforderlichen Zeitraumgrenze nicht erreichbar.',
-  grid_export_total_provider_unavailable: 'Der Smart Meter war an einer erforderlichen Zeitraumgrenze nicht erreichbar.',
+  grid_export_total_provider_unavailable: 'Der Netzzähler war an einer erforderlichen Zeitraumgrenze nicht erreichbar.',
   pv_total_counter_epoch_changed: 'Der PV-Zähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
   grid_export_total_counter_epoch_changed: 'Der Einspeisezähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
   pv_total_source_identity_changed: 'Die PV-Zählerwerte stammen nicht von derselben Quelle.',
@@ -105,12 +105,13 @@ export function EconomySummary({ report, locale, scope = 'today' }: {
         </>
       ) : (
         /* Unavailable: one concise verdict (above) and the precise reason — no large empty panel. */
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{rejectionCopy[rejectionReason] ?? `Berechnungsgrund: ${rejectionReason}`}</p>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{rejectionCopy[rejectionReason] ?? 'Mindestens ein erforderlicher Wert ist für diesen Zeitraum nicht belastbar.'}</p>
       )}
       {/* 5 — technical details behind disclosure */}
       <details className="mt-4 text-sm text-slate-600 dark:text-slate-300">
         <summary className="cursor-pointer font-medium">Berechnungsdetails</summary>
         <div className="mt-3 space-y-2 text-xs">
+          {!available && <p className="break-all opacity-70">Berechnungsgrund (technisch): {rejectionReason}</p>}
           <p>Dieser Betrag setzt sich aus vermiedenen Stromkosten und geschätzter Einspeisevergütung zusammen.</p>
           <p>Direkter Eigenverbrauch: PV-Erzeugung minus Einspeisung – nur bei kompatibler Messgrundlage.</p>
           <p>Der Grundpreis bleibt unberücksichtigt, weil er unabhängig vom Verbrauch anfällt.</p>

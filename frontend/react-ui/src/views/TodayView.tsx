@@ -99,14 +99,14 @@ export function TodayView() {
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300">
           <Info className="w-4 h-4 shrink-0" />
-          <span>Verlauf und Ereignisse stammen aus dem aktiven Demo-Szenario. Bridge-Modus zeigt echte Tagesdaten.</span>
+          <span>Verlauf und Ereignisse stammen aus dem aktiven Demo-Szenario. Im verbundenen Modus werden echte Tagesdaten angezeigt.</span>
         </div>
       )}
 
       {noData && !isDemo && (
         <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-6">
           <p className="text-slate-700 dark:text-slate-300">
-            Der Tagesverlauf steht erst zur Verfügung, wenn eine Datenquelle über die Desktop-Bridge verbunden ist und Tagesdaten liefert.
+            Der Tagesverlauf steht zur Verfügung, sobald eine lokale Datenquelle verbunden ist und Tagesdaten liefert.
           </p>
         </div>
       )}

@@ -113,7 +113,7 @@ export function NowView() {
           {observedClock && <p>Letzte Messung: {observedClock} Uhr</p>}
           {recordingSinceClock && <p>Aufzeichnung seit: {recordingSinceClock} Uhr</p>}
           {settingsPayload?.system?.fronius_state && <p>Wechselrichter: {settingsPayload.system.fronius_state}</p>}
-          {settingsPayload?.system?.smart_meter_state && <p>Smart Meter: {settingsPayload.system.smart_meter_state}</p>}
+          {settingsPayload?.system?.smart_meter_state && <p>Netzzähler: {settingsPayload.system.smart_meter_state}</p>}
         </div>
       </details>
     </div>
