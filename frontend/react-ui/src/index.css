@@ -74,17 +74,23 @@
     background: var(--radar-surface-muted);
   }
 
+  /* A quiet section kicker — muted rather than accent-loud, so sections do not
+     all shout at equal volume and the hero can dominate. */
   .cockpit-eyebrow {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--radar-accent);
+    color: rgb(100 116 139);
+  }
+
+  .dark .cockpit-eyebrow {
+    color: rgb(148 163 184);
   }
 
   .cockpit-title {
-    font-size: clamp(1.625rem, 2vw, 2.125rem);
-    line-height: 1.18;
+    font-size: clamp(1.7rem, 2.1vw, 2.25rem);
+    line-height: 1.16;
     font-weight: 650;
     letter-spacing: -0.025em;
   }
@@ -191,14 +197,14 @@
   text-align: center;
 }
 
+/* Sentence-case, quiet node labels — not shouty uppercase micro-labels. */
 .flow-node__label {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
   color: rgb(100 116 139);
 }
 .dark .flow-node__label { color: rgb(148 163 184); }
@@ -307,6 +313,16 @@
 .evidence-item__reason { margin-top: 0.4rem; font-size: 0.7rem; line-height: 1.4; color: rgb(100 116 139); }
 .dark .evidence-item__reason { color: rgb(148 163 184); }
 @media (max-width: 720px) { .evidence-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
+
+/* A unit is subordinate to its figure — quieter and smaller, never competing. */
+.metric-unit { margin-left: 0.25em; font-size: 0.6em; font-weight: 500; letter-spacing: 0; color: rgb(148 163 184); }
+
+/* Certainty carried by weight + contrast, not colour alone.
+   measured = default strong · derived = quieter · projected = softest. */
+.certainty-derived { font-weight: 500; color: rgb(71 85 105); }
+.dark .certainty-derived { color: rgb(148 163 184); }
+.certainty-projected { font-weight: 400; color: rgb(100 116 139); }
+.dark .certainty-projected { color: rgb(148 163 184); }
 
 /* ── Solar Economy value ──────────────────────────────────────────────
    The verdict's figure. A provisional value reads visibly softer than a

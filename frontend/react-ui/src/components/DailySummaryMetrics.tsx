@@ -3,10 +3,11 @@ import { TodayData } from '../types';
 import { NumberLocale, UNKNOWN_VALUE, formatNumber } from '../lib/format';
 import { CoverageResult } from '../lib/storytelling';
 
-function energy(state: TodayData['solarTotal'], locale: NumberLocale): string {
+/** Numeric part only; the unit is rendered subordinately by the caller. Null = unavailable. */
+function energyNumber(state: TodayData['solarTotal'], locale: NumberLocale): string | null {
   return state.state === 'available' && Number.isFinite(state.value)
-    ? `${formatNumber(state.value, locale, { maximumFractionDigits: 2 })} kWh`
-    : UNKNOWN_VALUE;
+    ? formatNumber(state.value, locale, { maximumFractionDigits: 2 })
+    : null;
 }
 
 /**
@@ -32,11 +33,11 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
     : houseReasonCopy[data.homeTotalReason] ?? 'Mindestens eine erforderliche Energiesumme ist nicht belastbar.';
 
   const periodNote = coverage.level === 'complete' ? 'heute' : 'im erfassten Zeitraum';
-  const metrics: Array<{ label: string; value: string; tone: string; reason?: string | null }> = [
-    { label: 'Solarertrag', value: energy(data.solarTotal, locale), tone: 'text-amber-600 dark:text-amber-400' },
-    { label: 'Hausverbrauch', value: energy(data.homeTotal, locale), tone: 'text-indigo-600 dark:text-indigo-300', reason: houseReason },
-    { label: 'Netzbezug', value: energy(data.gridDrawTotal, locale), tone: 'text-orange-600 dark:text-orange-400' },
-    { label: 'Einspeisung', value: energy(data.gridFeedInTotal, locale), tone: 'text-emerald-600 dark:text-emerald-400' },
+  const metrics: Array<{ label: string; value: string | null; tone: string; reason?: string | null }> = [
+    { label: 'Solarertrag', value: energyNumber(data.solarTotal, locale), tone: 'text-amber-600 dark:text-amber-400' },
+    { label: 'Hausverbrauch', value: energyNumber(data.homeTotal, locale), tone: 'text-indigo-600 dark:text-indigo-300', reason: houseReason },
+    { label: 'Netzbezug', value: energyNumber(data.gridDrawTotal, locale), tone: 'text-orange-600 dark:text-orange-400' },
+    { label: 'Einspeisung', value: energyNumber(data.gridFeedInTotal, locale), tone: 'text-emerald-600 dark:text-emerald-400' },
   ];
 
   return (
@@ -46,7 +47,11 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
         {metrics.map(metric => (
           <div className="evidence-item" key={metric.label}>
             <p className="evidence-item__label">{metric.label}</p>
-            <p className={`evidence-item__value tabular-nums ${metric.value === UNKNOWN_VALUE ? 'text-slate-500 dark:text-slate-500' : metric.tone}`}>{metric.value}</p>
+            {metric.value === null ? (
+              <p className="evidence-item__value tabular-nums text-slate-500 dark:text-slate-500">{UNKNOWN_VALUE}</p>
+            ) : (
+              <p className={`evidence-item__value tabular-nums ${metric.tone}`}>{metric.value}<span className="metric-unit">kWh</span></p>
+            )}
             {metric.reason && <p className="evidence-item__reason">{metric.reason}</p>}
           </div>
         ))}
