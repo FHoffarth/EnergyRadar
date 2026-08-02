@@ -9,9 +9,13 @@ function energy(state: TodayData['solarTotal'], locale: NumberLocale): string {
     : UNKNOWN_VALUE;
 }
 
+/**
+ * The day's evidence — the figures that quantify the assessment. A typographic
+ * zone, not a grid of equal cards: labels are quiet, figures are the weight,
+ * whitespace does the separating. Unavailable metrics stay in place with a
+ * precise reason rather than vanishing or collapsing to zero.
+ */
 export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayData; coverage: CoverageResult; locale: NumberLocale }) {
-  const complete = coverage.level === 'complete';
-  const periodLabel = (daily: string, captured: string) => complete ? daily : captured;
   const houseReasonCopy: Record<string, string> = {
     house_energy_period_mismatch: 'PV, Netzbezug und Einspeisung beziehen sich nicht auf denselben Zeitraum.',
     house_energy_source_mismatch: 'Die Energiesummen stammen aus nicht kompatiblen Messgrundlagen.',
@@ -26,22 +30,27 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
   const houseReason = data.homeTotal.state === 'available' || !data.homeTotalReason
     ? null
     : houseReasonCopy[data.homeTotalReason] ?? 'Mindestens eine erforderliche Energiesumme ist nicht belastbar.';
-  const metrics = [
-    [periodLabel('Solar heute', 'Solar im erfassten Zeitraum'), energy(data.solarTotal, locale), 'text-amber-600 dark:text-amber-400'],
-    [periodLabel('Verbrauch heute', 'Verbrauch im erfassten Zeitraum'), energy(data.homeTotal, locale), 'text-indigo-600 dark:text-indigo-400', houseReason],
-    [periodLabel('Netzbezug heute', 'Netzbezug im erfassten Zeitraum'), energy(data.gridDrawTotal, locale), 'text-orange-600 dark:text-orange-400'],
-    [periodLabel('Einspeisung heute', 'Einspeisung im erfassten Zeitraum'), energy(data.gridFeedInTotal, locale), 'text-emerald-600 dark:text-emerald-400'],
-    ['Datenabdeckung', coverage.level === 'complete' ? 'Vollständig' : coverage.level === 'partial' ? 'Teilweise' : coverage.level === 'sparse' ? 'Wenige Daten' : UNKNOWN_VALUE, 'text-slate-700 dark:text-slate-200'],
+
+  const periodNote = coverage.level === 'complete' ? 'heute' : 'im erfassten Zeitraum';
+  const metrics: Array<{ label: string; value: string; tone: string; reason?: string | null }> = [
+    { label: 'Solarertrag', value: energy(data.solarTotal, locale), tone: 'text-amber-600 dark:text-amber-400' },
+    { label: 'Hausverbrauch', value: energy(data.homeTotal, locale), tone: 'text-indigo-600 dark:text-indigo-300', reason: houseReason },
+    { label: 'Netzbezug', value: energy(data.gridDrawTotal, locale), tone: 'text-orange-600 dark:text-orange-400' },
+    { label: 'Einspeisung', value: energy(data.gridFeedInTotal, locale), tone: 'text-emerald-600 dark:text-emerald-400' },
   ];
+
   return (
-    <section aria-label="Tagesübersicht" className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-      {metrics.map(([label, value, color, reason]) => (
-        <div className="cockpit-surface-muted px-4 py-3" key={label}>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-          <p className={`mt-1 text-lg font-semibold tabular-nums ${color}`}>{value}</p>
-          {reason && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reason}</p>}
-        </div>
-      ))}
+    <section aria-label="Tagesbilanz">
+      <p className="cockpit-eyebrow mb-3">Tagesbilanz · {periodNote}</p>
+      <div className="evidence-zone">
+        {metrics.map(metric => (
+          <div className="evidence-item" key={metric.label}>
+            <p className="evidence-item__label">{metric.label}</p>
+            <p className={`evidence-item__value tabular-nums ${metric.value === UNKNOWN_VALUE ? 'text-slate-500 dark:text-slate-500' : metric.tone}`}>{metric.value}</p>
+            {metric.reason && <p className="evidence-item__reason">{metric.reason}</p>}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

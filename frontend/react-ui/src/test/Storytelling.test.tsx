@@ -81,22 +81,25 @@ describe('storytelling trust rules', () => {
     expect(screen.getByText('0 kWh')).toBeTruthy();
     expect(screen.getByText('1,2 kWh')).toBeTruthy();
     expect(screen.getAllByText('—')).toHaveLength(2);
-    expect(screen.getByText('Solar im erfassten Zeitraum')).toBeTruthy();
-    expect(screen.queryByText('Solar heute')).toBeNull();
+    expect(screen.getByText('Tagesbilanz · im erfassten Zeitraum')).toBeTruthy();
+    expect(screen.queryByText('Tagesbilanz · heute')).toBeNull();
   });
 
   it('uses daily labels only for complete trustworthy coverage', () => {
     render(<DailySummaryMetrics data={totals({ solar: 4.2, home: 3.1, draw: 0.4, feed: 1.5 })}
       coverage={{ level: 'complete', measuredPoints: 10, gapCount: 0, firstTime: '00:00', lastTime: '12:00' }} locale="de-DE" />);
-    expect(screen.getByText('Solar heute')).toBeTruthy();
-    expect(screen.getByText('Netzbezug heute')).toBeTruthy();
+    expect(screen.getByText('Tagesbilanz · heute')).toBeTruthy();
+    expect(screen.queryByText('Tagesbilanz · im erfassten Zeitraum')).toBeNull();
+    expect(screen.getByText('Solarertrag')).toBeTruthy();
+    expect(screen.getByText('Netzbezug')).toBeTruthy();
   });
 
   it('shows derived partial consumption and a precise unavailable reason', () => {
     const partial = { level: 'partial' as const, measuredPoints: 4, gapCount: 1, firstTime: '08:00', lastTime: '09:00' };
     const { rerender } = render(<DailySummaryMetrics data={totals({ home: 3.81 })}
       coverage={partial} locale="de-DE" />);
-    expect(screen.getByText('Verbrauch im erfassten Zeitraum')).toBeTruthy();
+    expect(screen.getByText('Tagesbilanz · im erfassten Zeitraum')).toBeTruthy();
+    expect(screen.getByText('Hausverbrauch')).toBeTruthy();
     expect(screen.getByText('3,81 kWh')).toBeTruthy();
 
     const unavailable = totals();

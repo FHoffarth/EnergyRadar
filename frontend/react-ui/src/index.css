@@ -296,6 +296,18 @@
 .heartbeat--warn .heartbeat__dot { background: #f59e0b; }
 .heartbeat--warn .heartbeat__detail { color: inherit; opacity: 0.85; }
 
+/* ── Day evidence zone (Heute) ────────────────────────────────────────
+   Figures separated by whitespace, not borders. Labels quiet, numbers the
+   weight. */
+.evidence-zone { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 2.5rem); }
+.evidence-item { min-width: 0; }
+.evidence-item__label { font-size: 0.72rem; color: rgb(100 116 139); }
+.dark .evidence-item__label { color: rgb(148 163 184); }
+.evidence-item__value { margin-top: 0.2rem; font-size: clamp(1.3rem, 2vw, 1.7rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+.evidence-item__reason { margin-top: 0.4rem; font-size: 0.7rem; line-height: 1.4; color: rgb(100 116 139); }
+.dark .evidence-item__reason { color: rgb(148 163 184); }
+@media (max-width: 720px) { .evidence-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
+
 [data-text-size="large"] {
   font-size: 112.5%;
 }
