@@ -20,6 +20,6 @@ class EnergyReading:
 
     timestamp: datetime
     power: float
-    energy_today: float
-    energy_year: float
-    energy_total: float
+    energy_today: float | None
+    energy_year: float | None
+    energy_total: float | None

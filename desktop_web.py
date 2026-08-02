@@ -119,6 +119,8 @@ def main() -> None:
     _configure_file_logging()
     log.info("Starting EnergyRadar (React/WebEngine)...")
     migration.run_migrations()
+    from energyradar.services.runtime import start_runtime
+    runtime = start_runtime()
 
     app = QApplication(sys.argv)
     app.setApplicationName("EnergyRadar")
@@ -219,6 +221,7 @@ def main() -> None:
     def on_close() -> None:
         save_window_state()
         bridge.shutdown()
+        runtime.stop()
 
     app.aboutToQuit.connect(on_close)
 

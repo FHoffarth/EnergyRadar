@@ -14,6 +14,7 @@ Regeln:
 from __future__ import annotations
 
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
@@ -135,6 +136,7 @@ class EnergyBridge(QObject):
         self._test_lock = threading.Lock()
         self._testing_devices: set[str] = set()
         self._test_results: dict[str, dict] = {}
+        self._refresh_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="energyradar-ui")
 
         # Interne Signale verbinden (immer auf Main-Thread ausgeliefert)
         self._nowReady.connect(self._apply_now, Qt.ConnectionType.QueuedConnection)
@@ -190,12 +192,7 @@ class EnergyBridge(QObject):
                 return
             self._refresh_running = True
 
-        t = threading.Thread(
-            target=self._do_refresh,
-            name="energyradar-collector",
-            daemon=True,
-        )
-        t.start()
+        self._refresh_executor.submit(self._do_refresh)
 
     def _do_refresh(self) -> None:
         """Läuft auf dem Worker-Thread. Berührt keine Qt-Objekte direkt."""
@@ -209,123 +206,65 @@ class EnergyBridge(QObject):
 
     def _run_refresh(self) -> None:
         """Eigentliche Refresh-Logik auf dem Worker-Thread."""
-        from energyradar.collectors import fronius as fronius_coll
-        from energyradar.collectors import mt175 as mt175_coll
-        from energyradar.services import data_source as ds
-        from energyradar.services import storage
-        from energyradar.models.energy import QualityStatus
+        from datetime import datetime
+        import zoneinfo
+        from energyradar import config
+        from energyradar.services import periods
+        from energyradar.services.runtime import get_runtime
         from energyradar.ui import viewmodels
-        from datetime import datetime, timezone
 
-        fronius_source = ds.effective()
+        runtime_snapshot = get_runtime().projection.snapshot()
+        pv_state = runtime_snapshot.fronius
+        meter_state = runtime_snapshot.smart_meter
         effective_settings = ui_settings.resolve_effective()
-        mt175_address = str(effective_settings["mt175_address"] or "").strip()
         stale_s = int(effective_settings["refresh_seconds"]) * _STALE_MULTIPLIER
+        tz = zoneinfo.ZoneInfo(config.MT175_TIMEZONE)
+        now = datetime.now(tz)
+        period_report = periods.calculate_period(
+            now.replace(hour=0, minute=0, second=0, microsecond=0), now
+        )
+        forecast = runtime_snapshot.forecast_report
+        forecast_dict = forecast.to_dict() if forecast is not None else None
 
-        fronius_reading = None
-        mt175_reading = None
-        fronius_error: Optional[str] = None
-        mt175_error: Optional[str] = None
-
-        # ── Fronius-Lesung ──────────────────────────────────────────
-        if fronius_source is not None or config.DEMO:
-            try:
-                fronius_reading = (
-                    fronius_coll.read_demo() if config.DEMO else fronius_coll.read()
-                )
-            except Exception as exc:
-                fronius_error = str(exc)
-                log.warning("Fronius-Collector Fehler: %s", exc)
-
-        # ── MT175-Lesung (parallel) ──────────────────────────────────
-        mt175_thread = None
-        if mt175_address or config.DEMO:
-            def _read_mt175() -> None:
-                nonlocal mt175_reading, mt175_error
-                try:
-                    mt175_reading = (
-                        mt175_coll.read_demo() if config.DEMO else mt175_coll.read_url(mt175_address)
-                    )
-                except Exception as exc:
-                    mt175_error = str(exc)
-                    log.warning("Tasmota-Smart-Meter-Collector Fehler: %s", exc)
-
-            mt175_thread = threading.Thread(
-                target=_read_mt175, name="mt175-reader", daemon=True
-            )
-            mt175_thread.start()
-
-        if mt175_thread is not None:
-            mt175_thread.join(timeout=15)
-
-        fronius_configured = fronius_source is not None or config.DEMO
-        mt175_configured = bool(mt175_address)
-
-        # ── Messwert in SQLite persistieren ──────────────────────────
-        measured_at = datetime.now(timezone.utc)
-
-        pv_q = QualityStatus.VALID if fronius_reading else (QualityStatus.OFFLINE if fronius_configured else QualityStatus.UNKNOWN)
-        grid_q = QualityStatus.VALID if mt175_reading else (QualityStatus.OFFLINE if mt175_configured else QualityStatus.UNKNOWN)
-        if mt175_reading and mt175_reading.pin_locked:
-            grid_q = QualityStatus.LOCKED
-        elif mt175_reading and mt175_reading.current_power_w is None:
-            grid_q = QualityStatus.PARTIAL
-        elif mt175_error:
-            grid_q = QualityStatus.INVALID
-
-        sample_q = QualityStatus.VALID
-        if (
-            not fronius_reading
-            or not mt175_reading
-            or mt175_reading.current_power_w is None
-        ):
-            sample_q = QualityStatus.PARTIAL
-
-        if fronius_configured or mt175_configured:
-            # Nur speichern, wenn mindestens eine Quelle konfiguriert ist
-            storage.save_sample(
-                measured_at=measured_at,
-                received_at=measured_at,
-                pv=fronius_reading,
-                mt175=mt175_reading,
-                pv_quality=pv_q,
-                grid_quality=grid_q,
-                sample_quality=sample_q
-            )
-
-        # ── Viewmodels bauen ─────────────────────────────────────────
         now_vm = viewmodels.build_now_vm(
-            fronius=fronius_reading,
-            mt175=mt175_reading,
-            fronius_configured=fronius_configured,
-            mt175_configured=mt175_configured,
-            fronius_error=fronius_error,
-            mt175_error=mt175_error,
+            fronius=pv_state.reading,
+            mt175=meter_state.reading,
+            fronius_configured=pv_state.configured,
+            mt175_configured=meter_state.configured,
+            fronius_error=pv_state.error_code,
+            mt175_error=meter_state.error_code,
             stale_threshold_s=stale_s,
+            solar_forecast=forecast_dict,
+            observed_at_utc=max(
+                (value for value in (pv_state.observed_at, meter_state.observed_at) if value is not None),
+                default=None,
+            ).isoformat() if pv_state.observed_at or meter_state.observed_at else None,
+            received_at_utc=max(
+                (value for value in (pv_state.received_at, meter_state.received_at) if value is not None),
+                default=None,
+            ).isoformat() if pv_state.received_at or meter_state.received_at else None,
+            source_states={"fronius": pv_state.health, "smart_meter": meter_state.health},
         )
-
-        today_vm = viewmodels.build_today_vm_with_mt175(
-            fronius=fronius_reading,
-            mt175=mt175_reading,
+        today_vm = viewmodels.build_today_vm_from_anchors(
+            fronius=pv_state.reading,
+            mt175=meter_state.reading,
+            period_report=period_report,
+            solar_forecast=forecast_dict,
+            has_source=pv_state.configured or meter_state.configured,
         )
-
         devices_vm = viewmodels.build_devices_vm(
-            fronius=fronius_reading,
-            mt175=mt175_reading,
-            fronius_configured=fronius_configured,
-            mt175_configured=mt175_configured,
-            fronius_error=fronius_error,
-            mt175_error=mt175_error,
-            mt175_address=mt175_address,
+            fronius=pv_state.reading,
+            mt175=meter_state.reading,
+            fronius_configured=pv_state.configured,
+            mt175_configured=meter_state.configured,
+            fronius_error=pv_state.error_code,
+            mt175_error=meter_state.error_code,
+            mt175_address=str(effective_settings["mt175_address"] or "").strip(),
             test_results=self._test_results,
         )
-
-        # ── Ergebnisse über Signale auf den Main-Thread posten ───────
         self._nowReady.emit(json.dumps(dataclasses.asdict(now_vm), ensure_ascii=False))
         self._todayReady.emit(json.dumps(dataclasses.asdict(today_vm), ensure_ascii=False))
-        self._devicesReady.emit(
-            json.dumps([dataclasses.asdict(d) for d in devices_vm], ensure_ascii=False)
-        )
+        self._devicesReady.emit(json.dumps([dataclasses.asdict(item) for item in devices_vm], ensure_ascii=False))
 
     # ---------------------------------------------------------------- #
     # Slots (Main-Thread) für interne Signal-Lieferung
@@ -386,6 +325,7 @@ class EnergyBridge(QObject):
             from datetime import datetime, timezone
             from energyradar.collectors import mt175 as mt175_coll
             from energyradar.services import data_source as ds
+            from energyradar.services.runtime import get_runtime
 
             start_time = time.time()
             try:
@@ -394,8 +334,7 @@ class EnergyBridge(QObject):
                     if not src:
                         res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "Fronius ist nicht konfiguriert", "capabilities": []}
                     else:
-                        from energyradar.collectors import fronius as fc
-                        fc.read_url(src["url"], require_local=True)
+                        get_runtime().probe_source("fronius", src["url"])
                         latency = int((time.time() - start_time) * 1000)
                         res = {"ok": True, "status": "connected", "latency_ms": latency, "message": "Gerät antwortet", "capabilities": ["current_power", "daily_energy"]}
                 elif target_id == "mt175_primary":
@@ -404,8 +343,7 @@ class EnergyBridge(QObject):
                     if not addr:
                         res = {"ok": False, "status": "unconfigured", "latency_ms": 0, "message": "Smart Meter ist nicht konfiguriert", "capabilities": []}
                     else:
-                        from energyradar.collectors import mt175 as mc
-                        reading = mc.read_url(addr)
+                        reading = get_runtime().probe_source("smart_meter", addr)
                         latency = int((time.time() - start_time) * 1000)
                         res = _smart_meter_connection_result(reading, latency)
                 else:
@@ -682,8 +620,10 @@ class EnergyBridge(QObject):
             # Sende frischen Wetterbericht asynchron auf Hintergrundthread
             def _async_report():
                 try:
-                    ws = WeatherService()
-                    report = ws.get_weather_report(force_fresh=False)
+                    from energyradar.services.runtime import get_runtime
+                    runtime = get_runtime()
+                    runtime.refresh_weather()
+                    report = runtime.projection.snapshot().weather_report
                     rep_json = json.dumps(report.to_dict(), ensure_ascii=False)
                     self._weatherReportReady.emit(rep_json)
                 except Exception as e:
@@ -716,8 +656,13 @@ class EnergyBridge(QObject):
 
         def _do_request() -> None:
             try:
-                report = WeatherService().get_weather_report(force_fresh=False)
-                payload = report.to_dict()
+                from energyradar.services.runtime import get_runtime
+                report = get_runtime().projection.snapshot().weather_report
+                payload = report.to_dict() if report is not None else {
+                    "status": "no_data_yet", "provider_status": "unknown",
+                    "served_from_cache": False, "observed_at": None,
+                    "fetched_at": None, "quality": None, "warnings": [],
+                }
             except Exception:
                 log.exception("Wetterbericht konnte nicht geladen werden")
                 payload = {
@@ -756,8 +701,10 @@ class EnergyBridge(QObject):
         def _do_test():
             start_time = time.time()
             try:
-                ws = WeatherService()
-                report = ws.get_weather_report(force_fresh=True)
+                from energyradar.services.runtime import get_runtime
+                runtime = get_runtime()
+                runtime.refresh_weather()
+                report = runtime.projection.snapshot().weather_report
                 latency = int((time.time() - start_time) * 1000)
 
                 is_ok = (report.status == "available" and report.provider_status == "reachable")
@@ -793,9 +740,14 @@ class EnergyBridge(QObject):
     @Slot()
     def validateWeatherConfiguration(self) -> None:
         """Prüft die Standortkonfiguration für Wetter (Sprint 5A & 5B)."""
-        from energyradar.services.weather.service import WeatherService
-        ws = WeatherService()
-        report = ws.get_weather_report(force_fresh=False)
+        from energyradar.services.runtime import get_runtime
+        report = get_runtime().projection.snapshot().weather_report
+        if report is None:
+            self.weatherConfigurationResult.emit(json.dumps({
+                "ok": False, "status": "no_data_yet",
+                "message": "Wetterdaten wurden noch nicht aktualisiert.",
+            }, ensure_ascii=False))
+            return
 
         if report.status == "disabled":
             res = {"ok": True, "status": "disabled", "message": "Wetterdaten sind aktuell deaktiviert."}
@@ -996,6 +948,7 @@ class EnergyBridge(QObject):
     def shutdown(self) -> None:
         """Sauberes Herunterfahren: Timer stoppen, laufenden Thread abwarten."""
         self._timer.stop()
+        self._refresh_executor.shutdown(wait=True, cancel_futures=True)
         log.info("EnergyBridge heruntergefahren.")
 
 
@@ -1005,17 +958,16 @@ class EnergyBridge(QObject):
 
 def _run_connection_test(device_id: str, address: str) -> tuple[bool, str]:
     from energyradar.ui.strings_de import S
+    from energyradar.services.runtime import get_runtime
     try:
         if device_id == "fronius":
-            from energyradar.collectors import fronius as fc
             from energyradar.services import data_source as ds
             normalized = ds.normalize_address(address)
-            fc.read_url(normalized, require_local=True)
+            get_runtime().probe_source("fronius", normalized)
             return True, S.settings_test_ok
 
         if device_id == "mt175":
-            from energyradar.collectors import mt175 as mc
-            mc.read_url(address)
+            get_runtime().probe_source("smart_meter", address)
             return True, S.settings_test_ok
 
     except Exception as exc:

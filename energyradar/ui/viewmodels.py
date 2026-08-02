@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,9 @@ class NowViewModel:
 
     # Solar-Prognose (Sprint 5D)
     solar_forecast: Optional[dict] = None
+    observed_at_utc: Optional[str] = None
+    received_at_utc: Optional[str] = None
+    source_states: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -259,6 +263,10 @@ def build_now_vm(
     fronius_error: Optional[str],
     mt175_error: Optional[str],
     stale_threshold_s: float,
+    solar_forecast: Optional[dict] = None,
+    observed_at_utc: Optional[str] = None,
+    received_at_utc: Optional[str] = None,
+    source_states: Optional[dict] = None,
 ) -> NowViewModel:
     from energyradar.ui.strings_de import S
 
@@ -360,15 +368,6 @@ def build_now_vm(
         mt175=mt175,
     )
 
-    # Solar-Prognose (Sprint 5D)
-    try:
-        from energyradar.services.forecast import SolarForecastEngine
-        forecast_report = SolarForecastEngine().generate_forecast()
-        solar_forecast_dict = forecast_report.to_dict()
-    except Exception as exc:
-        log.warning("Fehler beim Erstellen des Forecast-Viewmodels: %s", exc)
-        solar_forecast_dict = None
-
     return NowViewModel(
         verdict=verdict,
         verdict_kind=verdict_kind,
@@ -384,7 +383,10 @@ def build_now_vm(
         data_quality=data_quality,
         freshness_label=freshness_label,
         pin_locked=pin_locked,
-        solar_forecast=solar_forecast_dict,
+        solar_forecast=solar_forecast,
+        observed_at_utc=observed_at_utc,
+        received_at_utc=received_at_utc,
+        source_states=source_states or {},
     )
 
 
@@ -457,68 +459,77 @@ def _make_freshness_label(
 
 # ------------------------------------------------------------------ #
 
-def build_today_vm_with_mt175(*, fronius, mt175) -> TodayViewModel:
-    """Heute-Viewmodel über HistoryService."""
-    from energyradar.ui.strings_de import S
-    from energyradar.services import history
+def build_today_vm_with_mt175(*, fronius, mt175, solar_forecast: Optional[dict] = None) -> TodayViewModel:
+    return build_today_vm_from_anchors(fronius=fronius, mt175=mt175, solar_forecast=solar_forecast)
+
+
+def build_today_vm_from_anchors(
+    *, fronius, mt175, period_report: Optional[dict] = None,
+    solar_forecast: Optional[dict] = None, has_source: Optional[bool] = None,
+) -> TodayViewModel:
+    """Build factual totals from anchors; samples remain curve-only."""
     from energyradar import config
+    from energyradar.services import economy, history, periods, tariffs
+    from energyradar.ui.strings_de import S
     import zoneinfo
 
-    has_source = fronius is not None or mt175 is not None
-
     tz = zoneinfo.ZoneInfo(config.MT175_TIMEZONE)
+    now = datetime.now(tz)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     hist_data = history.get_today_history(tz)
+    report = period_report or periods.calculate_period(start_of_day, now)
+    metrics = report["metrics"]
 
-    summary = hist_data["summary"]
+    def value(name: str) -> Optional[float]:
+        raw = metrics[name].get("value_kwh")
+        return float(Decimal(raw)) if raw is not None else None
 
+    gen_kwh = value("pv_generation")
+    cons_kwh = value("house_consumption")
+    imp_kwh = value("grid_import")
+    exp_kwh = value("grid_export")
     try:
-        from energyradar.services import economy, tariffs
         economy_data = economy.calculate_period(
-            hist_data["economy_basis"], tariffs.list_records()
+            periods.economy_basis(report, timezone_name=str(tz)),
+            tariffs.list_records(),
         )
     except Exception as exc:
-        log.warning("Solar-Economy-Berechnung nicht verfügbar: %s", exc)
+        log.warning("Anchor-based Solar Economy unavailable: %s", exc)
         economy_data = {
-            "period": hist_data["period"],
-            "coverage_state": "unavailable",
-            "provisional": False,
-            "results": {},
-            "reason": "calculation_unavailable",
+            "period": report.get("actual_period") or report["requested_period"],
+            "coverage_state": "unavailable", "provisional": False,
+            "results": {}, "reason": "calculation_unavailable",
         }
 
-    gen_kwh = summary["solar_kwh"]
-    cons_kwh = summary["consumption_kwh"]
-    imp_kwh = summary["grid_import_kwh"]
-    exp_kwh = summary["grid_export_kwh"]
-
-    # Solar-Prognose (Sprint 5E)
-    try:
-        from energyradar.services.forecast import SolarForecastEngine
-        forecast_report = SolarForecastEngine().generate_forecast()
-        solar_forecast_dict = forecast_report.to_dict()
-    except Exception as exc:
-        log.warning("Fehler beim Erstellen des Forecast-Viewmodels für Today: %s", exc)
-        solar_forecast_dict = None
+    self_consumption_pct = None
+    if gen_kwh is not None and gen_kwh > 0 and exp_kwh is not None:
+        self_consumption_pct = max(0, min(100, round((1 - exp_kwh / gen_kwh) * 100)))
+    autarky_pct = None
+    if cons_kwh is not None and cons_kwh > 0 and imp_kwh is not None:
+        autarky_pct = max(0, min(100, round((1 - imp_kwh / cons_kwh) * 100)))
 
     return TodayViewModel(
         generated_kwh=gen_kwh,
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
         consumption_kwh=cons_kwh,
         consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
-        consumption_reason=summary.get("consumption_reason"),
+        consumption_reason=metrics["house_consumption"].get("reason"),
         import_total_kwh=imp_kwh,
         import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
         export_total_kwh=exp_kwh,
         export_total_label=_fmt_energy(exp_kwh) if exp_kwh is not None else S.label_unknown,
-        self_consumption_pct=summary["self_consumption_pct"],
-        autarky_pct=summary["autarky_pct"],
+        self_consumption_pct=self_consumption_pct,
+        autarky_pct=autarky_pct,
         coverage=hist_data["coverage"],
-        period=hist_data["period"],
+        period={
+            **hist_data["period"], "counter_anchors": report.get("actual_period"),
+            "start_anchor": report.get("start_anchor"), "end_anchor": report.get("end_anchor"),
+        },
         history=hist_data["points"],
-        has_data=len(hist_data["points"]) > 0,
-        has_source=has_source,
+        has_data=bool(hist_data["points"]),
+        has_source=(fronius is not None or mt175 is not None) if has_source is None else has_source,
         economy=economy_data,
-        solar_forecast=solar_forecast_dict,
+        solar_forecast=solar_forecast,
     )
 
 
@@ -746,6 +757,7 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
     import sqlite3
     from datetime import datetime, timezone
     from pathlib import Path
+    from energyradar.services.runtime import get_runtime
 
     path = Path(database_path)
     result = {
@@ -755,6 +767,10 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
         "stored_samples": 0,
         "database_size_bytes": path.stat().st_size if path.exists() else 0,
         "last_recorded_sample_at": None,
+        "last_gap_ended_at": None,
+        "weather_fetched_at": None,
+        "fronius_state": "not_configured",
+        "smart_meter_state": "not_configured",
     }
     if not path.is_file():
         return result
@@ -779,20 +795,19 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
                 FROM energy_samples_v1
                 """
             ).fetchone()
+            run_row = con.execute(
+                "SELECT started_at_utc FROM recording_runs WHERE clean_shutdown_at_utc IS NULL ORDER BY run_id DESC LIMIT 1"
+            ).fetchone()
         result["stored_samples"] = int(count)
-        result["recording_since"] = first
+        result["recording_since"] = run_row[0] if run_row else first
         result["last_recorded_sample_at"] = last
-        if last:
-            parsed = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            age_seconds = max(
-                0.0,
-                (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds(),
-            )
-            result["recording_active"] = age_seconds <= max(
-                30, refresh_seconds * 3
-            )
+        projection = get_runtime().projection.snapshot()
+        result["recording_active"] = projection.recording_active
+        result["last_gap_ended_at"] = projection.last_gap_ended_at.isoformat() if projection.last_gap_ended_at else None
+        weather_fetched_at = getattr(projection.weather_report, "fetched_at", None)
+        result["weather_fetched_at"] = weather_fetched_at if isinstance(weather_fetched_at, str) else None
+        result["fronius_state"] = projection.fronius.health
+        result["smart_meter_state"] = projection.smart_meter.health
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return result
     return result

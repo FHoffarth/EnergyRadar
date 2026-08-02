@@ -12,6 +12,7 @@ from energyradar.models.report import (
     ReportModel, ReportDataPoint, ReportSummary, ReportCoverage, ReportEvent
 )
 from energyradar.services import storage, history
+from energyradar.services import periods
 from energyradar import config
 
 def get_report_data(start_date: datetime, end_date: datetime, label: str) -> ReportModel:
@@ -40,11 +41,6 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
     last_grid_import = None
     last_grid_export = None
     last_home = None
-
-    pv_wh_int = 0.0
-    grid_import_wh_int = 0.0
-    grid_export_wh_int = 0.0
-    home_wh_int = 0.0
 
     first_pv_c = None
     last_pv_c = None
@@ -86,15 +82,12 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
             diff = (dt - last_pv["time"]).total_seconds()
             if 0 < diff <= history.MAX_GAP_SECONDS:
                 pv_covered_s += diff
-                pv_wh_int += ((pv_w + last_pv["val"]) / 2) * (diff / 3600.0)
         last_pv = {"time": dt, "val": pv_w} if pv_w is not None else None
 
         if last_grid_import is not None and grid_imp_w is not None:
             diff = (dt - last_grid_import["time"]).total_seconds()
             if 0 < diff <= history.MAX_GAP_SECONDS:
                 grid_covered_s += diff
-                grid_import_wh_int += ((grid_imp_w + last_grid_import["val"]) / 2) * (diff / 3600.0)
-                grid_export_wh_int += ((grid_exp_w + last_grid_export["val"]) / 2) * (diff / 3600.0)
 
         if grid_imp_w is not None:
             last_grid_import = {"time": dt, "val": grid_imp_w}
@@ -107,7 +100,6 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
             diff = (dt - last_home["time"]).total_seconds()
             if 0 < diff <= history.MAX_GAP_SECONDS:
                 home_covered_s += diff
-                home_wh_int += ((home_w + last_home["val"]) / 2) * (diff / 3600.0)
         last_home = {"time": dt, "val": home_w} if home_w is not None else None
 
         measurements.append(ReportDataPoint(
@@ -134,21 +126,15 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
     solar_kwh = None
     if last_pv_c is not None and first_pv_c is not None:
         solar_kwh = (last_pv_c - first_pv_c) / 1000.0
-        if solar_kwh < 0: solar_kwh = last_pv_c / 1000.0
-    if solar_kwh is None and cov_pv > 0.5:
-        solar_kwh = pv_wh_int / 1000.0
+        if solar_kwh < 0: solar_kwh = None
 
     import_kwh = None
     if last_imp_c is not None and first_imp_c is not None:
         import_kwh = (last_imp_c - first_imp_c) / 1000.0
-    if import_kwh is None and cov_grid > 0.5:
-        import_kwh = grid_import_wh_int / 1000.0
 
     export_kwh = None
     if last_exp_c is not None and first_exp_c is not None:
         export_kwh = (last_exp_c - first_exp_c) / 1000.0
-    if export_kwh is None and cov_grid > 0.5:
-        export_kwh = grid_export_wh_int / 1000.0
 
     consumption_kwh = None
     if solar_kwh is not None and import_kwh is not None and export_kwh is not None:
@@ -168,6 +154,26 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
         overall_quality = "partial"
     if len(measurements) == 0:
         overall_quality = "no_data"
+
+    # Report/Memory factual totals use the same counter-anchor contract as
+    # Today and Economy. The sample loop above is curve/coverage evidence only.
+    anchor_report = periods.calculate_period(start_date, end_date)
+    anchor_metrics = anchor_report["metrics"]
+
+    def anchor_value(name: str):
+        raw = anchor_metrics[name].get("value_kwh")
+        return float(raw) if raw is not None else None
+
+    solar_kwh = anchor_value("pv_generation")
+    import_kwh = anchor_value("grid_import")
+    export_kwh = anchor_value("grid_export")
+    consumption_kwh = anchor_value("house_consumption")
+    autarky_pct = None
+    if consumption_kwh is not None and consumption_kwh > 0 and import_kwh is not None:
+        autarky_pct = max(0, min(100, round((1 - import_kwh / consumption_kwh) * 100)))
+    self_consumption_pct = None
+    if solar_kwh is not None and solar_kwh > 0 and export_kwh is not None:
+        self_consumption_pct = max(0, min(100, round((1 - export_kwh / solar_kwh) * 100)))
 
     summary = ReportSummary(
         solar_kwh=round(solar_kwh, 2) if solar_kwh is not None else None,

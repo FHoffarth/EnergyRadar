@@ -80,7 +80,8 @@ class FlaskServer(threading.Thread):
 
     def __init__(self, host: str, port: int) -> None:
         super().__init__(daemon=True, name="energyradar-flask")
-        from app import _seed_demo_history, app
+        from app import app
+        from energyradar.services.runtime import start_runtime
 
         # Im gepackten Zustand liegen templates/ und static/ neben dem Programm.
         if getattr(sys, "frozen", False):
@@ -89,7 +90,7 @@ class FlaskServer(threading.Thread):
             app.template_folder = str(base / "templates")
             app.static_folder = str(base / "static")
 
-        _seed_demo_history()  # unverändert: nur im Demo-Modus aktiv
+        self._runtime = start_runtime()
         self._server = make_server(host, port, app, threaded=True)
 
     def run(self) -> None:
@@ -97,6 +98,7 @@ class FlaskServer(threading.Thread):
 
     def shutdown(self) -> None:
         self._server.shutdown()
+        self._runtime.stop()
 
 
 def _wait_until_ready(host: str, port: int, timeout: float) -> bool:

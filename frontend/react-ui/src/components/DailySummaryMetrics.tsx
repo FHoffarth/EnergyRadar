@@ -17,6 +17,11 @@ export function DailySummaryMetrics({ data, coverage, locale }: { data: TodayDat
     house_energy_source_mismatch: 'Die Energiesummen stammen aus nicht kompatiblen Messgrundlagen.',
     house_energy_provenance_mismatch: 'Die Energiesummen haben keine kompatible Datenherkunft.',
     house_energy_balance_negative: 'Die Energiebilanz ist negativ und damit nicht konsistent.',
+    house_consumption_negative: 'Die Zählerbilanz ergibt einen negativen Verbrauch und ist nicht konsistent.',
+    battery_free_topology_not_confirmed: 'Die Anlagenstruktur ist für diese Verbrauchsformel nicht bestätigt.',
+    house_dependency_two_compatible_anchors_required: 'Für den Zeitraum sind zwei kompatible Zähleranker erforderlich.',
+    house_dependency_grid_import_total_provider_unavailable: 'Der Smart Meter war an einem erforderlichen Zähleranker nicht erreichbar.',
+    house_dependency_pv_total_counter_epoch_changed: 'Der PV-Zähler wurde im Zeitraum zurückgesetzt oder ausgetauscht.',
   };
   const houseReason = data.homeTotal.state === 'available' || !data.homeTotalReason
     ? null

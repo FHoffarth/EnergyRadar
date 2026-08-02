@@ -3,13 +3,14 @@
 Orchestriert Collector, Decision Engine und Storage. Keine eigene Fachlogik.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from energyradar import config
-from energyradar.collectors import fronius
-from energyradar.services import data_source, decision, storage
+from energyradar.services import data_source, decision
+from energyradar.services.periods import calculate_period
+from energyradar.services.runtime import get_runtime, start_runtime
 
 import os
 import sys
@@ -19,10 +20,8 @@ app = Flask(__name__)
 
 
 def _seed_demo_history() -> None:
-    """Im Demo-Modus einmalig eine Tageskurve anlegen,
-    damit Diagramm und Peak sofort sichtbar sind."""
-    if config.DEMO and not storage.has_data_for_today():
-        storage.save_many(fronius.demo_history(datetime.now()))
+    """Compatibility no-op: demo observations never enter live history."""
+    return None
 
 
 @app.route("/api/live")
@@ -34,35 +33,41 @@ def live():
             "configured": False,
         })
 
-    try:
-        reading = fronius.read_demo() if config.DEMO else fronius.read()
-    except Exception:
+    snapshot = get_runtime().projection.snapshot().fronius
+    reading = snapshot.reading
+    if reading is None:
         return jsonify({
             "ok": False,
             "status": "device_temporarily_unreachable",
             "configured": True,
         }), 503
 
-    storage.save(reading)
-
     level, text = decision.recommend(reading.power)
-    peak = storage.peak_today()
-
     return jsonify({
         "ok": True,
-        "status": "connected",
+        "status": snapshot.health,
         "configured": True,
         "source": "demo" if config.DEMO else "live",
         "power": round(reading.power),
-        "today_kwh": round(reading.energy_today / 1000, 2),
-        "year_kwh": round(reading.energy_year / 1000),
-        "total_kwh": round(reading.energy_total / 1000),
+        "today_kwh": round(reading.energy_today / 1000, 2) if reading.energy_today is not None else None,
+        "year_kwh": round(reading.energy_year / 1000) if reading.energy_year is not None else None,
+        "total_kwh": round(reading.energy_total / 1000) if reading.energy_total is not None else None,
         "level": level,
         "recommendation": text,
-        "peak_today": round(peak[0]) if peak else None,
-        "peak_time": peak[1] if peak else None,
-        "history": storage.history_today(),
+        "observed_at": snapshot.observed_at.isoformat() if snapshot.observed_at else None,
+        "received_at": snapshot.received_at.isoformat() if snapshot.received_at else None,
     })
+
+
+@app.get("/api/period")
+def period():
+    start, end = request.args.get("from"), request.args.get("to")
+    if not start or not end:
+        return jsonify({"ok": False, "reason": "from_and_to_required"}), 400
+    try:
+        return jsonify({"ok": True, **calculate_period(start, end)})
+    except ValueError as exc:
+        return jsonify({"ok": False, "reason": str(exc)}), 400
 
 
 def _address_from_request() -> str:
@@ -105,7 +110,7 @@ def get_data_source():
 def test_data_source():
     try:
         normalized = data_source.normalize_address(_address_from_request())
-        fronius.read_url(normalized, require_local=True)
+        get_runtime().probe_source("fronius", normalized)
     except data_source.UnsafeTargetError:
         return jsonify({
             "ok": False,
@@ -143,7 +148,7 @@ def save_data_source():
         }), 409
     try:
         normalized = data_source.normalize_address(_address_from_request())
-        fronius.read_url(normalized, require_local=True)
+        get_runtime().probe_source("fronius", normalized)
         selected = data_source.save(normalized)
     except data_source.UnsafeTargetError:
         return jsonify({
@@ -204,5 +209,8 @@ def index():
 
 
 if __name__ == "__main__":
-    _seed_demo_history()
-    app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)
+    runtime = start_runtime()
+    try:
+        app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)
+    finally:
+        runtime.stop()

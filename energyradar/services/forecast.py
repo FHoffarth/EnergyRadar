@@ -93,7 +93,12 @@ class SolarForecastEngine:
     def __init__(self, weather_service: Optional[WeatherService] = None):
         self.weather_service = weather_service or WeatherService()
 
-    def generate_forecast(self, now_dt: Optional[datetime] = None) -> SolarForecastReport:
+    def generate_forecast(
+        self,
+        now_dt: Optional[datetime] = None,
+        *,
+        weather_report: Optional[WeatherReport] = None,
+    ) -> SolarForecastReport:
         if now_dt is None:
             now_dt = datetime.now(timezone.utc)
 
@@ -102,7 +107,8 @@ class SolarForecastEngine:
         if kwp is not None and (isinstance(kwp, bool) or not isinstance(kwp, (int, float)) or math.isnan(kwp) or math.isinf(kwp) or kwp <= 0):
             kwp = None
 
-        weather_report: WeatherReport = self.weather_service.get_weather_report(force_fresh=False)
+        if weather_report is None:
+            weather_report = self.weather_service.get_weather_report(force_fresh=False)
 
         data_basis: List[str] = ["Daylight production profile"]
         warnings: List[str] = []

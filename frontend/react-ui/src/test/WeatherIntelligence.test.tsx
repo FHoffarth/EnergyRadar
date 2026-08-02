@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence } from '../components/WeatherIntelligence';
+import { HourlyWeatherForecast, MultiDayWeatherForecast, WeatherIntelligence, hourlyForecastState } from '../components/WeatherIntelligence';
 import { EnergySnapshot, WeatherReportData } from '../types';
 
 const freshSnapshot: EnergySnapshot = {
@@ -70,6 +70,12 @@ function completeReport(overrides: Partial<WeatherReportData> = {}): WeatherRepo
 }
 
 describe('WeatherIntelligence', () => {
+  it('filters hourly cards exactly at the provider-local hour boundary', () => {
+    const point = '2099-07-29T10:00:00';
+    expect(hourlyForecastState(point, new Date('2099-07-29T10:59:59+02:00'), 'Europe/Berlin')).toBe('current');
+    expect(hourlyForecastState(point, new Date('2099-07-29T11:00:00+02:00'), 'Europe/Berlin')).toBe('expired');
+    expect(hourlyForecastState('2099-07-29T11:00:00', new Date('2099-07-29T11:00:01+02:00'), 'Europe/Berlin')).toBe('current');
+  });
   it('renders complete current weather, PV context, sun data, and hourly depth', () => {
     render(<WeatherIntelligence report={completeReport()} locale="de-DE" snapshot={freshSnapshot} now={new Date('2099-07-29T12:00:00+02:00')} />);
     const section = screen.getByRole('region', { name: 'Wetter und Solarbedingungen' });

@@ -31,6 +31,26 @@ def test_forecast_nighttime_zero():
             assert interval.expected_max_w == 0.0
 
 
+def test_forecast_accepts_scheduled_weather_without_fetching_again():
+    engine = SolarForecastEngine()
+    mock_report = WeatherReport(
+        status="available",
+        served_from_cache=False,
+        sun=SunData(sunrise="2026-07-22T05:30:00+02:00", sunset="2026-07-22T21:15:00+02:00"),
+        current=CurrentWeather(condition="clear", cloud_cover_percent=0.0),
+        quality=WeatherQuality(freshness="fresh", source="open_meteo"),
+    )
+
+    with patch.object(engine.weather_service, "get_weather_report") as fetch:
+        report = engine.generate_forecast(
+            now_dt=datetime(2026, 7, 22, 12, tzinfo=timezone.utc),
+            weather_report=mock_report,
+        )
+
+    assert report.status == "available"
+    fetch.assert_not_called()
+
+
 def test_forecast_confidence_downgrade_on_stale():
     engine = SolarForecastEngine()
 

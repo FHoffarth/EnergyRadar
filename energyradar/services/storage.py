@@ -6,6 +6,7 @@ Einzige Verantwortung: SQLite. Anlegen, Schreiben (gedrosselt), Lesen.
 import sqlite3
 from datetime import datetime, timezone
 import logging
+import threading
 
 from energyradar import config
 from energyradar.models.energy import EnergyReading, QualityStatus
@@ -17,6 +18,15 @@ log = logging.getLogger(__name__)
 _TS_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _MIGRATED = False
+_WRITE_LOCK = threading.RLock()
+
+
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            return super().__exit__(exc_type, exc, traceback)
+        finally:
+            self.close()
 
 def _connect() -> sqlite3.Connection:
     global _MIGRATED
@@ -24,9 +34,15 @@ def _connect() -> sqlite3.Connection:
         migration.run_migrations()
         _MIGRATED = True
 
-    con = sqlite3.connect(config.DB_PATH)
+    con = sqlite3.connect(
+        config.DB_PATH,
+        timeout=migration.BUSY_TIMEOUT_MS / 1000,
+        factory=_ClosingConnection,
+    )
     con.execute("PRAGMA foreign_keys = ON")
     con.execute(f"PRAGMA busy_timeout = {migration.BUSY_TIMEOUT_MS}")
+    con.execute("PRAGMA journal_mode = WAL")
+    con.execute("PRAGMA synchronous = FULL")
     return con
 
 def save_sample(
@@ -54,12 +70,12 @@ def save_sample(
     grid_ts_str = mt175.received_at.strftime(_TS_FORMAT) if mt175 else None
 
     pv_power = pv.power if pv else None
-    pv_energy_today = pv.energy_today if pv else None
+    pv_energy_today = float(pv.energy_today) if pv and pv.energy_today is not None else None
     grid_power = mt175.current_power_w if mt175 and mt175.current_power_w is not None else None
-    grid_import = mt175.grid_import_total_kwh * 1000 if mt175 and mt175.grid_import_total_kwh is not None else None
-    grid_export = mt175.grid_export_total_kwh * 1000 if mt175 and mt175.grid_export_total_kwh is not None else None
+    grid_import = float(mt175.grid_import_total_kwh * 1000) if mt175 and mt175.grid_import_total_kwh is not None else None
+    grid_export = float(mt175.grid_export_total_kwh * 1000) if mt175 and mt175.grid_export_total_kwh is not None else None
 
-    with _connect() as con:
+    with _WRITE_LOCK, _connect() as con:
         # Konfliktfreies Update (INSERT OR IGNORE + UPDATE)
         con.execute(
             """

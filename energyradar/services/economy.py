@@ -80,9 +80,9 @@ def _energy_compatibility_reason(
     """Return the precise reason why PV minus export cannot be calculated."""
     usable_states = {"complete", "partial"}
     if solar_value is None or solar_value < 0 or solar.get("coverage_state") not in usable_states:
-        return "solar_energy_unavailable_or_sparse"
+        return str(solar.get("reason") or "solar_energy_unavailable_or_sparse")
     if export_value is None or export_value < 0 or exported.get("coverage_state") not in usable_states:
-        return "grid_export_energy_unavailable_or_sparse"
+        return str(exported.get("reason") or "grid_export_energy_unavailable_or_sparse")
     if not solar.get("period_key") or solar.get("period_key") != exported.get("period_key"):
         return "energy_period_mismatch"
     if not solar.get("source") or solar.get("source") != exported.get("source"):

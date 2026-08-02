@@ -118,6 +118,12 @@ def _phase0_shapes(path: Path) -> dict[str, list[tuple]]:
         "source_state",
         "backfill_runs",
         "raw_samples",
+        "recording_runs",
+        "counter_epochs",
+        "counter_anchors",
+        "anchor_source_results",
+        "counter_readings",
+        "recording_gaps",
     }
     with sqlite3.connect(path) as con:
         return {
@@ -148,7 +154,7 @@ def test_fresh_database_creation_has_complete_versioned_schema(database_path):
     with sqlite3.connect(database_path) as con:
         assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION
         assert con.execute("SELECT version FROM schema_info").fetchone()[0] == config.SCHEMA_VERSION
-        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4]
+        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5]
         assert "tariff_periods" in _tables(database_path)
         database_uuid = json.loads(
             con.execute(
