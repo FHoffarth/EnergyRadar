@@ -490,18 +490,28 @@ def build_today_vm_from_anchors(
     exp_kwh = value("grid_export")
 
     # Same PV precedence as Memory/Reports: when the counter paths supply no PV,
-    # fall back to Fronius local-archive interval energy so Today agrees with the
-    # authoritative period contract instead of showing PV as unknown.
-    if gen_kwh is None:
-        import sqlite3
-        from energyradar.services import period_archive
-        con = sqlite3.connect(config.DB_PATH)
-        try:
-            archive_pv = period_archive.archive_pv_energy(con, start_of_day, now)
-        finally:
-            con.close()
-        if archive_pv["value_kwh"] is not None:
-            gen_kwh = archive_pv["value_kwh"]
+    # fall back to Fronius local-archive interval energy; then retry house
+    # consumption over a compatible period, so Today agrees with the contract.
+    import sqlite3
+    from energyradar.services import period_archive
+    con = sqlite3.connect(config.DB_PATH)
+    try:
+        archive_pv = period_archive.archive_pv_energy(con, start_of_day, now)
+    finally:
+        con.close()
+    if gen_kwh is None and archive_pv["value_kwh"] is not None:
+        gen_kwh = archive_pv["value_kwh"]
+    consumption_reason = metrics["house_consumption"].get("reason")
+    if cons_kwh is None:
+        derived_house = period_archive.derive_house_consumption(
+            gen_kwh, imp_kwh, exp_kwh,
+            archive_pv=archive_pv, resolved_period=report.get("actual_period"),
+        )
+        if derived_house["value_kwh"] is not None:
+            cons_kwh = derived_house["value_kwh"]
+            consumption_reason = None
+        else:
+            consumption_reason = derived_house["detail"] or consumption_reason
     try:
         economy_data = economy.calculate_period(
             periods.economy_basis(report, timezone_name=str(tz)),
@@ -527,7 +537,7 @@ def build_today_vm_from_anchors(
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
         consumption_kwh=cons_kwh,
         consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
-        consumption_reason=metrics["house_consumption"].get("reason"),
+        consumption_reason=consumption_reason,
         import_total_kwh=imp_kwh,
         import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
         export_total_kwh=exp_kwh,
@@ -887,7 +897,9 @@ def build_period_report(from_iso: str, to_iso: str) -> dict:
     con = sqlite3.connect(config.DB_PATH)
     try:
         archive_pv = period_archive.archive_pv_energy(con, from_dt, to_dt)
-        curve = period_archive.build_period_curve(con, from_dt, to_dt)
+        curve = period_archive.build_period_curve(
+            con, from_dt, to_dt, max_points=period_archive._display_budget(from_dt, to_dt)
+        )
     finally:
         con.close()
 
@@ -903,6 +915,34 @@ def build_period_report(from_iso: str, to_iso: str) -> dict:
             "provenance": archive_pv["provenance"],
             "confidence": "verified_provider",
             "reason": None,
+        }
+
+    # House consumption: when the counter path could not derive it *because* PV was
+    # missing, retry with the (now archive-backed) PV over a compatible period.
+    # Never override a topology-unsupported verdict.
+    house = computed["house_consumption"]
+    house_reason = house.get("reason") or ""
+    if (
+        house["value_kwh"] is None
+        and "battery_free_topology_not_confirmed" not in house_reason
+        and "metric_unsupported" not in house_reason
+    ):
+        derived = period_archive.derive_house_consumption(
+            computed["pv_generation"]["value_kwh"],
+            computed["grid_import"]["value_kwh"],
+            computed["grid_export"]["value_kwh"],
+            archive_pv=archive_pv,
+            resolved_period=report.get("actual_period"),
+        )
+        computed["house_consumption"] = {
+            "value_kwh": derived["value_kwh"],
+            "state": "partial" if derived["value_kwh"] is not None else "unavailable",
+            "coverage_state": derived["coverage_state"],
+            "source": derived["source"],
+            "provenance": derived["provenance"],
+            "confidence": derived["confidence"],
+            "reason": derived["reason"],
+            "detail": derived["detail"],
         }
 
     archive_contributed = archive_pv["value_kwh"] is not None or curve["n_points"] > 0

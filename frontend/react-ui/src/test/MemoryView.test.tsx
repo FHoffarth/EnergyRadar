@@ -127,6 +127,22 @@ describe('MemoryView', () => {
     expect(screen.getByText(/keine gespeicherten Messwerte vor/)).toBeTruthy();
   });
 
+  it('latest-request-wins: a stale response never overwrites the active range', async () => {
+    const resolvers: ((r: any) => void)[] = [];
+    providerState.requestPeriod = vi.fn(() => new Promise(res => resolvers.push(res)));
+    render(<MemoryView />);                                   // request 0 (today)
+    fireEvent.click(screen.getByRole('button', { name: 'Gestern' })); // request 1 (yesterday)
+    await waitFor(() => expect(resolvers.length).toBe(2));
+    // Resolve the NEWEST first (archive), then the stale older one (counter).
+    resolvers[1](report({ provenance: 'fronius_local_archive', has_curve: true,
+      curve: { source: 'fronius_archive', points: [], mixed_source: false, segments: [], n_points: 0, n_local: 0, n_archive: 0, first: null, last: null, unavailable_reason: null } as any }));
+    await screen.findByText(/Solarertrag vom Fronius-Datalogger bestätigt/);
+    resolvers[0](report({ provenance: 'counter_anchors' }));  // stale — must be ignored
+    await new Promise(r => setTimeout(r, 20));
+    expect(screen.queryByText('Synchronisierte Zählerstände')).toBeNull();
+    expect(screen.getByText(/Solarertrag vom Fronius-Datalogger bestätigt/)).toBeTruthy();
+  });
+
   it('uses the selected range for the real export action', async () => {
     render(<MemoryView />);
     fireEvent.click(screen.getByRole('button', { name: 'Heute' }));

@@ -39,6 +39,27 @@ export function provenanceLabel(provenance: string | null | undefined): string |
   }
 }
 
+/**
+ * Top-level Memory availability status, derived from the authoritative report so
+ * it can never contradict the summary/curve below (no false "Nicht verfügbar").
+ */
+export function memoryTopStatus(
+  report: PeriodReport | null,
+  loading: boolean,
+): { label: string; unavailable: boolean } {
+  if (!report) {
+    return loading
+      ? { label: 'Zeitraum wird geladen …', unavailable: false }
+      : { label: 'Nicht verfügbar', unavailable: true };
+  }
+  const source = report.curve?.source;
+  if (source === 'mixed') return { label: 'Lokale Aufzeichnung ergänzt durch Fronius-Datalogger', unavailable: false };
+  if (source === 'fronius_archive') return { label: 'Verlauf aus dem Fronius-Datalogger verfügbar', unavailable: false };
+  if (report.has_curve && report.has_summary) return { label: 'Vollständig verfügbar', unavailable: false };
+  if (report.has_summary || report.has_curve || report.has_records) return { label: 'Teilweise verfügbar', unavailable: false };
+  return { label: 'Nicht verfügbar', unavailable: true };
+}
+
 /** Precise curve-source wording (§11). Empty string when there is no curve. */
 export function curveSourceLabel(source: string | null | undefined): string {
   switch (source) {

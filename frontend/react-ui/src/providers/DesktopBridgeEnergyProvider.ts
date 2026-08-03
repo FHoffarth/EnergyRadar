@@ -345,29 +345,60 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
     return request;
   }
 
+  /** In-flight period requests, keyed by operation id (bind-once dispatch). */
+  private pendingPeriods = new Map<string, { resolve: (r: PeriodReport) => void; timeout: ReturnType<typeof setTimeout>; from: string; to: string }>();
+  /** Identical in-flight requests share one promise (deduplication). */
+  private inflightPeriodKeys = new Map<string, Promise<PeriodReport>>();
+  private periodListenersBound = false;
+
+  private ensurePeriodListeners(b: QtBridge) {
+    // Bind the Qt signals exactly once and dispatch by operation id, instead of
+    // connecting a fresh handler per request (which leaked and grew unbounded
+    // across range switches).
+    if (this.periodListenersBound) return;
+    this.periodListenersBound = true;
+    b.periodReady?.connect((opId, reportJson) => {
+      const pending = this.pendingPeriods.get(opId);
+      if (!pending) return;
+      this.pendingPeriods.delete(opId);
+      clearTimeout(pending.timeout);
+      try {
+        pending.resolve(JSON.parse(reportJson) as PeriodReport);
+      } catch {
+        pending.resolve(unavailablePeriodReport(pending.from, pending.to));
+      }
+    });
+    b.periodFailed?.connect((opId) => {
+      const pending = this.pendingPeriods.get(opId);
+      if (!pending) return;
+      this.pendingPeriods.delete(opId);
+      clearTimeout(pending.timeout);
+      pending.resolve(unavailablePeriodReport(pending.from, pending.to));
+    });
+  }
+
   async requestPeriod(fromIso: string, toIso: string): Promise<PeriodReport> {
     if (!this.bridge || typeof this.bridge.requestPeriod !== 'function') {
       return unavailablePeriodReport(fromIso, toIso);
     }
+    // Deduplicate identical in-flight requests (e.g. repeated clicks on a range).
+    const key = `${fromIso}|${toIso}`;
+    const existing = this.inflightPeriodKeys.get(key);
+    if (existing) return existing;
+
+    this.ensurePeriodListeners(this.bridge);
     const operationId = `period-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    return new Promise<PeriodReport>((resolve) => {
-      const timeout = setTimeout(() => resolve(unavailablePeriodReport(fromIso, toIso)), 15000);
-      this.bridge!.periodReady?.connect((opId, reportJson) => {
-        if (opId !== operationId) return;
-        clearTimeout(timeout);
-        try {
-          resolve(JSON.parse(reportJson) as PeriodReport);
-        } catch {
-          resolve(unavailablePeriodReport(fromIso, toIso));
-        }
-      });
-      this.bridge!.periodFailed?.connect((opId) => {
-        if (opId !== operationId) return;
-        clearTimeout(timeout);
+    const promise = new Promise<PeriodReport>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingPeriods.delete(operationId);
         resolve(unavailablePeriodReport(fromIso, toIso));
-      });
+      }, 15000);
+      this.pendingPeriods.set(operationId, { resolve, timeout, from: fromIso, to: toIso });
       this.bridge!.requestPeriod!(operationId, fromIso, toIso);
     });
+    this.inflightPeriodKeys.set(key, promise);
+    void promise.finally(() => this.inflightPeriodKeys.delete(key));
+    return promise;
   }
 
   destroy() {

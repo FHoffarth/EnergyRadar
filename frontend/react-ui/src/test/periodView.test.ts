@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPeriod, provenanceLabel } from '../lib/periodView';
+import { classifyPeriod, provenanceLabel, memoryTopStatus } from '../lib/periodView';
 import { PeriodReport } from '../types';
 
 function report(over: Partial<PeriodReport>): PeriodReport {
@@ -24,6 +24,23 @@ describe('classifyPeriod', () => {
   it('is unavailable only when nothing exists', () => {
     expect(classifyPeriod(report({ has_summary: false, has_records: false }), false)).toBe('unavailable');
     expect(classifyPeriod(null, false)).toBe('unavailable');
+  });
+});
+
+describe('memoryTopStatus — never contradicts summary/curve', () => {
+  const withCurve = (source: string) => report({ has_curve: true, curve: { source } as any });
+  it('never says unavailable when a curve exists', () => {
+    expect(memoryTopStatus(withCurve('fronius_archive'), false)).toEqual({ label: 'Verlauf aus dem Fronius-Datalogger verfügbar', unavailable: false });
+    expect(memoryTopStatus(withCurve('mixed'), false).unavailable).toBe(false);
+  });
+  it('is partial when summary exists without a full curve', () => {
+    expect(memoryTopStatus(report({ has_summary: true, has_records: true }), false)).toEqual({ label: 'Teilweise verfügbar', unavailable: false });
+  });
+  it('is genuinely unavailable only when nothing exists', () => {
+    expect(memoryTopStatus(report({ has_summary: false, has_records: false }), false).unavailable).toBe(true);
+  });
+  it('shows a calm loading label instead of a false empty state', () => {
+    expect(memoryTopStatus(null, true)).toEqual({ label: 'Zeitraum wird geladen …', unavailable: false });
   });
 });
 

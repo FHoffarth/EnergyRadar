@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -10,7 +10,7 @@ import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../l
 import { EconomySummary } from '../components/EconomySummary';
 import { formatEnergy } from '../lib/format';
 import { PeriodReport, TimelineEntry } from '../types';
-import { classifyPeriod, PERIOD_METRICS, provenanceLabel, curveSourceLabel } from '../lib/periodView';
+import { classifyPeriod, PERIOD_METRICS, provenanceLabel, curveSourceLabel, memoryTopStatus } from '../lib/periodView';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -64,14 +64,24 @@ export function MemoryView() {
 
   // Resolve every range — including today — through the one authoritative
   // period contract, so Memory can never disagree with Today or the report.
+  // Latest-request-wins: a monotonic id guarantees only the newest range's
+  // response updates state, so a slow/out-of-order response can never overwrite
+  // the active selection. The previous result stays visible while loading.
+  const periodReqId = useRef(0);
   useEffect(() => {
-    let cancelled = false;
+    const myId = ++periodReqId.current;
     setPeriodLoading(true);
     const { start, end } = getRangeDates(range);
     requestPeriod(start, end)
-      .then(report => { if (!cancelled) { setPeriodReport(report); setPeriodLoading(false); } })
-      .catch(() => { if (!cancelled) { setPeriodReport(null); setPeriodLoading(false); } });
-    return () => { cancelled = true; };
+      .then(report => {
+        if (periodReqId.current !== myId) return;   // stale response ignored
+        setPeriodReport(report);
+        setPeriodLoading(false);
+      })
+      .catch(() => {
+        if (periodReqId.current !== myId) return;
+        setPeriodLoading(false);                     // keep the previous result visible
+      });
   }, [range, requestPeriod]);
 
   const availability = classifyPeriod(periodReport, periodLoading);
@@ -123,6 +133,8 @@ export function MemoryView() {
         lastSample={settingsPayload?.system?.last_recorded_sample_at}
         selectedRange={rangeLabel}
         coverage={coverage}
+        status={memoryTopStatus(periodReport, periodLoading)}
+        showCoverage={range === 'today'}
       />
 
       {range === 'today' ? (

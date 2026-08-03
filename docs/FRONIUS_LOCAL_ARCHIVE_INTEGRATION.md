@@ -126,6 +126,28 @@ live polling and inherits backoff:
   short-circuit); failures are swallowed and never disturb recording. Historical
   range requests beyond the window are on-demand only (future).
 
+## 7b. Curve downsampling & request control (reliability)
+
+Range switching previously froze: a 7-day curve returned **8860 points / 769 KB**
+and the local↔archive overlap check was **O(n·m)** (~3 s). Fixed:
+- **O(n log n) merge**: archive/local overlap uses binary search over sorted local
+  timestamps (`period_archive.build_period_curve`), dropping build time to <500 ms.
+- **Display downsampling** (`downsample_curve`, totals untouched): bounded rendered
+  points per span — Heute/Gestern ≤600, ≤7 d ≤1000, ≤31 d ≤1200, year ≤730. A
+  deterministic bucket min/max keep that always preserves first/last, both sides of
+  every **source change** and **gap**, and per-bucket **extrema**. Every kept point
+  is a real, unmodified input point — no interpolation, no invented points. Raw
+  counts (`n_points`) and all energy totals are unchanged (totals come from raw
+  counters/archive sums, never the curve).
+- **Latest-request-wins / dedup**: the desktop provider binds the `periodReady`/
+  `periodFailed` signals **once** and dispatches by operation id (no per-request
+  handler leak); identical in-flight requests share one promise; MemoryView uses a
+  monotonic request id so a stale/out-of-order response can never overwrite the
+  active range, keeps the previous result visible while loading, and always clears
+  loading (15 s bounded timeout → harmless `unavailable`). Archive catch-up runs on
+  its own 10-min scheduler task and is **not** re-triggered per range click; range
+  selection reads already-ingested SQLite data.
+
 ## 8. Privacy / security
 
 Committed material is sanitized: no IPs (device shown as `<fronius-ip>`), no

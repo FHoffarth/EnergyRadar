@@ -128,6 +128,88 @@ def test_today_vm_uses_archive_pv_so_it_agrees_with_memory(db):
     assert vm.generated_kwh == 0.8  # archive interval energy, same as Memory would show
 
 
+def _pts(n, source="local", base_ts=0.0, step=60.0):
+    return [{"t": f"p{i}", "ts": base_ts + i * step, "solar_w": float(i % 7), "grid_w": None, "source": source}
+            for i in range(n)]
+
+
+def test_downsample_bounds_points_and_keeps_endpoints():
+    pts = _pts(5000)
+    out = period_archive.downsample_curve(pts, 600)
+    assert len(out) <= 600
+    assert out[0] is pts[0] and out[-1] is pts[-1]           # first/last kept
+    assert all(p in pts for p in out)                         # no invented points
+
+
+def test_downsample_preserves_extrema():
+    pts = _pts(2000)
+    pts[1234]["solar_w"] = 99999.0   # a spike
+    pts[1235]["solar_w"] = -50.0     # a trough
+    out = period_archive.downsample_curve(pts, 400)
+    vals = [p["solar_w"] for p in out]
+    assert 99999.0 in vals and -50.0 in vals
+
+
+def test_downsample_preserves_source_and_gap_boundaries():
+    a = _pts(500, source="local", base_ts=0.0, step=60.0)
+    b = _pts(500, source="fronius_archive", base_ts=500 * 60.0 + 3600, step=300.0)  # 1h gap + source change
+    pts = a + b
+    out = period_archive.downsample_curve(pts, 200)
+    # both sides of the source-change / gap survive
+    assert any(p["source"] == "local" for p in out) and any(p["source"] == "fronius_archive" for p in out)
+    assert a[-1] in out and b[0] in out
+
+
+def test_downsample_noop_when_under_budget():
+    pts = _pts(300)
+    assert period_archive.downsample_curve(pts, 600) is pts
+
+
+def test_build_period_curve_totals_unaffected_by_downsampling(db):
+    con = sqlite3.connect(db)
+    sid, iid = _src(con)
+    for i in range(400):
+        _apoint(con, sid, iid, "EnergyReal_WAC_Sum_Produced",
+                f"2026-08-03T{(3 + i // 60):02d}:{i % 60:02d}:00Z", 10.0, "interval_total", "Wh")
+    con.commit()
+    pv = period_archive.archive_pv_energy(con, _dt("2026-08-03T00:00:00+00:00"), _dt("2026-08-03T23:59:59+00:00"))
+    con.close()
+    assert pv["value_kwh"] == 4.0  # 400 * 10 Wh, independent of any curve downsampling
+
+
+def test_house_derived_over_compatible_period():
+    d = period_archive.derive_house_consumption(
+        12.81, 2.29, 9.21,
+        archive_pv={"first": "2026-08-03T03:30:00Z", "last": "2026-08-03T19:15:00Z"},
+        resolved_period={"from": "2026-08-02T23:36:00Z", "to": "2026-08-03T19:27:00Z"})
+    assert round(d["value_kwh"], 2) == 5.89
+    assert d["source"] == "derived_compatible_energy" and d["reason"] is None
+
+
+def test_house_incompatible_pv_before_grid_gives_precise_reason():
+    d = period_archive.derive_house_consumption(
+        12.81, 2.29, 9.21,
+        archive_pv={"first": "2026-08-03T00:00:00Z", "last": "2026-08-03T19:15:00Z"},
+        resolved_period={"from": "2026-08-03T10:00:00Z", "to": "2026-08-03T19:27:00Z"})
+    assert d["value_kwh"] is None
+    assert d["reason"] == "pv_window_starts_before_grid_period"
+    assert "vor dem ausgewerteten Netzzeitraum" in d["detail"]
+
+
+def test_house_missing_dependency_names_it():
+    d = period_archive.derive_house_consumption(12.81, None, 9.21, archive_pv=None, resolved_period=None)
+    assert d["value_kwh"] is None
+    assert "Netzbezug" in d["detail"]
+
+
+def test_house_negative_balance_rejected():
+    d = period_archive.derive_house_consumption(
+        1.0, 0.0, 9.21,
+        archive_pv={"first": "2026-08-03T03:30:00Z", "last": "2026-08-03T19:15:00Z"},
+        resolved_period={"from": "2026-08-03T03:00:00Z", "to": "2026-08-03T19:27:00Z"})
+    assert d["value_kwh"] is None and d["reason"] == "house_balance_negative"
+
+
 def test_build_period_report_grid_is_never_archive_filled(db):
     con = sqlite3.connect(db)
     sid, iid = _src(con)

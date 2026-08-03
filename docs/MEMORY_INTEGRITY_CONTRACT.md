@@ -42,6 +42,22 @@ A persisted sample belongs to the current session only when
 | Recording, this-session sample older than 3× cadence | `stale` | "Aufzeichnung aktiv · Zuletzt gespeichert vor …" | no |
 | Recording, this-session sample within cadence | `recording` | "Aufzeichnung läuft · seit HH:MM Uhr" | yes |
 
+**House consumption (compatibility-checked derivation).** `house = pv + import −
+export` is derived even when PV is Fronius-archive and grid is anchor truth —
+provided the periods are *compatible*: the PV coverage window must sit within the
+resolved grid period (±30 min) so PV energy is not counted outside the grid-measured
+window, and the balance must be non-negative. Otherwise a **precise** reason is
+shown (e.g. "Der Fronius-Verlauf beginnt N Minuten vor dem ausgewerteten
+Netzzeitraum", "Für die Berechnung fehlt: Netzbezug"), never a generic
+"nicht belastbar". Verified: owner bounds (pv 12.81, import 2.29, export 9.21) →
+5.89 kWh; Today == Memory. Grid import/export remain meter/counter truth.
+
+**Memory top-level status** derives from the same `PeriodReport`
+(`periodView.memoryTopStatus`), so it can never contradict the summary/curve below:
+curve present → "Verlauf aus dem Fronius-Datalogger verfügbar" / "Lokale
+Aufzeichnung ergänzt durch Fronius-Datalogger"; summary/records only → "Teilweise
+verfügbar"; "Nicht verfügbar" only when totals, records **and** curve are all absent.
+
 The startup contradiction ("Aufzeichnung aktiv · Letzte Messung vor 2 Stunden" while
 live values are fresh) is eliminated: a previous run's stale sample can no longer
 drive the current session's heartbeat. Regression:
