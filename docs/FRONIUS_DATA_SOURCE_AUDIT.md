@@ -70,10 +70,12 @@ Consequences and **unverified** gaps:
   them — but these values flow only into the live projection, **not** into the
   anchor/period path that Memory and Reports use. This is precisely why "Fronius
   shows daily energy" but "EnergyRadar solar yield unavailable" coexist.
-- **Archive / history endpoints are never queried.** `GetArchiveData.cgi`
-  (channel history, per-device daily totals), device/logger time, and timezone
-  endpoints are **not** used by the code. Whether they are available, their
-  granularity, and their retention are **UNVERIFIED** (no device access).
+- **Archive / history endpoints are never queried by the live app** —
+  `GetArchiveData.cgi` is not used by the collector. **UPDATE:** the endpoint is
+  now **CONFIRMED on the real device** (5-min interval energy, 16-day window,
+  ~12-month retention, DST-correct local timestamps, `EnergyReal_WAC_Sum_Produced`
+  sums to `E_Day`). A read-only, provenance-separated ingestion foundation exists.
+  Full details: **`FRONIUS_LOCAL_ARCHIVE_INTEGRATION.md`**.
 - Device time vs. host time skew is **unmeasured**; the collector timestamps with
   host `datetime.now(timezone.utc)` (`fronius.py:72`), not device time.
 

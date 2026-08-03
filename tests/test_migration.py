@@ -149,12 +149,15 @@ def test_fresh_database_creation_has_complete_versioned_schema(database_path):
         "source_state",
         "backfill_runs",
         "raw_samples",
+        "provider_archive_sources",
+        "provider_archive_imports",
+        "provider_archive_points",
     }.issubset(_tables(database_path))
 
     with sqlite3.connect(database_path) as con:
         assert con.execute("PRAGMA user_version").fetchone()[0] == config.SCHEMA_VERSION
         assert con.execute("SELECT version FROM schema_info").fetchone()[0] == config.SCHEMA_VERSION
-        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5]
+        assert [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5, 6]
         assert "tariff_periods" in _tables(database_path)
         database_uuid = json.loads(
             con.execute(

@@ -119,6 +119,15 @@ tests** — none are invented here.
   `tests/test_period_sample_fallback.py`, `frontend/react-ui/src/test/freshness.test.ts`,
   `MemoryView.test.tsx`, `periodView.test.ts`. Report↔Memory agreement asserted.
 
+**Fronius local archive (proven + ingestion foundation shipped):**
+- `GetArchiveData.cgi` confirmed on the real device; read-only, idempotent,
+  provenance-separated ingestion into `provider_archive_*` (migration 6). PV
+  interval-energy history reconciles with `E_Day`. See
+  `FRONIUS_LOCAL_ARCHIVE_INTEGRATION.md`.
+- **OPEN:** wiring the archive PV curve into the period contract + Memory/Today/
+  Report display (Case: "local samples missing, Fronius archive available" →
+  "Verlauf aus dem Fronius-Datalogger verfügbar"), with source-boundary metadata.
+
 **Specified but OPEN (need device-validated work):**
 - `raw_samples.observed_at_utc` backfill migration; UTC/local column normalization.
 - Reconciliation layer + thresholds (provider summary vs local totals).

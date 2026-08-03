@@ -44,6 +44,7 @@ by their role, not by preference (precedence is §3).
 | **B** | **Recorder Truth** | Persisted local samples (shape) | `energy_samples_v1` power columns | yes (with gaps) | **never** — curve/coverage only |
 | **C** | **Counter Truth** | Persisted cumulative counters | `counter_anchors`/`counter_readings` (preferred); `energy_samples_v1.*_total_wh` / `pv_energy_today_wh` (reconstructed) | yes | **yes — authoritative** |
 | **D** | **Provider Truth** | Verified summaries supplied by the device | Fronius `E_Day`, `E_Year`, `E_Total` | summary only | **as a summary**, never a fabricated curve |
+| **D-hist** | **Historical Provider Truth** | Device-stored archive history (`fronius_local_archive`) | Fronius `GetArchiveData.cgi` (proven; ingested read-only into `provider_archive_*`) | yes (PV only, ~12mo) | **interval totals only** (`EnergyReal_WAC_Sum_Produced`), never power integration |
 | **E** | **Cloud Truth** | Solar.web / future cloud series | *none yet — unproven* | yes | only if access proven; always attributed |
 | **F** | **Derived Truth** | Values EnergyRadar computes from A–E | `history.derive_*`, `periods` balances, `services/economy.py` | inherits | **never presented as measured** |
 | **G** | **Unknown** | Genuinely unavailable | — | — | — |

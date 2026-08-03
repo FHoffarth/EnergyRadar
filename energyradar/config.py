@@ -2,7 +2,7 @@
 APP_VERSION = "0.5.0-rc1"
 APP_STAGE = "Release Candidate"
 APP_BUILD = "2026.07.23"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 import os
 import sys
