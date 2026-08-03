@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -8,6 +8,9 @@ import { evaluateCoverage } from '../lib/storytelling';
 import { usePrefersReducedMotion } from '../lib/motion';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 import { EconomySummary } from '../components/EconomySummary';
+import { formatEnergy } from '../lib/format';
+import { PeriodReport } from '../types';
+import { classifyPeriod, PERIOD_METRICS, provenanceLabel } from '../lib/periodView';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -21,14 +24,37 @@ const ranges: { id: Range; label: string }[] = [
   { id: 'year', label: 'Dieses Jahr' },
 ];
 
+function getRangeDates(range: Range) {
+  const end = new Date();
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  switch (range) {
+    case 'today': break;
+    case 'yesterday':
+      start.setDate(start.getDate() - 1);
+      end.setDate(end.getDate() - 1);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case '7days': start.setDate(start.getDate() - 7); break;
+    case '30days': start.setDate(start.getDate() - 30); break;
+    case 'month': start.setDate(1); break;
+    case 'year': start.setMonth(0, 1); break;
+  }
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function MemoryView() {
   const { requestExport, requestMailShare, exportStatus, settingsPayload, todayData } = useApp();
-  const { timeline } = useEnergyProvider();
+  const { timeline, requestPeriod } = useEnergyProvider();
   const locale = useNumberLocale();
   const animate = !usePrefersReducedMotion();
   const [exportType, setExportType] = useState<ExportType>('pdf');
   const [range, setRange] = useState<Range>('today');
+  const [periodReport, setPeriodReport] = useState<PeriodReport | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(true);
   const rangeLabel = ranges.find(candidate => candidate.id === range)?.label ?? range;
+  // The curve series is only supplied for today; historical ranges resolve
+  // through the authoritative period API, which is totals + provenance only.
   const visibleTimeline = range === 'today' ? timeline : [];
   const expectedCadenceSeconds = settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
   const coverage = evaluateCoverage(visibleTimeline, {
@@ -36,31 +62,26 @@ export function MemoryView() {
     ...todayCoverageBoundaries(visibleTimeline),
   });
 
-  const getRangeDates = () => {
-    const end = new Date();
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    switch (range) {
-      case 'today': break;
-      case 'yesterday':
-        start.setDate(start.getDate() - 1);
-        end.setDate(end.getDate() - 1);
-        end.setHours(23, 59, 59, 999);
-        break;
-      case '7days': start.setDate(start.getDate() - 7); break;
-      case '30days': start.setDate(start.getDate() - 30); break;
-      case 'month': start.setDate(1); break;
-      case 'year': start.setMonth(0, 1); break;
-    }
-    return { start: start.toISOString(), end: end.toISOString() };
-  };
+  // Resolve every range — including today — through the one authoritative
+  // period contract, so Memory can never disagree with Today or the report.
+  useEffect(() => {
+    let cancelled = false;
+    setPeriodLoading(true);
+    const { start, end } = getRangeDates(range);
+    requestPeriod(start, end)
+      .then(report => { if (!cancelled) { setPeriodReport(report); setPeriodLoading(false); } })
+      .catch(() => { if (!cancelled) { setPeriodReport(null); setPeriodLoading(false); } });
+    return () => { cancelled = true; };
+  }, [range, requestPeriod]);
+
+  const availability = classifyPeriod(periodReport, periodLoading);
 
   const handleExport = () => {
-    const { start, end } = getRangeDates();
+    const { start, end } = getRangeDates(range);
     requestExport(exportType, range, start, end);
   };
   const handleMailShare = () => {
-    const { start, end } = getRangeDates();
+    const { start, end } = getRangeDates(range);
     requestMailShare(range, start, end);
   };
   const isZip = exportType === 'zip';
@@ -104,14 +125,63 @@ export function MemoryView() {
         </div>
       </section>
 
+      <section className="cockpit-surface my-5 p-5" aria-labelledby="period-summary-heading" data-testid="period-summary" data-availability={availability}>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="period-summary-heading" className="cockpit-section-title">Gespeicherte Summen · {rangeLabel}</h2>
+          {periodReport?.provenance && provenanceLabel(periodReport.provenance) && (
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {provenanceLabel(periodReport.provenance)}
+            </span>
+          )}
+        </div>
+
+        {availability === 'loading' && (
+          <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Zeitraum wird geladen …</p>
+        )}
+
+        {availability === 'summary' && periodReport && (
+          <>
+            <dl className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {PERIOD_METRICS.map(({ key, label }) => (
+                <div key={key}>
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    {formatEnergy(periodReport.metrics[key].value_kwh, locale)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {range !== 'today' && (
+              <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
+                Tagesertrag bekannt, Verlauf unvollständig — für diesen Zeitraum liegen Summen, aber keine vollständige Kurve vor.
+              </p>
+            )}
+          </>
+        )}
+
+        {availability === 'records_only' && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            Für diesen Zeitraum sind Messwerte gespeichert, aber es lässt sich keine belastbare Summe bilden. Es wird kein Wert hochgerechnet.
+          </p>
+        )}
+
+        {availability === 'unavailable' && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            Für diesen Zeitraum liegen keine gespeicherten Messwerte vor.
+          </p>
+        )}
+      </section>
+
       <div className="grid gap-5">
         <section className="cockpit-surface p-5 lg:p-6" aria-labelledby="history-chart-heading">
           <p className="cockpit-eyebrow">Verlauf</p>
-          <h2 id="history-chart-heading" className="mt-2 text-xl font-semibold">Aktuell geladener Tag</h2>
+          <h2 id="history-chart-heading" className="mt-2 text-xl font-semibold">
+            {range === 'today' ? 'Aktuell geladener Tag' : rangeLabel}
+          </h2>
           <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
             {range === 'today'
               ? 'Die Kurve zeigt den derzeit geladenen Tagesverlauf. Fehlende Abschnitte bleiben als Lücken sichtbar.'
-              : 'Für diesen Zeitraum liefert die aktuelle Oberfläche noch keinen Verlauf. Der Export kann gespeicherte Daten dennoch enthalten.'}
+              : 'Für diesen Zeitraum zeigt die Oberfläche noch keinen Verlauf; die gespeicherten Summen oben stammen aus der Zeitraum-Auswertung. Der Export enthält die Rohdaten.'}
           </p>
           <HistoryOverviewChart timeline={visibleTimeline} locale={locale} animate={animate}
             expectedCadenceSeconds={expectedCadenceSeconds} />

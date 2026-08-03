@@ -102,13 +102,25 @@ tests** — none are invented here.
 - Two-clock timestamp model (`recording_since` = earliest history;
   `current_session_since` = live run start) — `viewmodels._build_storage_status`.
 - Heartbeat separates live-session from persisted-history freshness — `freshness.ts`.
+- **R1 — stored-sample-counter fallback in the authoritative period service**
+  (`periods.calculate_period`): when no anchor pair covers a period, exact deltas
+  from real cumulative registers in `energy_samples_v1` (grid import/export
+  lifetime; PV `E_Day` summed per local day) are returned as
+  `stored_sample_counter_delta` / provenance `stored_sample_counters`. Anchors are
+  always preferred; power is never integrated into kWh; no curve is invented.
+- **`viewmodels.build_period_report`** — one authoritative period contract behind
+  Today, Memory and Reports; classifies summary / records-only / unavailable.
+- **R2 — MemoryView** resolves every range (incl. today) through the period API
+  via a new Qt bridge channel (`requestPeriod` → `periodReady/periodFailed`),
+  the provider `requestPeriod`, and context. The `range === 'today' ? … : []`
+  stub is gone; "keine Messwerte" can appear only when records, summary and curve
+  are all absent.
 - Regression tests: `tests/test_recording_freshness.py`,
-  `frontend/react-ui/src/test/freshness.test.ts`.
+  `tests/test_period_sample_fallback.py`, `frontend/react-ui/src/test/freshness.test.ts`,
+  `MemoryView.test.tsx`, `periodView.test.ts`. Report↔Memory agreement asserted.
 
 **Specified but OPEN (need device-validated work):**
-- Wiring A′ (stored sample counters) and provider summaries into
-  `calculate_period` so Memory/Reports stop returning "no data" for stored history.
-- MemoryView historical range fetching (`MemoryView.tsx:32` stub).
 - `raw_samples.observed_at_utc` backfill migration; UTC/local column normalization.
-- Reconciliation layer + thresholds.
-- Real-device same-period comparison.
+- Reconciliation layer + thresholds (provider summary vs local totals).
+- Per-range curve series for historical ranges (period API is totals-only today).
+- Real-device same-period comparison (Fronius/Solar.web vs EnergyRadar).

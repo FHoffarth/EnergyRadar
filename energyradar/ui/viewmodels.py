@@ -820,3 +820,69 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return result
     return result
+
+
+_PERIOD_METRIC_NAMES = (
+    "pv_generation",
+    "grid_import",
+    "grid_export",
+    "house_consumption",
+    "direct_self_consumption",
+)
+
+
+def build_period_report(from_iso: str, to_iso: str) -> dict:
+    """Authoritative period result for an arbitrary range, shaped for the UI.
+
+    Single source of truth behind Memory and Reports for a given period: it wraps
+    ``periods.calculate_period`` (anchors preferred, stored-sample-counter
+    fallback) and classifies the outcome so the UI can distinguish summary-only,
+    partial, and genuinely-unavailable states — and never claim "no data" when
+    persisted records exist. Curve series are intentionally absent here: this
+    endpoint is totals + provenance only; a curve is a separate concern.
+    """
+    from energyradar import config
+    from energyradar.services import periods, economy, tariffs
+
+    report = periods.calculate_period(from_iso, to_iso)
+    metrics = report["metrics"]
+
+    def metric(name: str) -> dict:
+        raw = metrics.get(name, {})
+        value = raw.get("value_kwh")
+        return {
+            "value_kwh": float(value) if value is not None else None,
+            "state": raw.get("state"),
+            "coverage_state": raw.get("coverage_state"),
+            "source": raw.get("source"),
+            "provenance": raw.get("provenance"),
+            "confidence": raw.get("confidence"),
+            "reason": raw.get("reason"),
+        }
+
+    has_records = report.get("actual_period") is not None
+    has_summary = any(metrics[name].get("value_kwh") is not None for name in metrics)
+    provenance = report.get("source_precedence") or ("counter_anchors" if has_records else None)
+
+    economy_data = None
+    try:
+        economy_data = economy.calculate_period(
+            periods.economy_basis(report, timezone_name=config.MT175_TIMEZONE),
+            tariffs.list_records(),
+        )
+    except Exception as exc:  # economy is best-effort; never blocks the summary
+        log.debug("Period economy unavailable: %s", exc)
+
+    return {
+        "requested_period": report.get("requested_period"),
+        "resolved_period": report.get("actual_period"),
+        "provenance": provenance,
+        "freshness": report.get("freshness"),
+        "metrics": {name: metric(name) for name in _PERIOD_METRIC_NAMES},
+        # Availability contract: records/summary presence drives the UI state so
+        # "keine Messwerte" can only appear when all three are truly absent.
+        "has_records": has_records,
+        "has_summary": has_summary,
+        "economy": economy_data,
+        "diagnostics": {"raw_metrics": metrics, "source_precedence": report.get("source_precedence")},
+    }

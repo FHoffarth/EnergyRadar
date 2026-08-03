@@ -40,9 +40,15 @@ Two independent, additive root causes plus three data-integrity defects:
 | D2 | **Heartbeat reused the previous run's stale persisted sample as the current session's freshness** → "Aufzeichnung aktiv · Letzte Messung vor 2 Stunden" while the live feed is fresh. | `freshness.ts` `describeRecording` (pre-fix). |
 | D3 | **Mixed UTC/local storage and null anchor timestamps.** `energy_samples_v1.measured_at` is UTC-naive while `pv_measured_at`/`grid_measured_at` are local (CEST, +2h). All 307 `raw_samples.observed_at_utc` are **NULL**. | DB inspection. |
 
-D1 and D2 are **fixed** on this branch (see `MEMORY_INTEGRITY_CONTRACT.md`).
-R1, R2, D3 are diagnosed and specified but **require device-validated work** and
-remain open.
+**R1, R2, D1 and D2 are fixed** on this branch (see `MEMORY_INTEGRITY_CONTRACT.md`):
+the authoritative period service now falls back to real stored cumulative counters
+(`stored_sample_counter_delta`, anchors still preferred), and MemoryView resolves
+every range through that one contract. Verified against a copy of the owner
+database: a period that previously reported "no data" now returns
+`grid_import 41.353 kWh`, `grid_export 76.979 kWh` (provenance
+`stored_sample_counters`), with house/direct honestly withheld (sparse PV register).
+**D3** (mixed UTC/local columns, NULL `raw_samples.observed_at_utc`) and the
+reconciliation layer remain **open** and require device-validated follow-up.
 
 ---
 

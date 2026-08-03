@@ -36,6 +36,9 @@ export interface QtBridge {
   openLogDirectory: () => void;
   requestExport: (operationId: string, exportKind: string, rangeType: string, startDateStr: string, endDateStr: string) => void;
   requestMailShare: (operationId: string, rangeType: string, startDateStr: string, endDateStr: string) => void;
+  requestPeriod?: (operationId: string, fromIso: string, toIso: string) => void;
+  periodReady?: { connect: (cb: (operationId: string, reportJson: string) => void) => void };
+  periodFailed?: { connect: (cb: (operationId: string, errorMsg: string) => void) => void };
   exportStarted: { connect: (cb: (operationId: string) => void) => void };
   exportCompleted: { connect: (cb: (payloadJson: string) => void) => void };
   exportFailed: { connect: (cb: (operationId: string, errorMsg: string) => void) => void };

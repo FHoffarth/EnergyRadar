@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { EnergySnapshot, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, DataOrigin } from '../types';
-import { EnergyDataProvider } from './types';
+import { EnergySnapshot, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, DataOrigin, PeriodReport } from '../types';
+import { EnergyDataProvider, unavailablePeriodReport } from './types';
 import { DemoEnergyProviderImpl } from './DemoEnergyProvider';
 import { DesktopBridgeEnergyProviderImpl } from './DesktopBridgeEnergyProvider';
 import { initBridge } from '../lib/bridge';
@@ -14,6 +14,7 @@ interface EnergyProviderContextType {
   devices: DemoDeviceSummary[];
   sourceType: SourceType;
   testConnection: (deviceId: string) => Promise<ConnectionTestResult>;
+  requestPeriod: (fromIso: string, toIso: string) => Promise<PeriodReport>;
   updateSettings: (patch: Partial<RawSettings>) => void;
   getSettings: () => RawSettings | null;
   isBridgeConnected: boolean;
@@ -144,6 +145,16 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
     return { ok: false, message: 'Desktop-Bridge nicht verbunden.', latencyMs: null };
   }, []);
 
+  const requestPeriod = useCallback((fromIso: string, toIso: string): Promise<PeriodReport> => {
+    if (bridgeRef.current) {
+      return bridgeRef.current.requestPeriod(fromIso, toIso);
+    }
+    if (demoRef.current) {
+      return demoRef.current.requestPeriod(fromIso, toIso);
+    }
+    return Promise.resolve(unavailablePeriodReport(fromIso, toIso));
+  }, []);
+
   const updateSettings = useCallback((patch: Partial<RawSettings>) => {
     if (bridgeRef.current) {
       bridgeRef.current.updateSettings(patch);
@@ -161,6 +172,7 @@ export function EnergyProviderRoot({ children, demoMode = false }: EnergyProvide
       devices,
       sourceType,
       testConnection,
+      requestPeriod,
       updateSettings,
       getSettings,
       isBridgeConnected: sourceType === 'bridge'

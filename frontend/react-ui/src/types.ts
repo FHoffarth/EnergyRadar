@@ -376,3 +376,39 @@ export interface ConnectionTestResult {
   testedAt?: string | null;
   capabilities?: string[];
 }
+
+/** One metric of an authoritative period result (backend `build_period_report`). */
+export interface PeriodMetric {
+  value_kwh: number | null;
+  state: string | null;
+  coverage_state: string | null;
+  source: string | null;
+  provenance: string | null;
+  confidence: string | null;
+  reason: string | null;
+}
+
+/**
+ * Authoritative period result for an arbitrary range — the single contract behind
+ * Today, Memory and Reports for identical bounds. Curve series are deliberately
+ * not part of this payload; it is totals + provenance + availability only.
+ */
+export interface PeriodReport {
+  requested_period: { from: string; to: string } | null;
+  resolved_period: { from: string | null; to: string | null; state?: string } | null;
+  provenance: string | null;
+  freshness: { state: string; last_anchor_at: string | null; age_seconds: string | null } | null;
+  metrics: {
+    pv_generation: PeriodMetric;
+    grid_import: PeriodMetric;
+    grid_export: PeriodMetric;
+    house_consumption: PeriodMetric;
+    direct_self_consumption: PeriodMetric;
+  };
+  /** True when persisted records cover the period (resolved window exists). */
+  has_records: boolean;
+  /** True when at least one metric resolved to a factual value. */
+  has_summary: boolean;
+  economy?: unknown;
+  diagnostics?: unknown;
+}

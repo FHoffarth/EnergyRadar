@@ -1,5 +1,5 @@
-import { EnergySnapshot, EnergyValue, EnergyAssessment, DataQuality, DataOrigin, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, PowerData, SystemStatus } from '../types';
-import { EnergyDataProvider, DesktopBridgeEnergyProvider as DesktopBridgeEnergyProviderInterface } from './types';
+import { EnergySnapshot, EnergyValue, EnergyAssessment, DataQuality, DataOrigin, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, PowerData, SystemStatus, PeriodReport } from '../types';
+import { EnergyDataProvider, DesktopBridgeEnergyProvider as DesktopBridgeEnergyProviderInterface, unavailablePeriodReport } from './types';
 import { initBridge, QtBridge, getBridge } from '../lib/bridge';
 import { nowData$, todayData$ } from '../lib/energyService';
 
@@ -343,6 +343,31 @@ export class DesktopBridgeEnergyProviderImpl implements DesktopBridgeEnergyProvi
       () => this.pendingConnectionTests.delete(deviceId),
     );
     return request;
+  }
+
+  async requestPeriod(fromIso: string, toIso: string): Promise<PeriodReport> {
+    if (!this.bridge || typeof this.bridge.requestPeriod !== 'function') {
+      return unavailablePeriodReport(fromIso, toIso);
+    }
+    const operationId = `period-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise<PeriodReport>((resolve) => {
+      const timeout = setTimeout(() => resolve(unavailablePeriodReport(fromIso, toIso)), 15000);
+      this.bridge!.periodReady?.connect((opId, reportJson) => {
+        if (opId !== operationId) return;
+        clearTimeout(timeout);
+        try {
+          resolve(JSON.parse(reportJson) as PeriodReport);
+        } catch {
+          resolve(unavailablePeriodReport(fromIso, toIso));
+        }
+      });
+      this.bridge!.periodFailed?.connect((opId) => {
+        if (opId !== operationId) return;
+        clearTimeout(timeout);
+        resolve(unavailablePeriodReport(fromIso, toIso));
+      });
+      this.bridge!.requestPeriod!(operationId, fromIso, toIso);
+    });
   }
 
   destroy() {

@@ -89,6 +89,10 @@ class EnergyBridge(QObject):
     exportFailed = Signal(str, str)  # operation_id, error_message
     mailHandoffPrepared = Signal(str)# operation_id
 
+    # Authoritative period result for an arbitrary range (Memory/Reports)
+    periodReady = Signal(str, str)   # operation_id, report_json
+    periodFailed = Signal(str, str)  # operation_id, error_message
+
     # ---------------------------------------------------------------- #
     # Settings & System Signale (Sprint 5A & 5B)
     # ---------------------------------------------------------------- #
@@ -116,6 +120,8 @@ class EnergyBridge(QObject):
     _weatherCandidatesReady = Signal(str, str)
     _weatherReportReady = Signal(str)
     _weatherConnectionTestReady = Signal(str, str)
+    _periodReady = Signal(str, str)
+    _periodFailed = Signal(str, str)
 
     # ---------------------------------------------------------------- #
     # Initialisierung
@@ -137,6 +143,9 @@ class EnergyBridge(QObject):
         self._testing_devices: set[str] = set()
         self._test_results: dict[str, dict] = {}
         self._refresh_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="energyradar-ui")
+        # Period queries run off the refresh worker so a Memory range change
+        # never blocks (or is blocked by) the live polling cycle.
+        self._period_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="energyradar-period")
 
         # Interne Signale verbinden (immer auf Main-Thread ausgeliefert)
         self._nowReady.connect(self._apply_now, Qt.ConnectionType.QueuedConnection)
@@ -146,6 +155,8 @@ class EnergyBridge(QObject):
         self._weatherCandidatesReady.connect(self._relay_weather_candidates, Qt.ConnectionType.QueuedConnection)
         self._weatherReportReady.connect(self._relay_weather_report, Qt.ConnectionType.QueuedConnection)
         self._weatherConnectionTestReady.connect(self._relay_weather_connection_test, Qt.ConnectionType.QueuedConnection)
+        self._periodReady.connect(self._relay_period_ready, Qt.ConnectionType.QueuedConnection)
+        self._periodFailed.connect(self._relay_period_failed, Qt.ConnectionType.QueuedConnection)
 
         # Initialen Settings-Snapshot sofort bereitstellen
         self._update_settings_snapshot()
@@ -817,6 +828,33 @@ class EnergyBridge(QObject):
                 "action": "openLogDirectory",
                 "message": "Der Protokollordner konnte nicht geöffnet werden.",
             }, ensure_ascii=False))
+
+    @Slot(str, str)
+    def _relay_period_ready(self, operation_id: str, report_json: str) -> None:
+        self.periodReady.emit(operation_id, report_json)
+
+    @Slot(str, str)
+    def _relay_period_failed(self, operation_id: str, error: str) -> None:
+        self.periodFailed.emit(operation_id, error)
+
+    @Slot(str, str, str)
+    def requestPeriod(self, operation_id: str, from_iso: str, to_iso: str) -> None:
+        """Compute the authoritative period result for a range (Memory/Reports).
+
+        Runs off the main thread and marshals the JSON result back via a queued
+        signal. The same contract backs Today, Memory and Reports for identical
+        bounds, so the surfaces cannot disagree about whether data exists.
+        """
+        def _compute() -> None:
+            from energyradar.ui import viewmodels
+            try:
+                report = viewmodels.build_period_report(from_iso, to_iso)
+                self._periodReady.emit(operation_id, json.dumps(report, ensure_ascii=False))
+            except Exception as exc:
+                log.exception("Period query failed")
+                self._periodFailed.emit(operation_id, type(exc).__name__)
+
+        self._period_executor.submit(_compute)
 
     @Slot(str, str, str, str, str)
     def requestExport(self, operation_id: str, export_kind: str, range_type: str, start_date_str: str, end_date_str: str) -> None:
