@@ -59,7 +59,18 @@ export function describeRecording(
   const interval = system.recording_interval_seconds > 0 ? system.recording_interval_seconds : 60;
   const lastAt = system.last_recorded_sample_at ?? null;
   const lastAgeSeconds = lastAt ? Math.max(0, (now.getTime() - new Date(lastAt).getTime()) / 1000) : null;
-  const sinceClock = localClock(system.recording_since, opts.locale);
+  // The live session's own clock, distinct from the earliest-history baseline.
+  const sessionSince = system.current_session_since ?? null;
+  const sinceClock = localClock(sessionSince ?? system.recording_since, opts.locale);
+
+  // Does the last persisted sample belong to the *current* recording session?
+  // Right after startup it usually does not: the newest persisted row is from a
+  // previous run and may be hours old. That is stale *history*, not a stale live
+  // feed — so it must never drive a "Letzte Messung vor 2 Stunden" warning while
+  // the live projection is fresh.
+  const lastFromThisSession =
+    lastAt !== null &&
+    (sessionSince === null || new Date(lastAt).getTime() >= new Date(sessionSince).getTime());
 
   if (!system.recording_active) {
     return {
@@ -70,22 +81,27 @@ export function describeRecording(
     };
   }
 
-  // Recording is active but has produced nothing yet — an honest not-yet.
-  if (!lastAt || system.stored_samples === 0) {
+  // Recording is active but this session has not persisted anything yet — either
+  // truly the first run, or a fresh restart whose newest stored row predates it.
+  // Honest not-yet, and healthy: the live feed can still be current.
+  if (!lastFromThisSession || system.stored_samples === 0) {
     return {
       state: 'no_data',
-      label: 'Aufzeichnung gestartet',
-      detail: sinceClock ? `seit ${sinceClock} Uhr · noch keine Messung` : 'Noch keine Messung erfasst',
+      label: 'Aufzeichnung läuft',
+      detail: sinceClock
+        ? `seit ${sinceClock} Uhr · erste Speicherung läuft`
+        : 'Live-Daten verfügbar · erste Speicherung läuft',
       healthy: true,
     };
   }
 
-  // Active, but the last sample is well past the expected cadence: say so plainly.
+  // Active, and a *this-session* sample is well past the expected cadence: the
+  // persisted feed itself has genuinely fallen behind — say so plainly.
   if (lastAgeSeconds !== null && lastAgeSeconds > interval * 3) {
     return {
       state: 'stale',
       label: 'Aufzeichnung aktiv',
-      detail: `Letzte Messung ${humanAgo(lastAt, now)}`,
+      detail: `Zuletzt gespeichert ${humanAgo(lastAt, now)}`,
       healthy: false,
     };
   }

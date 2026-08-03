@@ -150,7 +150,12 @@ export interface SystemInfo {
   export_directory: string;
   database_healthy: boolean;
   recording_active: boolean;
+  /** Earliest persisted record — "since when do we hold history". */
   recording_since: string | null;
+  /** Start of the current live recording session (active run). Distinct from
+   *  `recording_since`: used to tell a fresh live feed apart from stale
+   *  persisted history so startup never reads as "last measurement 2h ago". */
+  current_session_since?: string | null;
   stored_samples: number;
   database_size_bytes: number;
   last_recorded_sample_at: string | null;

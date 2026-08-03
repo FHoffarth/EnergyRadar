@@ -764,6 +764,7 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
         "database_healthy": False,
         "recording_active": False,
         "recording_since": None,
+        "current_session_since": None,
         "stored_samples": 0,
         "database_size_bytes": path.stat().st_size if path.exists() else 0,
         "last_recorded_sample_at": None,
@@ -799,7 +800,15 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
                 "SELECT started_at_utc FROM recording_runs WHERE clean_shutdown_at_utc IS NULL ORDER BY run_id DESC LIMIT 1"
             ).fetchone()
         result["stored_samples"] = int(count)
-        result["recording_since"] = run_row[0] if run_row else first
+        # `recording_since` answers "since when do we hold history" and must be
+        # the earliest persisted record, never the newest live run start — the
+        # latter produced the impossible ordering where "Aufzeichnung seit" was
+        # shown *after* "Letzte gespeicherte Messung".
+        result["recording_since"] = first
+        # The active run start is a *separate* clock: it lets the UI tell a
+        # fresh live feed apart from stale persisted history (heartbeat), and
+        # must not be conflated with the persisted-history baseline above.
+        result["current_session_since"] = run_row[0] if run_row else None
         result["last_recorded_sample_at"] = last
         projection = get_runtime().projection.snapshot()
         result["recording_active"] = projection.recording_active
