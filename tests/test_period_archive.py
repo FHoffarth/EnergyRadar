@@ -110,6 +110,24 @@ def test_build_period_report_archive_only_is_visible(db):
     assert vm["curve"]["source"] == "fronius_archive"
 
 
+def test_today_vm_uses_archive_pv_so_it_agrees_with_memory(db):
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(config.MT175_TIMEZONE)
+    now = datetime.now(tz)
+    # An archive energy point earlier today (local), before "now".
+    point = (now.astimezone(timezone.utc) - __import__("datetime").timedelta(minutes=30))
+    if point.astimezone(tz).date() != now.date():
+        pytest.skip("run crosses local midnight")
+    observed = point.strftime("%Y-%m-%dT%H:%M:%SZ")
+    con = sqlite3.connect(db)
+    sid, iid = _src(con)
+    _apoint(con, sid, iid, "EnergyReal_WAC_Sum_Produced", observed, 800.0, "interval_total", "Wh")
+    con.commit()
+    con.close()
+    vm = viewmodels.build_today_vm_from_anchors(fronius=None, mt175=None)
+    assert vm.generated_kwh == 0.8  # archive interval energy, same as Memory would show
+
+
 def test_build_period_report_grid_is_never_archive_filled(db):
     con = sqlite3.connect(db)
     sid, iid = _src(con)

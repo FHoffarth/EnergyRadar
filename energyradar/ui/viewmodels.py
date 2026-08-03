@@ -488,6 +488,20 @@ def build_today_vm_from_anchors(
     cons_kwh = value("house_consumption")
     imp_kwh = value("grid_import")
     exp_kwh = value("grid_export")
+
+    # Same PV precedence as Memory/Reports: when the counter paths supply no PV,
+    # fall back to Fronius local-archive interval energy so Today agrees with the
+    # authoritative period contract instead of showing PV as unknown.
+    if gen_kwh is None:
+        import sqlite3
+        from energyradar.services import period_archive
+        con = sqlite3.connect(config.DB_PATH)
+        try:
+            archive_pv = period_archive.archive_pv_energy(con, start_of_day, now)
+        finally:
+            con.close()
+        if archive_pv["value_kwh"] is not None:
+            gen_kwh = archive_pv["value_kwh"]
     try:
         economy_data = economy.calculate_period(
             periods.economy_basis(report, timezone_name=str(tz)),
