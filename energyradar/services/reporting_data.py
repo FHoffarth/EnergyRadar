@@ -168,6 +168,22 @@ def get_report_data(start_date: datetime, end_date: datetime, label: str) -> Rep
     import_kwh = anchor_value("grid_import")
     export_kwh = anchor_value("grid_export")
     consumption_kwh = anchor_value("house_consumption")
+
+    # Same PV precedence as the Memory/Today period contract: when the counter
+    # paths supply no PV, fall back to Fronius local-archive interval energy
+    # (provenance fronius_local_archive) so Today, Memory and Reports agree.
+    solar_provenance = "counter_anchor" if solar_kwh is not None else None
+    if solar_kwh is None:
+        import sqlite3
+        from energyradar.services import period_archive
+        con = sqlite3.connect(config.DB_PATH)
+        try:
+            archive_pv = period_archive.archive_pv_energy(con, start_date, end_date)
+        finally:
+            con.close()
+        if archive_pv["value_kwh"] is not None:
+            solar_kwh = archive_pv["value_kwh"]
+            solar_provenance = archive_pv["provenance"]
     autarky_pct = None
     if consumption_kwh is not None and consumption_kwh > 0 and import_kwh is not None:
         autarky_pct = max(0, min(100, round((1 - import_kwh / consumption_kwh) * 100)))

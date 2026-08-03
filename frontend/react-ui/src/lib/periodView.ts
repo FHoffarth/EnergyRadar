@@ -30,9 +30,25 @@ export function provenanceLabel(provenance: string | null | undefined): string |
       return 'Synchronisierte Zählerstände';
     case 'stored_sample_counters':
       return 'Gespeicherte Zählerstände (eingeschränkte Genauigkeit)';
+    case 'fronius_local_archive':
+      return 'Solarertrag vom Fronius-Datalogger bestätigt';
     case 'demo':
       return 'Demodaten';
     default:
       return null;
+  }
+}
+
+/** Precise curve-source wording (§11). Empty string when there is no curve. */
+export function curveSourceLabel(source: string | null | undefined): string {
+  switch (source) {
+    case 'local':
+      return 'Verlauf aus lokaler Aufzeichnung';
+    case 'fronius_archive':
+      return 'Verlauf aus dem Fronius-Datalogger';
+    case 'mixed':
+      return 'Gemischter Verlauf aus lokaler Aufzeichnung und Fronius-Datalogger';
+    default:
+      return '';
   }
 }

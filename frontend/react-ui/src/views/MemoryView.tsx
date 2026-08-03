@@ -9,8 +9,8 @@ import { usePrefersReducedMotion } from '../lib/motion';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 import { EconomySummary } from '../components/EconomySummary';
 import { formatEnergy } from '../lib/format';
-import { PeriodReport } from '../types';
-import { classifyPeriod, PERIOD_METRICS, provenanceLabel } from '../lib/periodView';
+import { PeriodReport, TimelineEntry } from '../types';
+import { classifyPeriod, PERIOD_METRICS, provenanceLabel, curveSourceLabel } from '../lib/periodView';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -75,6 +75,30 @@ export function MemoryView() {
   }, [range, requestPeriod]);
 
   const availability = classifyPeriod(periodReport, periodLoading);
+
+  // Authoritative curve: local samples preferred, Fronius archive fills gaps.
+  const curve = periodReport?.curve;
+  const curveTimeline: TimelineEntry[] = (curve?.points ?? []).map(p => {
+    const ms = new Date(p.t).getTime();
+    const local = p.source === 'local';
+    return {
+      time: new Date(p.t).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+      timestampMs: Number.isFinite(ms) ? ms : null,
+      solarKw: p.solar_w !== null ? p.solar_w / 1000 : null,
+      homeLoadKw: null,
+      gridKw: p.grid_w !== null ? p.grid_w / 1000 : null,
+      batteryPct: null,
+      origin: local ? 'observed' : 'calculated',
+      solarOrigin: local ? 'observed' : 'calculated',
+      homeLoadOrigin: 'unavailable',
+      gridOrigin: p.grid_w !== null ? 'observed' : 'unavailable',
+    } as TimelineEntry;
+  });
+  // Prefer the authoritative period curve; fall back to today's live timeline.
+  const chartTimeline: TimelineEntry[] = curveTimeline.length > 0
+    ? curveTimeline
+    : (range === 'today' ? timeline : []);
+  const pvKnown = (periodReport?.metrics?.pv_generation?.value_kwh ?? null) !== null;
 
   const handleExport = () => {
     const { start, end } = getRangeDates(range);
@@ -151,9 +175,11 @@ export function MemoryView() {
                 </div>
               ))}
             </dl>
-            {range !== 'today' && (
+            {periodReport.has_summary && !periodReport.has_curve && (
               <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
-                Tagesertrag bekannt, Verlauf unvollständig — für diesen Zeitraum liegen Summen, aber keine vollständige Kurve vor.
+                {pvKnown
+                  ? 'Solarertrag bekannt, Verlauf unvollständig.'
+                  : 'Energiemengen bekannt, Verlauf unvollständig.'}
               </p>
             )}
           </>
@@ -173,18 +199,34 @@ export function MemoryView() {
       </section>
 
       <div className="grid gap-5">
-        <section className="cockpit-surface p-5 lg:p-6" aria-labelledby="history-chart-heading">
+        <section className="cockpit-surface p-5 lg:p-6" aria-labelledby="history-chart-heading"
+          data-testid="history-curve" data-curve-source={curve?.source ?? 'none'}>
           <p className="cockpit-eyebrow">Verlauf</p>
           <h2 id="history-chart-heading" className="mt-2 text-xl font-semibold">
             {range === 'today' ? 'Aktuell geladener Tag' : rangeLabel}
           </h2>
-          <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {range === 'today'
-              ? 'Die Kurve zeigt den derzeit geladenen Tagesverlauf. Fehlende Abschnitte bleiben als Lücken sichtbar.'
-              : 'Für diesen Zeitraum zeigt die Oberfläche noch keinen Verlauf; die gespeicherten Summen oben stammen aus der Zeitraum-Auswertung. Der Export enthält die Rohdaten.'}
-          </p>
-          <HistoryOverviewChart timeline={visibleTimeline} locale={locale} animate={animate}
-            expectedCadenceSeconds={expectedCadenceSeconds} />
+          {chartTimeline.length > 0 ? (
+            <>
+              {curve && curveSourceLabel(curve.source) && (
+                <p className="mb-1 mt-1 text-sm font-medium text-sky-700 dark:text-sky-300">
+                  {curveSourceLabel(curve.source)}
+                </p>
+              )}
+              <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+                {curve?.mixed_source
+                  ? 'Lokale Aufzeichnung unvollständig; fehlende Abschnitte stammen aus dem Fronius-Datalogger.'
+                  : 'Fehlende Abschnitte bleiben als Lücken sichtbar.'}
+              </p>
+              <HistoryOverviewChart timeline={chartTimeline} locale={locale} animate={animate}
+                expectedCadenceSeconds={expectedCadenceSeconds} />
+            </>
+          ) : (
+            <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {periodLoading
+                ? 'Verlauf wird geladen …'
+                : 'Für diesen Zeitraum liegt kein Verlauf vor – weder aus lokaler Aufzeichnung noch aus dem Fronius-Datalogger.'}
+            </p>
+          )}
         </section>
       </div>
 

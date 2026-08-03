@@ -834,15 +834,18 @@ _PERIOD_METRIC_NAMES = (
 def build_period_report(from_iso: str, to_iso: str) -> dict:
     """Authoritative period result for an arbitrary range, shaped for the UI.
 
-    Single source of truth behind Memory and Reports for a given period: it wraps
-    ``periods.calculate_period`` (anchors preferred, stored-sample-counter
-    fallback) and classifies the outcome so the UI can distinguish summary-only,
-    partial, and genuinely-unavailable states — and never claim "no data" when
-    persisted records exist. Curve series are intentionally absent here: this
-    endpoint is totals + provenance only; a curve is a separate concern.
+    Single source of truth behind Today, Memory and Reports for a given period.
+    Totals follow the truth hierarchy: synchronized anchors, then stored sample
+    counters, then — for PV only — the Fronius local-archive interval energy
+    (``fronius_local_archive``), never power integration. A source-tagged curve
+    (local samples preferred, archive fills missing intervals) is included so the
+    UI can show real history. "keine Messwerte" is only valid when totals, records
+    and curve are all genuinely absent.
     """
+    import sqlite3
+    from datetime import datetime, timezone
     from energyradar import config
-    from energyradar.services import periods, economy, tariffs
+    from energyradar.services import periods, economy, tariffs, period_archive
 
     report = periods.calculate_period(from_iso, to_iso)
     metrics = report["metrics"]
@@ -860,9 +863,40 @@ def build_period_report(from_iso: str, to_iso: str) -> dict:
             "reason": raw.get("reason"),
         }
 
-    has_records = report.get("actual_period") is not None
-    has_summary = any(metrics[name].get("value_kwh") is not None for name in metrics)
-    provenance = report.get("source_precedence") or ("counter_anchors" if has_records else None)
+    computed = {name: metric(name) for name in _PERIOD_METRIC_NAMES}
+
+    def _to_utc(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+        return parsed.astimezone(timezone.utc)
+
+    from_dt, to_dt = _to_utc(from_iso), _to_utc(to_iso)
+    con = sqlite3.connect(config.DB_PATH)
+    try:
+        archive_pv = period_archive.archive_pv_energy(con, from_dt, to_dt)
+        curve = period_archive.build_period_curve(con, from_dt, to_dt)
+    finally:
+        con.close()
+
+    # PV precedence: keep counter-derived value; only fall back to archive
+    # interval energy when the counter paths supplied nothing. Grid/house stay
+    # meter/counter truth and are never archive-filled.
+    if computed["pv_generation"]["value_kwh"] is None and archive_pv["value_kwh"] is not None:
+        computed["pv_generation"] = {
+            "value_kwh": archive_pv["value_kwh"],
+            "state": "partial",
+            "coverage_state": "partial",
+            "source": archive_pv["source"],
+            "provenance": archive_pv["provenance"],
+            "confidence": "verified_provider",
+            "reason": None,
+        }
+
+    archive_contributed = archive_pv["value_kwh"] is not None or curve["n_points"] > 0
+    has_records = report.get("actual_period") is not None or archive_contributed
+    has_summary = any(computed[name]["value_kwh"] is not None for name in computed)
+    provenance = report.get("source_precedence") or ("counter_anchors" if report.get("actual_period") else None)
+    if provenance is None and archive_contributed:
+        provenance = "fronius_local_archive"
 
     economy_data = None
     try:
@@ -878,11 +912,15 @@ def build_period_report(from_iso: str, to_iso: str) -> dict:
         "resolved_period": report.get("actual_period"),
         "provenance": provenance,
         "freshness": report.get("freshness"),
-        "metrics": {name: metric(name) for name in _PERIOD_METRIC_NAMES},
-        # Availability contract: records/summary presence drives the UI state so
-        # "keine Messwerte" can only appear when all three are truly absent.
+        "metrics": computed,
+        "curve": curve,
+        "archive_pv": archive_pv,
+        # Availability contract: records/summary/curve presence drives the UI
+        # state so "keine Messwerte" can only appear when all are truly absent.
         "has_records": has_records,
         "has_summary": has_summary,
+        "has_curve": curve["n_points"] > 0,
         "economy": economy_data,
-        "diagnostics": {"raw_metrics": metrics, "source_precedence": report.get("source_precedence")},
+        "diagnostics": {"raw_metrics": metrics, "source_precedence": report.get("source_precedence"),
+                        "curve_segments": curve["segments"]},
     }

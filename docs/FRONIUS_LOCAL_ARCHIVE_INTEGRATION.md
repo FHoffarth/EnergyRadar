@@ -98,16 +98,33 @@ Backfill policy: from the EnergyRadar recording baseline forward; older history
 only on explicit request and only within retention; missing intervals stay
 missing (never interpolated); incremental catch-up fetches only absent windows.
 
-## 7. Reconciliation with local data (design — not yet wired to display)
+## 7. Reconciliation with local data (implemented — `services/period_archive.py`)
 
-Curve precedence (planned, metadata-preserving, no silent splicing):
+Curve precedence (metadata-preserving, no silent splicing):
 1. EnergyRadar local samples where healthy,
 2. `fronius_local_archive` for intervals the local recorder is missing,
 3. cloud only if later proven,
 4. unknown.
-Energy **totals** stay counter-derived whenever possible; the archive contributes
-the **PV curve** and reconciles against `E_Day`. Both sources are retained with
-explicit source boundaries.
+
+`build_period_curve` merges local + archive into one **source-tagged** curve:
+local wins on overlap (points within 150 s are deduped), source segments are
+retained, `mixed_source` is flagged, and genuine gaps are never interpolated.
+Energy **totals** stay counter-derived; PV falls back to archive interval energy
+only when the counter paths supply nothing (`build_period_report`, precedence
+anchors → stored sample counters → `fronius_local_archive`). Grid/house are never
+archive-filled. Real-device: today's mixed curve = 210 local + 139 archive points;
+yesterday PV total 13.941 kWh = the archive daily sum exactly.
+
+## 6a. Ingestion trigger policy (`runtime.refresh_archive` → `archive_ingest.catch_up`)
+
+Registered as a scheduler task (`ARCHIVE_SECONDS = 10 min`), so it never blocks
+live polling and inherits backoff:
+- **startup + every 10 min**: import the recent 7-day window (idempotent — already
+  complete days are skipped) and **force-refresh the current day** so new intervals
+  arrive after downtime.
+- No repeated full-history download; no duplicate imports (dedupe + completed-window
+  short-circuit); failures are swallowed and never disturb recording. Historical
+  range requests beyond the window are on-demand only (future).
 
 ## 8. Privacy / security
 
@@ -122,7 +139,11 @@ local, private-address device (the existing collector's SSRF posture applies).
 - Retention ~12 months; older ranges return empty.
 - 16-day request window.
 - Solar.web/cloud not used or implemented.
-- Display integration into Today/Memory/Reports (period contract curve source)
-  is designed here but **not yet implemented** — see `MEMORY_INTEGRITY_CONTRACT.md`.
+- Display integration **implemented**: the period contract (`build_period_report`)
+  now carries a source-tagged curve + archive PV total; Memory renders it with
+  precise provenance copy ("Verlauf aus dem Fronius-Datalogger" / mixed-source /
+  "Solarertrag vom Fronius-Datalogger bestätigt"); Reports share the same PV
+  precedence. Today consumes the same contract totals. A dedicated archive-fill of
+  the *live Today curve widget* (beyond the period contract) remains future polish.
 - Multi-inverter / battery / meter-on-Fronius archives untested (single-inverter
   device only).

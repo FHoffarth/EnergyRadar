@@ -388,10 +388,30 @@ export interface PeriodMetric {
   reason: string | null;
 }
 
+export interface PeriodCurvePoint {
+  t: string;                 // ISO 8601 'Z'
+  solar_w: number | null;
+  grid_w: number | null;
+  source: 'local' | 'fronius_archive';
+}
+
+export interface PeriodCurve {
+  points: PeriodCurvePoint[];
+  source: 'local' | 'fronius_archive' | 'mixed' | 'unavailable';
+  mixed_source: boolean;
+  segments: { source: string; from: string; to: string }[];
+  n_points: number;
+  n_local: number;
+  n_archive: number;
+  first: string | null;
+  last: string | null;
+  unavailable_reason: string | null;
+}
+
 /**
  * Authoritative period result for an arbitrary range — the single contract behind
- * Today, Memory and Reports for identical bounds. Curve series are deliberately
- * not part of this payload; it is totals + provenance + availability only.
+ * Today, Memory and Reports for identical bounds. Includes totals + provenance +
+ * a source-tagged curve (local samples preferred, Fronius archive fills gaps).
  */
 export interface PeriodReport {
   requested_period: { from: string; to: string } | null;
@@ -409,6 +429,10 @@ export interface PeriodReport {
   has_records: boolean;
   /** True when at least one metric resolved to a factual value. */
   has_summary: boolean;
+  /** True when a curve (local and/or Fronius archive) exists for the period. */
+  has_curve?: boolean;
+  curve?: PeriodCurve;
+  archive_pv?: { value_kwh: number | null; provenance: string | null; n_points: number };
   economy?: unknown;
   diagnostics?: unknown;
 }

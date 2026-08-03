@@ -65,8 +65,50 @@ describe('MemoryView', () => {
     const summary = await screen.findByTestId('period-summary');
     await waitFor(() => expect(summary.getAttribute('data-availability')).toBe('summary'));
     expect(screen.getByText(/Gespeicherte Zählerstände/)).toBeTruthy();
-    expect(screen.getByText(/Tagesertrag bekannt, Verlauf unvollständig/)).toBeTruthy();
+    // PV is known but no curve in this report → precise summary-without-curve copy.
+    expect(screen.getByText(/Solarertrag bekannt, Verlauf unvollständig/)).toBeTruthy();
     expect(screen.queryByText(/keine gespeicherten Messwerte vor/)).toBeNull();
+  });
+
+  it('renders a Fronius archive curve with explicit provenance', async () => {
+    providerState.requestPeriod = vi.fn(() => Promise.resolve(report({
+      provenance: 'fronius_local_archive',
+      has_curve: true,
+      curve: {
+        source: 'fronius_archive', mixed_source: false, segments: [],
+        n_points: 2, n_local: 0, n_archive: 2, first: 'a', last: 'b', unavailable_reason: null,
+        points: [
+          { t: '2026-08-02T09:00:00Z', solar_w: 6000, grid_w: null, source: 'fronius_archive' },
+          { t: '2026-08-02T09:05:00Z', solar_w: 6500, grid_w: null, source: 'fronius_archive' },
+        ],
+      },
+    } as any)));
+    render(<MemoryView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gestern' }));
+    const curve = await screen.findByTestId('history-curve');
+    await waitFor(() => expect(curve.getAttribute('data-curve-source')).toBe('fronius_archive'));
+    expect(screen.getByText('Verlauf aus dem Fronius-Datalogger')).toBeTruthy();
+    expect(screen.getByText(/Solarertrag vom Fronius-Datalogger bestätigt/)).toBeTruthy();
+    expect(screen.queryByText(/kein Verlauf vor/)).toBeNull();
+  });
+
+  it('labels a mixed local+archive curve as mixed-source', async () => {
+    providerState.requestPeriod = vi.fn(() => Promise.resolve(report({
+      has_curve: true,
+      curve: {
+        source: 'mixed', mixed_source: true, segments: [],
+        n_points: 2, n_local: 1, n_archive: 1, first: 'a', last: 'b', unavailable_reason: null,
+        points: [
+          { t: '2026-08-02T09:00:00Z', solar_w: 5900, grid_w: null, source: 'local' },
+          { t: '2026-08-02T12:00:00Z', solar_w: 8000, grid_w: null, source: 'fronius_archive' },
+        ],
+      },
+    } as any)));
+    render(<MemoryView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gestern' }));
+    const curve = await screen.findByTestId('history-curve');
+    await waitFor(() => expect(curve.getAttribute('data-curve-source')).toBe('mixed'));
+    expect(screen.getByText(/Gemischter Verlauf/)).toBeTruthy();
   });
 
   it('distinguishes records-only from genuinely unavailable', async () => {

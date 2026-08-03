@@ -179,6 +179,35 @@ def test_ingest_empty_archive_is_no_data_not_error(db):
     assert res.points_ingested == 0
 
 
+def test_force_refresh_reingests_complete_window(db):
+    small = _payload("2026-08-03T00:00:00+02:00", {"19800": 12.0}, {"19800": 144.0})
+    bigger = _payload("2026-08-03T00:00:00+02:00", {"19800": 12.0, "20100": 15.5}, {"19800": 144.0, "20100": 186.0})
+    archive_ingest.ingest_range("http://device", date(2026, 8, 3), date(2026, 8, 3),
+                                fetcher=_fixture_fetcher(small), database_path=db)
+    # Without force_refresh the completed window is short-circuited.
+    r = archive_ingest.ingest_range("http://device", date(2026, 8, 3), date(2026, 8, 3),
+                                    fetcher=_fixture_fetcher(bigger), database_path=db, force_refresh=True)
+    con = sqlite3.connect(db)
+    n = con.execute("SELECT count(*) FROM provider_archive_points").fetchone()[0]
+    con.close()
+    assert n == 4  # 2 energy + 2 power; the earlier interval was deduped, the new one added
+    assert r.status == "complete"
+
+
+def test_catch_up_covers_window_and_current_day(db):
+    def per_date(base_url, start, end, channels=()):
+        return _payload(f"{start.isoformat()}T00:00:00+02:00", {"19800": 10.0}, {"19800": 120.0})
+    results = archive_ingest.catch_up("http://device", today=date(2026, 8, 3),
+                                      backfill_days=3, database_path=db, fetcher=per_date)
+    # One backfill range (Aug 1..Aug 2) + the current day (Aug 3).
+    assert len(results) == 2
+    assert all(r.status == "complete" for r in results)
+    con = sqlite3.connect(db)
+    imports = con.execute("SELECT count(*) FROM provider_archive_imports").fetchone()[0]
+    con.close()
+    assert imports == 2
+
+
 def test_ingest_restricted_window_reported(db):
     def restricted(base_url, start, end, channels=()):
         return _payload("2026-08-03T00:00:00+02:00", {}, {}, code=255)

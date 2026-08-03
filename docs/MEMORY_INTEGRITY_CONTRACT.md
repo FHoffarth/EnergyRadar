@@ -124,9 +124,13 @@ tests** — none are invented here.
   provenance-separated ingestion into `provider_archive_*` (migration 6). PV
   interval-energy history reconciles with `E_Day`. See
   `FRONIUS_LOCAL_ARCHIVE_INTEGRATION.md`.
-- **OPEN:** wiring the archive PV curve into the period contract + Memory/Today/
-  Report display (Case: "local samples missing, Fronius archive available" →
-  "Verlauf aus dem Fronius-Datalogger verfügbar"), with source-boundary metadata.
+- **DONE:** the archive PV curve is wired into the period contract
+  (`build_period_report.curve` — source-tagged, mixed-source flag, segments) and
+  displayed in Memory ("Verlauf aus dem Fronius-Datalogger" / "Gemischter Verlauf
+  …"); PV total falls back to archive interval energy when counters lack it;
+  Reports share the precedence; ingestion runs on a 10-min scheduler task. Grid/
+  house stay counter/meter truth. Real-device validated (mixed curves; PV = archive
+  daily sum). Remaining: dedicated live-Today curve-widget archive-fill; cloud.
 
 **Specified but OPEN (need device-validated work):**
 - `raw_samples.observed_at_utc` backfill migration; UTC/local column normalization.

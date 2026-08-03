@@ -46,8 +46,13 @@ def ingest_range(
     channels: tuple[str, ...] = archive.DEFAULT_CHANNELS,
     database_path=None,
     fetcher: Callable[..., dict[str, Any]] | None = None,
+    force_refresh: bool = False,
 ) -> IngestResult:
-    """Import [from_date, to_date] (inclusive, local dates) idempotently."""
+    """Import [from_date, to_date] (inclusive, local dates) idempotently.
+
+    ``force_refresh`` re-fetches even a previously-complete window (for the
+    current day, which keeps growing); dedupe still prevents duplicate points.
+    """
     migration.run_migrations()
     fetch = fetcher or archive.fetch_archive
     chunks = archive.daterange_chunks(from_date, to_date)
@@ -62,7 +67,7 @@ def ingest_range(
             "SELECT import_id, status, points_ingested, chunk_count, reason FROM provider_archive_imports WHERE idempotency_key = ?",
             (idem,),
         ).fetchone()
-        if existing is not None and existing["status"] == "complete":
+        if existing is not None and existing["status"] == "complete" and not force_refresh:
             return IngestResult(int(existing["import_id"]), "complete",
                                 int(existing["points_ingested"]), int(existing["chunk_count"]), existing["reason"])
 
@@ -125,6 +130,34 @@ def ingest_range(
         return IngestResult(import_id, status, total_points, len(chunks), reason)
     finally:
         con.close()
+
+
+def catch_up(
+    base_url: str,
+    *,
+    today: date | None = None,
+    backfill_days: int = 7,
+    database_path=None,
+    fetcher: Callable[..., dict[str, Any]] | None = None,
+) -> list[IngestResult]:
+    """Bounded startup / incremental catch-up.
+
+    Policy (see docs): import the recent ``backfill_days`` window once (idempotent,
+    so already-complete days are skipped), then force-refresh the current day so
+    new intervals are picked up after downtime. Never re-downloads full history;
+    never blocks live polling (callers run this off the main path).
+    """
+    from datetime import timedelta
+
+    day = today or date.today()
+    results: list[IngestResult] = []
+    window_start = day - timedelta(days=max(0, backfill_days - 1))
+    if window_start < day:
+        results.append(ingest_range(base_url, window_start, day - timedelta(days=1),
+                                    database_path=database_path, fetcher=fetcher))
+    results.append(ingest_range(base_url, day, day, database_path=database_path,
+                                fetcher=fetcher, force_refresh=True))
+    return results
 
 
 def _resolve_source(con: sqlite3.Connection, provider: str, device_key: str, base_url: str, now: str) -> int:
