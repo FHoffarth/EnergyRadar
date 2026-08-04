@@ -1,11 +1,11 @@
 import React from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea, ReferenceLine } from 'recharts';
+import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea } from 'recharts';
 import { Info } from 'lucide-react';
 import { TimelineEntry, TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
-import { MultiDayWeatherForecast, WeatherIntelligence, nearTermSolarOutlook } from '../components/WeatherIntelligence';
+import { CockpitWeather } from '../components/WeatherIntelligence';
 import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
@@ -16,6 +16,7 @@ import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
 import { LivePvGauge } from '../components/decision/LivePvGauge';
 import { LiveEnergyStrip } from '../components/decision/LiveEnergyStrip';
 import { verdictTone, livePvState } from '../lib/decisionView';
+import { greetingTitle } from '../lib/greeting';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
 import { describeRecording } from '../lib/freshness';
@@ -85,6 +86,26 @@ export function TodayView() {
   const formatAxisKw = (value: number) =>
     formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
+  // Fixed 24-hour local axis: even 4-hour ticks, independent of where samples or
+  // gaps happen to fall, so the day always has a stable, readable shape.
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 3600 * 1000;
+  const dayTicks = [0, 4, 8, 12, 16, 20, 24].map(h => dayStartMs + h * 3600 * 1000);
+
+  // Robust Y scale: cap near the 95th percentile of solar/consumption so a single
+  // brief spike cannot flatten the whole day. Peaks above the cap are clipped but
+  // never hidden — they are disclosed as a count + maximum below the chart.
+  const powerValues = timeline
+    .flatMap(p => [p.solarKw, p.homeLoadKw])
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+    .sort((a, b) => a - b);
+  const percentile = (arr: number[], q: number) => arr.length ? arr[Math.min(arr.length - 1, Math.floor(q * arr.length))] : 0;
+  const p95 = percentile(powerValues, 0.95);
+  const maxPower = powerValues.length ? powerValues[powerValues.length - 1] : 0;
+  const yCap = Math.max(0.5, Math.ceil((p95 * 1.2) * 10) / 10);
+  const outlierCount = powerValues.filter(v => v > yCap).length;
+
   const hasLeftAxis = series.some(entry => entry.axis === 'left');
   const hasRightAxis = series.some(entry => entry.axis === 'right');
   const hasChartableSeries = series.length > 0;
@@ -101,8 +122,17 @@ export function TodayView() {
   const recording = describeRecording(settingsPayload?.system, { locale });
   const coverageLabel = { complete: 'Vollständig', partial: 'Teilweise', sparse: 'Wenige Daten', unavailable: 'Nicht verfügbar' }[coverage.level];
   const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
-  // Cautious near-term outlook that binds the forecast to the day arc.
-  const nearTermOutlook = weatherEnabled ? nearTermSolarOutlook(weatherReport ?? null) : null;
+
+  // Personal, quiet greeting by local time of day — a warm entry before the
+  // factual verdict. Never a second h1, never a competing hero.
+  const greetingEnabled = settingsPayload?.effective_settings?.greeting_enabled ?? true;
+  const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
+  const greeting = greetingEnabled ? greetingTitle(new Date().getHours(), preferredName) : null;
+  const overviewStatus = coverage.level === 'complete'
+    ? 'Deine Energiedaten für heute sind vollständig verfügbar.'
+    : coverage.level === 'partial' || coverage.level === 'sparse'
+      ? 'Ein Teil der heutigen Messdaten fehlt noch.'
+      : 'Hier ist dein Energieüberblick für heute.';
 
   return (
     <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
@@ -112,25 +142,37 @@ export function TodayView() {
         <div className="order-2 lg:order-1">
           <LiveEnergyStrip snapshot={snapshot} locale={locale} />
         </div>
-        {/* Decision cockpit: verdict · autonomy · economic value (first viewport). */}
+        {/* Decision cockpit: verdict · autonomy · economic value · balance · weather.
+            Content is width-capped so wide desktops stay a closed cockpit. */}
         <section aria-label="Tagesentscheidung" className="order-1 cockpit-surface p-5 lg:order-2 lg:p-6" data-testid="decision-cockpit">
-        <DailyVerdict assessment={assessment} />
-        <div className="mt-6 grid gap-8 lg:grid-cols-2 lg:items-center">
-          <div className="flex flex-col items-center gap-3">
-            <AutarkieGauge pct={autarkiePct} tone={autarkieTone} animate={animate} />
-            {autarkiePct !== null && (
-              <p className="max-w-xs text-center text-sm text-slate-600 dark:text-slate-300">
-                Heute wurden <strong className="text-slate-800 dark:text-slate-100">{autarkiePct}&nbsp;%</strong> deines
-                {' '}Strombedarfs ohne Netzbezug gedeckt.
-              </p>
+          <div className="mx-auto max-w-5xl">
+            {greeting && (
+              <div className="mb-3" data-testid="greeting">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{greeting}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{overviewStatus}</p>
+              </div>
             )}
-            <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
+            <DailyVerdict assessment={assessment} />
+            {/* Decision zone: autonomy + economy read as one pair. */}
+            <div className="mt-5 grid gap-6 sm:grid-cols-2 sm:items-center">
+              <div className="flex flex-col items-center gap-2">
+                <AutarkieGauge pct={autarkiePct} tone={autarkieTone} animate={animate} />
+                {autarkiePct !== null && (
+                  <p className="max-w-xs text-center text-sm text-slate-600 dark:text-slate-300">
+                    Heute wurden <strong className="text-slate-800 dark:text-slate-100">{autarkiePct}&nbsp;%</strong> deines
+                    {' '}Strombedarfs ohne Netzbezug gedeckt.
+                  </p>
+                )}
+                <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
+              </div>
+              <EconomicHero report={today.economy} locale={locale} />
+            </div>
+            {/* Lower zone: balance left, weather fills the previously empty right. */}
+            <div className="mt-6 grid gap-8 border-t border-slate-200/70 pt-5 dark:border-slate-800 lg:grid-cols-2">
+              <EnergyBalanceStory data={today} locale={locale} />
+              {weatherEnabled && <CockpitWeather report={weatherReport} locale={locale} snapshot={snapshot} />}
+            </div>
           </div>
-          <EconomicHero report={today.economy} locale={locale} />
-        </div>
-        <div className="mt-6 border-t border-slate-200/70 pt-5 dark:border-slate-800">
-          <EnergyBalanceStory data={today} locale={locale} />
-        </div>
         </section>
       </div>
 
@@ -183,7 +225,7 @@ export function TodayView() {
           {hasChartableSeries ? (
             <div className="h-[clamp(20rem,48vh,34rem)] w-full" role="img"
               aria-label={`Energieverlauf mit ${chartGapCount} sichtbaren ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Solar und Verbrauch in Kilowatt.`}>
-              <p className="sr-only">Fehlende Messperioden sind schattiert und nur durch eine gestrichelte, nicht gemessene Orientierungshilfe überbrückt. Gültige Nullwerte bleiben Teil der Kurve.</p>
+              <p className="sr-only">Fehlende Messperioden bleiben als Lücken sichtbar und werden nicht überbrückt. Gültige Nullwerte bleiben Teil der Kurve. Die Y-Achse priorisiert den normalen Tagesverlauf; einzelne Spitzen über der Skala werden unter dem Diagramm gesondert genannt.</p>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartTimeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
                   <defs>
@@ -197,12 +239,13 @@ export function TodayView() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.3} vertical={false} />
-                  <XAxis dataKey="timestampMs" type="number" scale="time" domain={['dataMin', 'dataMax']}
+                  <XAxis dataKey="timestampMs" type="number" scale="time" domain={[dayStartMs, dayEndMs]}
+                    ticks={dayTicks} interval={0}
                     stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
-                    minTickGap={48} tickFormatter={value => formatTimelineTime(value, locale)} />
+                    tickFormatter={value => formatTimelineTime(value, locale)} />
                   {hasLeftAxis && (
                     <YAxis yAxisId="left" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} unit="kW"
-                      tickFormatter={formatAxisKw} />
+                      domain={[0, yCap]} allowDataOverflow tickFormatter={formatAxisKw} />
                   )}
                   {hasRightAxis && (
                     <YAxis yAxisId="right" orientation="right" stroke="#94A3B8" fontSize={10} tickLine={false}
@@ -219,19 +262,13 @@ export function TodayView() {
                       fontSize: '12px',
                       padding: '4px 8px',
                     }} />
+                  {/* Gaps recede: a very light shaded band, never a dominant grey
+                      block, and never bridged by an artificial (interpolating) line. */}
                   {gaps.map((gap, index) => (
                     <GapReferenceArea key={`gap-area-${index}`} x1={gap.before.timestampMs} x2={gap.after.timestampMs}
-                      yAxisId={hasLeftAxis ? 'left' : 'right'} fill="#64748B" fillOpacity={0.09}
+                      yAxisId={hasLeftAxis ? 'left' : 'right'} fill="#94A3B8" fillOpacity={0.05}
                       stroke="none" ifOverflow="hidden" />
                   ))}
-                  {gaps.flatMap((gap, gapIndex) => series.map(entry => {
-                    const before = gap.before[entry.key];
-                    const after = gap.after[entry.key];
-                    if (typeof before !== 'number' || !Number.isFinite(before) || typeof after !== 'number' || !Number.isFinite(after)) return null;
-                    return <ReferenceLine key={`gap-bridge-${gapIndex}-${entry.key}`} yAxisId={entry.axis}
-                      segment={[{ x: gap.before.timestampMs, y: before }, { x: gap.after.timestampMs, y: after }]}
-                      stroke={entry.color} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="hidden" />;
-                  }))}
                   {series.map(entry => (
                     entry.key === 'batteryPct' ? (
                       <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
@@ -262,11 +299,6 @@ export function TodayView() {
               Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
             </p>
           )}
-          {nearTermOutlook && (
-            <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="near-term-outlook">
-              <span className="font-medium text-slate-700 dark:text-slate-200">Ausblick:</span> {nearTermOutlook}
-            </p>
-          )}
           {/* One compact data-quality footer. Detailed reasons live only in
               Technical Details — the chart is evidence, not a second Today page. */}
           <div data-testid="chart-data-quality"
@@ -274,6 +306,7 @@ export function TodayView() {
             <span>
               Datenabdeckung {coverageLabel.toLowerCase()}
               {chartGapCount > 0 ? ` · ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Lücke' : 'Lücken'}` : ''}
+              {outlierCount > 0 ? ` · ${formatNumber(outlierCount, locale)} ${outlierCount === 1 ? 'Spitze' : 'Spitzen'} über der Skala (max. ${formatAxisKw(maxPower)} kW)` : ''}
             </span>
             {chartGapCount > 0 && (
               <details className="mt-1">
@@ -285,22 +318,8 @@ export function TodayView() {
         </section>
       )}
 
-      {/* Weather as energy context: one surface (current + hourly, current
-          hour reads 'Jetzt', expired hours drop at the boundary), with the
-          multi-day outlook secondary behind its own disclosure. */}
-      {weatherEnabled && (
-        <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-3">
-          <WeatherIntelligence report={weatherReport} locale={locale} snapshot={snapshot} />
-          {/* Multi-day forecast is secondary — behind a disclosure so weather
-              never competes with the day's energy story. */}
-          <details>
-            <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">Mehrtägige Vorhersage</summary>
-            <div className="mt-3">
-              <MultiDayWeatherForecast report={weatherReport} locale={locale} />
-            </div>
-          </details>
-        </section>
-      )}
+      {/* Weather now lives inside the cockpit (balance | weather). No large
+          separate weather section here. */}
 
       {/* Recording state — one heartbeat, no second data-quality line (that
           lives once in the chart footer above). */}

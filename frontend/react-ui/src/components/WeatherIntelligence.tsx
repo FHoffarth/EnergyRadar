@@ -295,6 +295,38 @@ export function MultiDayWeatherForecast({ report, locale }: { report: WeatherRep
   );
 }
 
+/**
+ * Compact weather for the unified cockpit's lower-right zone: concise current
+ * context + one solar-outlook sentence + sunset, with the hourly and multi-day
+ * detail behind one disclosure. No large separate weather section, no 6-column
+ * hourly table in the overview. Only real weather data is shown.
+ */
+export function CockpitWeather({
+  report, locale, snapshot, now = new Date(),
+}: {
+  report: WeatherReportData | null; locale: NumberLocale; snapshot?: EnergySnapshot | null; now?: Date;
+}) {
+  const outlook = nearTermSolarOutlook(report, now);
+  const detailed = Boolean(report && report.status === 'available' && ((report.hourly?.length ?? 0) > 0 || (report.daily?.length ?? 0) > 0));
+  return (
+    <div data-testid="cockpit-weather">
+      <WeatherIntelligence report={report} locale={locale} snapshot={snapshot} now={now} compact />
+      {outlook && (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300" data-testid="cockpit-weather-outlook">{outlook}</p>
+      )}
+      {detailed && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">Wetterdetails anzeigen</summary>
+          <div className="mt-3 space-y-4">
+            <CompactHourlyForecast report={report} locale={locale} now={now} />
+            <MultiDayWeatherForecast report={report} locale={locale} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export function WeatherIntelligence({
   report, locale, compact = false, snapshot, now = new Date(),
 }: {
