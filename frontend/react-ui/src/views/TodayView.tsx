@@ -10,12 +10,12 @@ import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyVerdict } from '../components/decision/DailyVerdict';
-import { AutarkieGauge } from '../components/decision/AutarkieGauge';
+import { AutarkieBar } from '../components/decision/AutarkieBar';
 import { EconomicHero } from '../components/decision/EconomicHero';
 import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
 import { LivePvGauge } from '../components/decision/LivePvGauge';
 import { LiveEnergyStrip } from '../components/decision/LiveEnergyStrip';
-import { verdictTone, livePvState } from '../lib/decisionView';
+import { livePvState } from '../lib/decisionView';
 import { greetingTitle } from '../lib/greeting';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
@@ -114,7 +114,6 @@ export function TodayView() {
   const today: TodayData = todayData ?? fallbackToday;
   const assessment = today.assessment ?? null;
   const autarkiePct = today.selfSufficiency.state === 'available' ? today.selfSufficiency.value : null;
-  const autarkieTone = verdictTone(assessment?.assessment_class ?? null);
   const capacityKwp = settingsPayload?.effective_settings?.pv_installed_kwp ?? null;
   const pvPowerKw = snapshot?.solar?.origin === 'observed' ? snapshot.solar.valueKw : null;
   const pvGaugeState = livePvState(pvPowerKw, snapshot?.solar?.origin, snapshot?.quality, new Date());
@@ -134,8 +133,14 @@ export function TodayView() {
       ? 'Ein Teil der heutigen Messdaten fehlt noch.'
       : 'Hier ist dein Energieüberblick für heute.';
 
+  // Autonomy relation for the bar: self-consumed PV (covering the house) vs grid.
+  const balSolar = today.solarTotal.state === 'available' ? today.solarTotal.value : null;
+  const balExport = today.gridFeedInTotal.state === 'available' ? today.gridFeedInTotal.value : null;
+  const autarkieSolarKwh = balSolar !== null && balExport !== null ? Math.max(0, balSolar - balExport) : null;
+  const autarkieGridKwh = today.gridDrawTotal.state === 'available' ? today.gridDrawTotal.value : null;
+
   return (
-    <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
+    <div className="cockpit-page mx-auto flex h-full w-full max-w-7xl flex-col gap-6 overflow-y-auto" data-testid="today-workspace">
       {/* Unified surface: one compact live strip + the day's judgement. On
           desktop the live flow reads first; on mobile the verdict leads. */}
       <div className="flex flex-col gap-4">
@@ -145,33 +150,29 @@ export function TodayView() {
         {/* Decision cockpit: verdict · autonomy · economic value · balance · weather.
             Content is width-capped so wide desktops stay a closed cockpit. */}
         <section aria-label="Tagesentscheidung" className="order-1 cockpit-surface p-5 lg:order-2 lg:p-6" data-testid="decision-cockpit">
-          <div className="mx-auto max-w-5xl">
-            {greeting && (
-              <div className="mb-3" data-testid="greeting">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{greeting}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{overviewStatus}</p>
-              </div>
-            )}
-            <DailyVerdict assessment={assessment} />
-            {/* Decision zone: autonomy + economy read as one pair. */}
-            <div className="mt-5 grid gap-6 sm:grid-cols-2 sm:items-center">
-              <div className="flex flex-col items-center gap-2">
-                <AutarkieGauge pct={autarkiePct} tone={autarkieTone} animate={animate} />
-                {autarkiePct !== null && (
-                  <p className="max-w-xs text-center text-sm text-slate-600 dark:text-slate-300">
-                    Heute wurden <strong className="text-slate-800 dark:text-slate-100">{autarkiePct}&nbsp;%</strong> deines
-                    {' '}Strombedarfs ohne Netzbezug gedeckt.
-                  </p>
-                )}
-                <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
-              </div>
+          {greeting && (
+            <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="greeting">
+              <span className="font-medium text-slate-700 dark:text-slate-200">{greeting}</span>
+              {' '}<span className="text-slate-500 dark:text-slate-400">{overviewStatus}</span>
+            </p>
+          )}
+          <div className="mt-2">
+            <DailyVerdict assessment={assessment} autarkiePct={autarkiePct} />
+          </div>
+          {/* Decision zone: autonomy (bar) + economy fill the width as one pair. */}
+          <div className="mt-4 grid gap-6 lg:grid-cols-12">
+            <div className="flex flex-col gap-2 lg:col-span-5">
+              <AutarkieBar pct={autarkiePct} solarKwh={autarkieSolarKwh} gridKwh={autarkieGridKwh} locale={locale} />
+              <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
+            </div>
+            <div className="lg:col-span-7">
               <EconomicHero report={today.economy} locale={locale} />
             </div>
-            {/* Lower zone: balance left, weather fills the previously empty right. */}
-            <div className="mt-6 grid gap-8 border-t border-slate-200/70 pt-5 dark:border-slate-800 lg:grid-cols-2">
-              <EnergyBalanceStory data={today} locale={locale} />
-              {weatherEnabled && <CockpitWeather report={weatherReport} locale={locale} snapshot={snapshot} />}
-            </div>
+          </div>
+          {/* Lower zone: balance left, weather fills the previously empty right. */}
+          <div className="mt-5 grid gap-8 border-t border-slate-200/70 pt-4 dark:border-slate-800 lg:grid-cols-12">
+            <div className="lg:col-span-6"><EnergyBalanceStory data={today} locale={locale} /></div>
+            {weatherEnabled && <div className="lg:col-span-6"><CockpitWeather report={weatherReport} locale={locale} snapshot={snapshot} /></div>}
           </div>
         </section>
       </div>
