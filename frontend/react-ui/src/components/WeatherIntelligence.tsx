@@ -336,7 +336,7 @@ export function WeatherIntelligence({
   if (!report || report.status !== 'available' || !report.current) {
     return (
       <section aria-label="Wetter und Solarbedingungen">
-        <p className="cockpit-eyebrow">Energie-Kontext</p>
+        <p className="cockpit-eyebrow">Wetter & Solarbedingungen</p>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Wetterdaten aktuell nicht verfügbar</p>
       </section>
     );
@@ -352,7 +352,7 @@ export function WeatherIntelligence({
   return (
     <section aria-label="Wetter und Solarbedingungen" className="overflow-hidden">
       <div className="min-w-0">
-        <p className="cockpit-eyebrow">Energie-Kontext</p>
+        <p className="cockpit-eyebrow">Wetter & Solarbedingungen</p>
         <WeatherFreshnessNotice report={report} />
         {location && <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300" title={location}>{location}</p>}
         <div className="mt-3 flex min-w-0 items-center gap-4">
