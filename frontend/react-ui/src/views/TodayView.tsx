@@ -9,18 +9,17 @@ import { MultiDayWeatherForecast, WeatherIntelligence, nearTermSolarOutlook } fr
 import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
-import { DailyInterpretation } from '../components/DailyInterpretation';
 import { DailyVerdict } from '../components/decision/DailyVerdict';
 import { AutarkieGauge } from '../components/decision/AutarkieGauge';
 import { EconomicHero } from '../components/decision/EconomicHero';
 import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
 import { LivePvGauge } from '../components/decision/LivePvGauge';
+import { LiveEnergyStrip } from '../components/decision/LiveEnergyStrip';
 import { verdictTone, livePvState } from '../lib/decisionView';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
-import { EconomySummary } from '../components/EconomySummary';
 import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
 import { describeRecording } from '../lib/freshness';
-import { dailyStatements, evaluateCoverage } from '../lib/storytelling';
+import { evaluateCoverage } from '../lib/storytelling';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
 
 // Recharts 3 omits standard SVG fill props from this generic component's
@@ -69,7 +68,6 @@ export function TodayView() {
     expectedCadenceSeconds,
     ...todayCoverageBoundaries(timeline),
   });
-  const statements = dailyStatements(timeline, coverage, snapshot);
   const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
   const gaps = timelineGaps(timeline, expectedCadenceSeconds);
   const chartGapCount = gaps.length;
@@ -108,8 +106,14 @@ export function TodayView() {
 
   return (
     <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
-      {/* 1 — Decision cockpit: verdict · autonomy · economic value (first viewport). */}
-      <section aria-label="Tagesentscheidung" className="cockpit-surface p-5 lg:p-6" data-testid="decision-cockpit">
+      {/* Unified surface: one compact live strip + the day's judgement. On
+          desktop the live flow reads first; on mobile the verdict leads. */}
+      <div className="flex flex-col gap-4">
+        <div className="order-2 lg:order-1">
+          <LiveEnergyStrip snapshot={snapshot} locale={locale} />
+        </div>
+        {/* Decision cockpit: verdict · autonomy · economic value (first viewport). */}
+        <section aria-label="Tagesentscheidung" className="order-1 cockpit-surface p-5 lg:order-2 lg:p-6" data-testid="decision-cockpit">
         <DailyVerdict assessment={assessment} />
         <div className="mt-6 grid gap-8 lg:grid-cols-2 lg:items-center">
           <div className="flex flex-col items-center gap-3">
@@ -127,7 +131,8 @@ export function TodayView() {
         <div className="mt-6 border-t border-slate-200/70 pt-5 dark:border-slate-800">
           <EnergyBalanceStory data={today} locale={locale} />
         </div>
-      </section>
+        </section>
+      </div>
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300">
@@ -262,32 +267,45 @@ export function TodayView() {
               <span className="font-medium text-slate-700 dark:text-slate-200">Ausblick:</span> {nearTermOutlook}
             </p>
           )}
+          {/* One compact data-quality footer. Detailed reasons live only in
+              Technical Details — the chart is evidence, not a second Today page. */}
+          <div data-testid="chart-data-quality"
+            className="border-t border-slate-200/70 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <span>
+              Datenabdeckung {coverageLabel.toLowerCase()}
+              {chartGapCount > 0 ? ` · ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Lücke' : 'Lücken'}` : ''}
+            </span>
+            {chartGapCount > 0 && (
+              <details className="mt-1">
+                <summary className="cursor-pointer">Warum fehlen Daten?</summary>
+                <p className="mt-1">Für einzelne Abschnitte liegen keine Messwerte vor. Abdeckung, Quellen und Details stehen unten unter „Technische Details“.</p>
+              </details>
+            )}
+          </div>
         </section>
       )}
-      {/* 3 — Supporting daily narrative (evidence, below the hero) */}
-      <DailyInterpretation statements={statements} />
 
-      {/* 4 — Solar Economy detail (hero value is above; this is the breakdown) */}
-      <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
-
-      {/* 5 — Weather as energy context: one surface (current + hourly, current
+      {/* Weather as energy context: one surface (current + hourly, current
           hour reads 'Jetzt', expired hours drop at the boundary), with the
           multi-day outlook secondary behind its own disclosure. */}
       {weatherEnabled && (
-        <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-4">
+        <section aria-label="Wetter als Energie-Kontext" className="flex flex-col gap-3">
           <WeatherIntelligence report={weatherReport} locale={locale} snapshot={snapshot} />
-          <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+          {/* Multi-day forecast is secondary — behind a disclosure so weather
+              never competes with the day's energy story. */}
+          <details>
+            <summary className="cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300">Mehrtägige Vorhersage</summary>
+            <div className="mt-3">
+              <MultiDayWeatherForecast report={weatherReport} locale={locale} />
+            </div>
+          </details>
         </section>
       )}
 
-      {/* 6 — Recording and coverage context */}
-      <section aria-label="Aufzeichnung und Abdeckung" className="flex flex-col gap-2">
+      {/* Recording state — one heartbeat, no second data-quality line (that
+          lives once in the chart footer above). */}
+      <section aria-label="Aufzeichnung" className="flex flex-col gap-2">
         {recording && <RecordingHeartbeat descriptor={recording} />}
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Datenabdeckung: {coverageLabel}
-          {coverage.firstTime && coverage.lastTime ? ` · erfasst ${coverage.firstTime}–${coverage.lastTime} Uhr` : ''}
-          {chartGapCount > 0 ? ` · ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}` : ''}
-        </p>
       </section>
 
       {/* 7 — Technical details */}

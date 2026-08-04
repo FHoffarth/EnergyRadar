@@ -11,11 +11,16 @@ function val(state: { state: string; value?: number } | undefined): number | nul
  * Only compatible period values; a missing value stays "—" (never invented).
  */
 export function EnergyBalanceStory({ data, locale }: { data: TodayData; locale: NumberLocale }) {
+  const generated = val(data.solarTotal);
+  const exported = val(data.gridFeedInTotal);
+  // Self-consumed PV is distinct from total house consumption: generation − export.
+  const selfConsumedPv = generated !== null && exported !== null ? Math.max(0, generated - exported) : null;
   const rows: { label: string; value: number | null; testid: string }[] = [
-    { label: 'erzeugt', value: val(data.solarTotal), testid: 'balance-generated' },
-    { label: 'im Haus genutzt', value: val(data.homeTotal), testid: 'balance-consumed' },
-    { label: 'eingespeist', value: val(data.gridFeedInTotal), testid: 'balance-export' },
-    { label: 'aus dem Netz bezogen', value: val(data.gridDrawTotal), testid: 'balance-import' },
+    { label: 'PV-Erzeugung', value: generated, testid: 'balance-generated' },
+    { label: 'Solarstrom selbst genutzt', value: selfConsumedPv, testid: 'balance-selfused' },
+    { label: 'Hausverbrauch gesamt', value: val(data.homeTotal), testid: 'balance-consumed' },
+    { label: 'Netzbezug', value: val(data.gridDrawTotal), testid: 'balance-import' },
+    { label: 'Einspeisung', value: exported, testid: 'balance-export' },
   ];
   const selfConsumption = val(data.selfConsumption);
 
