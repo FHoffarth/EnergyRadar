@@ -110,6 +110,16 @@ def test_build_period_report_archive_only_is_visible(db):
     assert vm["curve"]["source"] == "fronius_archive"
 
 
+def test_today_vm_exposes_daily_assessment(db):
+    vm = viewmodels.build_today_vm_from_anchors(fronius=None, mt175=None)
+    # The verdict is always present and shaped for the cockpit; with no data it is
+    # honestly not-assessable (never a fabricated class).
+    assert set(vm.assessment) >= {"assessable", "assessment_class", "trust", "headline", "sentence"}
+    assert vm.assessment["assessable"] is False
+    assert vm.assessment["trust"] == "not_assessable"
+    assert vm.assessment["assessment_class"] is None
+
+
 def test_today_vm_uses_archive_pv_so_it_agrees_with_memory(db):
     from zoneinfo import ZoneInfo
     tz = ZoneInfo(config.MT175_TIMEZONE)
