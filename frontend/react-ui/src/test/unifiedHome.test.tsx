@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { AutarkieGauge } from '../components/decision/AutarkieGauge';
+import { AutarkieBar } from '../components/decision/AutarkieBar';
 import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
 import { LiveEnergyStrip } from '../components/decision/LiveEnergyStrip';
 import { TodayData, EnergySnapshot } from '../types';
@@ -33,6 +34,24 @@ function today(over: Partial<TodayData>): TodayData {
     history: [], ...over,
   };
 }
+
+describe('AutarkieBar — compact horizontal autonomy (Variante B)', () => {
+  it('shows the percentage, an accessible meter, and the Solar/Netz relation', () => {
+    render(<AutarkieBar pct={46} solarKwh={3.5} gridKwh={4.1} locale={locale} />);
+    const meter = screen.getByRole('meter', { name: 'Autarkiegrad' });
+    expect(meter.getAttribute('aria-valuenow')).toBe('46');
+    expect(meter.getAttribute('aria-valuetext')).toMatch(/46 Prozent solar, 54 Prozent aus dem Netz/);
+    expect(screen.getByText('46')).toBeTruthy();
+    // Solar and grid shares named in text, not colour-only.
+    expect(screen.getByText('Solar selbst genutzt')).toBeTruthy();
+    expect(screen.getByText('Netzbezug')).toBeTruthy();
+  });
+  it('keeps the unknown state intentional, not 0 %', () => {
+    render(<AutarkieBar pct={null} solarKwh={null} gridKwh={null} locale={locale} />);
+    expect(screen.getByText('Nicht bewertbar')).toBeTruthy();
+    expect(screen.queryByRole('meter')).toBeNull();
+  });
+});
 
 describe('EnergyBalanceStory — unambiguous labels', () => {
   it('distinguishes self-consumed PV from total house consumption', () => {
