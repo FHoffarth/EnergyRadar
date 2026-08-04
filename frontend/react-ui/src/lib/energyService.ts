@@ -135,6 +135,7 @@ function processTodayViewModel(raw: Record<string, any>) {
     selfSufficiency: toDataState(raw.autarky_pct),
     history,
     economy: raw.economy && typeof raw.economy === 'object' ? raw.economy : null,
+    assessment: raw.assessment && typeof raw.assessment === 'object' ? raw.assessment : null,
   });
 }
 

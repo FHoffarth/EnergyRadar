@@ -10,6 +10,12 @@ import { usePrefersReducedMotion } from '../lib/motion';
 import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyInterpretation } from '../components/DailyInterpretation';
+import { DailyVerdict } from '../components/decision/DailyVerdict';
+import { AutarkieGauge } from '../components/decision/AutarkieGauge';
+import { EconomicHero } from '../components/decision/EconomicHero';
+import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
+import { LivePvGauge } from '../components/decision/LivePvGauge';
+import { verdictTone, livePvState } from '../lib/decisionView';
 import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { EconomySummary } from '../components/EconomySummary';
 import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
@@ -85,6 +91,15 @@ export function TodayView() {
   const hasRightAxis = series.some(entry => entry.axis === 'right');
   const hasChartableSeries = series.length > 0;
 
+  // Decision-cockpit hero values (evidence stays below).
+  const today: TodayData = todayData ?? fallbackToday;
+  const assessment = today.assessment ?? null;
+  const autarkiePct = today.selfSufficiency.state === 'available' ? today.selfSufficiency.value : null;
+  const autarkieTone = verdictTone(assessment?.assessment_class ?? null);
+  const capacityKwp = settingsPayload?.effective_settings?.pv_installed_kwp ?? null;
+  const pvPowerKw = snapshot?.solar?.origin === 'observed' ? snapshot.solar.valueKw : null;
+  const pvGaugeState = livePvState(pvPowerKw, snapshot?.solar?.origin, snapshot?.quality, new Date());
+
   const recording = describeRecording(settingsPayload?.system, { locale });
   const coverageLabel = { complete: 'Vollständig', partial: 'Teilweise', sparse: 'Wenige Daten', unavailable: 'Nicht verfügbar' }[coverage.level];
   const weatherEnabled = Boolean(settingsPayload?.effective_settings?.weather_enabled);
@@ -93,8 +108,26 @@ export function TodayView() {
 
   return (
     <div className="cockpit-page h-full flex flex-col overflow-y-auto gap-8" data-testid="today-workspace">
-      {/* 1 — Assessment: how is today developing? */}
-      <DailyInterpretation statements={statements} />
+      {/* 1 — Decision cockpit: verdict · autonomy · economic value (first viewport). */}
+      <section aria-label="Tagesentscheidung" className="cockpit-surface p-5 lg:p-6" data-testid="decision-cockpit">
+        <DailyVerdict assessment={assessment} />
+        <div className="mt-6 grid gap-8 lg:grid-cols-2 lg:items-center">
+          <div className="flex flex-col items-center gap-3">
+            <AutarkieGauge pct={autarkiePct} tone={autarkieTone} animate={animate} />
+            {autarkiePct !== null && (
+              <p className="max-w-xs text-center text-sm text-slate-600 dark:text-slate-300">
+                Heute wurden <strong className="text-slate-800 dark:text-slate-100">{autarkiePct}&nbsp;%</strong> deines
+                {' '}Strombedarfs ohne Netzbezug gedeckt.
+              </p>
+            )}
+            <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
+          </div>
+          <EconomicHero report={today.economy} locale={locale} />
+        </div>
+        <div className="mt-6 border-t border-slate-200/70 pt-5 dark:border-slate-800">
+          <EnergyBalanceStory data={today} locale={locale} />
+        </div>
+      </section>
 
       {isDemo && (
         <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/50 rounded-xl p-3 px-4 text-xs flex items-center gap-2 text-sky-800 dark:text-sky-300">
@@ -119,10 +152,7 @@ export function TodayView() {
         </div>
       )}
 
-      {/* 2 — Evidence: the figures that quantify the assessment */}
-      <DailySummaryMetrics data={todayData ?? fallbackToday} coverage={coverage} locale={locale} />
-
-      {/* 3 — Day arc */}
+      {/* 2 — Day arc */}
       {!noData && (
         <section className="cockpit-surface space-y-4 p-5 lg:p-6">
           <div className="flex items-baseline justify-between gap-4">
@@ -234,7 +264,10 @@ export function TodayView() {
           )}
         </section>
       )}
-      {/* 4 — Solar Economy (assessment refined in Phase 4) */}
+      {/* 3 — Supporting daily narrative (evidence, below the hero) */}
+      <DailyInterpretation statements={statements} />
+
+      {/* 4 — Solar Economy detail (hero value is above; this is the breakdown) */}
       <EconomySummary report={todayData?.economy} locale={locale} scope="today" />
 
       {/* 5 — Weather as energy context: one surface (current + hourly, current
@@ -260,6 +293,9 @@ export function TodayView() {
       {/* 7 — Technical details */}
       <details className="text-sm text-slate-600 dark:text-slate-300">
         <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Technische Details</summary>
+        <div className="mt-4 lg:max-w-3xl">
+          <DailySummaryMetrics data={today} coverage={coverage} locale={locale} />
+        </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
           <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
           <div className="text-xs text-slate-500 dark:text-slate-400">

@@ -83,6 +83,7 @@ class TodayViewModel:
     has_data: bool
     has_source: bool
     economy: dict
+    assessment: dict = field(default_factory=dict)
 
     # Solar-Prognose (Sprint 5E)
     solar_forecast: Optional[dict] = None
@@ -532,6 +533,27 @@ def build_today_vm_from_anchors(
     if cons_kwh is not None and cons_kwh > 0 and imp_kwh is not None:
         autarky_pct = max(0, min(100, round((1 - imp_kwh / cons_kwh) * 100)))
 
+    # Daily verdict (Phase B model). Autonomy sets the class; coverage/economy
+    # only refine the sentence. Today is usually partial (day in progress).
+    from energyradar.services import decision
+    econ_results = (economy_data.get("results", {}) or {}) if isinstance(economy_data, dict) else {}
+    economic_value_available = bool((econ_results.get("solar_economic_value", {}) or {}).get("value_eur"))
+    cov = hist_data["coverage"]
+    coverage_complete = (cov.get("pv", 0) >= 0.9 and cov.get("grid", 0) >= 0.9)
+    verdict = decision.daily_verdict(
+        autarky_pct, self_consumption_pct,
+        coverage_complete=coverage_complete,
+        economic_value_available=economic_value_available,
+    )
+    assessment = {
+        "assessable": verdict.assessable,
+        "assessment_class": verdict.assessment_class,
+        "trust": verdict.trust,
+        "headline": verdict.headline,
+        "sentence": verdict.sentence,
+        "reason": verdict.reason,
+    }
+
     return TodayViewModel(
         generated_kwh=gen_kwh,
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
@@ -554,6 +576,7 @@ def build_today_vm_from_anchors(
         has_source=(fronius is not None or mt175 is not None) if has_source is None else has_source,
         economy=economy_data,
         solar_forecast=solar_forecast,
+        assessment=assessment,
     )
 
 

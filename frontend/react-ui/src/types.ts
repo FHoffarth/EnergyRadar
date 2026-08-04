@@ -32,6 +32,15 @@ export interface TodayHistoryPoint {
   gridExport: number | null;
 }
 
+export interface DailyAssessment {
+  assessable: boolean;
+  assessment_class: 'excellent' | 'strong' | 'balanced' | 'grid_dependent' | null;
+  trust: 'complete' | 'partial' | 'not_assessable';
+  headline: string;
+  sentence: string;
+  reason: string | null;
+}
+
 export interface TodayData {
   solarTotal: DataState<number>;
   homeTotal: DataState<number>;
@@ -43,6 +52,7 @@ export interface TodayData {
   history: TodayHistoryPoint[];
   economy?: EconomyReportData | null;
   solar_forecast?: SolarForecastReportData | null;
+  assessment?: DailyAssessment | null;
 }
 
 export type EconomyCoverageState = 'complete' | 'partial' | 'sparse' | 'unavailable';
