@@ -205,6 +205,38 @@ new providers, Solar.web, weakening the truth model, or a card-grid redesign.
 - **E** — status surfaces (Fronius night, weather, devices language).
 - **F** — full validation + packaged screenshots.
 
+## 11a. Unified energy home (owner-directed, 2026-08)
+
+**Now and Today are one energy story.** Jetzt and Heute are consolidated into one
+primary surface, **Übersicht**. Navigation is Übersicht · Verlauf · Geräte ·
+Einstellungen (Gedächtnis → Verlauf).
+
+- **Routing (Option B):** the `today` route becomes the unified surface; the legacy
+  `now` route redirects to it (`AppLayout`), so old deep links keep working without
+  a second data fetch or duplicate polling. `NowView` is no longer routed.
+- **First-viewport hierarchy:** a compact live-energy strip (PV · Hausverbrauch ·
+  Netz + live/stale status) reads first on desktop; on mobile the verdict leads
+  (CSS `order`). Then the decision cockpit (verdict · Autarkie gauge · economic
+  value · one sentence), then the balance, chart, weather, recording, technical.
+  Live never consumes the whole first viewport.
+- **Gauge colour semantics:** the active arc is warm **solar amber**
+  (`stroke-amber-500 / dark:stroke-amber-400`) over a warm, receding track; the
+  centre number carries a subtle per-class text tone. No grey arc, no glow, no
+  traffic-light colours; meaning is never colour-only (verdict text + aria carry it).
+- **Autonomy/economy pairing:** one decision zone, two aligned columns (gauge |
+  economic hero); economy known values first, missing components second with the
+  precise reason.
+- **Duplication rules:** exactly one verdict, one economy section (the hero — the
+  legacy `EconomySummary` block is removed from the main flow), one weather block
+  (multi-day forecast behind disclosure), one recording heartbeat, one
+  data-quality message (a compact chart footer; "Warum fehlen Daten?" and all
+  detailed reasons live only in Technical Details).
+- **Balance language:** `PV-Erzeugung`, `Solarstrom selbst genutzt` (= generation −
+  export, distinct from total consumption), `Hausverbrauch gesamt`, `Netzbezug`,
+  `Einspeisung` — no ambiguous "im Haus genutzt".
+- **Weather** is supporting context only: concise current + one sentence + freshness;
+  hourly/multi-day behind disclosure.
+
 ## 12. Owner decisions (resolved 2026-08)
 
 1. Autarkie as Heute hero — **approved**, refined to **co-equal with economic value**.
