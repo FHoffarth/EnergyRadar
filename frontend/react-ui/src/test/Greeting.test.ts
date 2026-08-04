@@ -43,3 +43,17 @@ describe('personalized greeting trust rules', () => {
     expect(summary).not.toMatch(/Netz|bezieht|speist/);
   });
 });
+
+// Unified-home greeting: morning/day/evening by local time, with the owner's name.
+describe('greetingTitle — Übersicht Begrüßung nach lokaler Tageszeit', () => {
+  it('greets morning, day and evening with the name', () => {
+    expect(greetingTitle(8, 'Florian')).toBe('Guten Morgen, Florian.');
+    expect(greetingTitle(14, 'Florian')).toBe('Guten Tag, Florian.');
+    expect(greetingTitle(20, 'Florian')).toBe('Guten Abend, Florian.');
+  });
+  it('maps hours to the right period (local, not UTC)', () => {
+    expect(greetingPeriod(8)).toBe('morning');
+    expect(greetingPeriod(14)).toBe('afternoon');
+    expect(greetingPeriod(20)).toBe('evening');
+  });
+});

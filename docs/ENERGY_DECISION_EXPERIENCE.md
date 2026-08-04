@@ -237,6 +237,35 @@ Einstellungen (Gedächtnis → Verlauf).
 - **Weather** is supporting context only: concise current + one sentence + freshness;
   hourly/multi-day behind disclosure.
 
+## 11b. Above-the-fold cockpit & 24h graph (owner-directed, 2026-08)
+
+**Above-the-fold hierarchy** (one closed cockpit, `max-w-5xl` content):
+1. quiet personal greeting (`greetingTitle`, local time-of-day + name; a `<p>`,
+   never a second h1) + one factual status line,
+2. daily verdict (the single h1),
+3. Autarkie gauge + economic value as one paired decision zone,
+4. energy balance (left) **and weather (right)** in the same lower zone.
+
+**Weather is integrated into the cockpit** (`CockpitWeather`): concise current
+temp/condition + one solar-outlook sentence + sunset; hourly and multi-day forecast
+behind one "Wetterdetails anzeigen" disclosure. The large separate weather section
+below the page is **removed**; the duplicate chart "Ausblick" is gone. Only real
+weather data is shown.
+
+**24-hour graph** redesigned (not cosmetic):
+- **Fixed local 24h axis** with even ticks (00·04·08·12·16·20·24), independent of
+  sample/gap positions.
+- **Data gaps recede** — a very light shaded band, and they are **never bridged by
+  an artificial (interpolating) line** (the dashed gap-bridge lines were removed).
+  `connectNulls={false}`; one compact data-quality footer + "Warum fehlen Daten?".
+- **Robust Y scale** capped near the 95th percentile (+20 %) so a brief spike can't
+  flatten the day; peaks above the cap are clipped **but disclosed** as a count +
+  maximum below the chart — values are never deleted or silently truncated.
+- Legend: Solar · Verbrauch · Datenlücke (forecast only when real forecast data
+  exists). No energy math changed; totals stay independent of display.
+
+Desktop and mobile share this information logic (verdict-first on mobile).
+
 ## 12. Owner decisions (resolved 2026-08)
 
 1. Autarkie as Heute hero — **approved**, refined to **co-equal with economic value**.

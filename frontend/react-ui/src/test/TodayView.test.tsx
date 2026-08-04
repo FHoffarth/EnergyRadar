@@ -92,7 +92,8 @@ describe('TodayView - per-series evidence thresholds', () => {
     render(<TodayView />);
     expect(screen.getByRole('img', { name: /1 sichtbaren Datenlücke/ })).toBeTruthy();
     expect(screen.getByText(/Datenlücke \(keine Messwerte\)/)).toBeTruthy();
-    expect(screen.getByText(/nicht gemessene Orientierungshilfe/)).toBeTruthy();
+    // Gaps are shown as gaps, never bridged by an artificial line.
+    expect(screen.getByText(/nicht überbrückt/)).toBeTruthy();
   });
 
   it('uses persisted recording cadence instead of the faster live polling cadence', () => {
