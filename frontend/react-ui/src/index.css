@@ -16,8 +16,13 @@
   --color-radar-grid: #E11D48;
   --color-radar-battery: #059669;
   --color-radar-home: #4F46E5;
-  --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-metric: 'Geist', 'Segoe UI', system-ui, sans-serif;
+  /* Two roles: --font-ui (Plus Jakarta Sans) carries orientation and decisions;
+     --font-data (Barlow) carries measured values. --font-sans maps to the UI
+     font so every existing `font-sans` usage becomes Plus Jakarta Sans. */
+  --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-data: 'Barlow', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: var(--font-ui);
+  --font-metric: var(--font-data);
   --font-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
@@ -125,10 +130,9 @@
   /* A quiet section kicker — muted rather than accent-loud, so sections do not
      all shout at equal volume and the hero can dominate. */
   .cockpit-eyebrow {
-    font-size: 0.7rem;
+    font-size: 0.78rem;
     font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    letter-spacing: 0.005em;
     color: var(--text-muted);
   }
 
@@ -161,40 +165,42 @@
   }
 }
 
-/* Geist 1.7.2, self-hosted. Source, license and rationale for the bundled
-   weights: src/assets/fonts/README.md. Relative url() keeps these resolvable
-   in dev, in the production build, and over file:// in the packaged app.
-   Every weight in use has its own file, so nothing is synthesised. */
+/* Self-hosted UI + data typefaces (OFL). Sources/licenses: src/assets/fonts/
+   README.md. Relative url() stays resolvable in dev, the production build and
+   over file:// in the packaged app. Every weight in use has its own static
+   WOFF2 file, so nothing is synthesised (no faux bold/italic). Latin only, no
+   italics, no condensed. */
+
+/* Plus Jakarta Sans — UI, text and decision layer. */
 @font-face {
-  font-family: 'Geist';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('./assets/fonts/Geist-Regular.woff2') format('woff2');
+  font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('./assets/fonts/PlusJakartaSans-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('./assets/fonts/PlusJakartaSans-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('./assets/fonts/PlusJakartaSans-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('./assets/fonts/PlusJakartaSans-Bold.woff2') format('woff2');
 }
 
+/* Barlow (normal width, NOT condensed) — data / measured values only. */
 @font-face {
-  font-family: 'Geist';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('./assets/fonts/Geist-Medium.woff2') format('woff2');
+  font-family: 'Barlow'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('./assets/fonts/Barlow-Medium.woff2') format('woff2');
 }
-
 @font-face {
-  font-family: 'Geist';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('./assets/fonts/Geist-SemiBold.woff2') format('woff2');
+  font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('./assets/fonts/Barlow-SemiBold.woff2') format('woff2');
 }
-
 @font-face {
-  font-family: 'Geist';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('./assets/fonts/Geist-Bold.woff2') format('woff2');
+  font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('./assets/fonts/Barlow-Bold.woff2') format('woff2');
 }
 
 /* Technical identifier fields only — see the font-mono usages in SettingsView
@@ -346,6 +352,17 @@
 .evidence-item__value { margin-top: 0.2rem; font-size: clamp(1.3rem, 2vw, 1.7rem); font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
 .evidence-item__reason { margin-top: 0.4rem; font-size: 0.7rem; line-height: 1.4; color: var(--text-muted); }
 @media (max-width: 720px) { .evidence-zone { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
+
+/* ── Typography roles ─────────────────────────────────────────────────
+   Plus Jakarta Sans (UI) vs Barlow (data). Numeric metrics already opt in via
+   Tailwind's `tabular-nums`, so binding the data font there gives Barlow +
+   lining/tabular figures app-wide without touching every component. Explicit
+   helpers are available for clarity. This is user CSS (after Tailwind's layers),
+   so it wins on equal specificity. */
+.font-ui { font-family: var(--font-ui); }
+.font-data { font-family: var(--font-data); font-variant-numeric: tabular-nums lining-nums; }
+.metric-value { font-family: var(--font-data); font-weight: 600; font-variant-numeric: tabular-nums lining-nums; }
+.tabular-nums { font-family: var(--font-data); font-variant-numeric: tabular-nums lining-nums; }
 
 /* A unit is subordinate to its figure — quieter and smaller, never competing. */
 .metric-unit { margin-left: 0.25em; font-size: 0.6em; font-weight: 500; letter-spacing: 0; color: var(--text-faint); }

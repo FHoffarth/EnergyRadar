@@ -17,7 +17,7 @@ export function EconomicHero({ report, locale }: { report: EconomyReportData | n
     <div data-testid="economic-hero" data-has-value={hero.anyValue}>
       <p className="cockpit-eyebrow">Wirtschaftlicher Solarwert</p>
       {hero.total !== null ? (
-        <p className="mt-1 text-4xl font-semibold tabular-nums text-slate-900 dark:text-white sm:text-5xl">
+        <p className="font-data mt-1 text-4xl font-semibold tabular-nums text-slate-900 dark:text-white sm:text-5xl">
           {euro(hero.total, locale)}
         </p>
       ) : (

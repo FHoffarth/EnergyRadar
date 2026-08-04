@@ -22,7 +22,7 @@ export function AutarkieBar({ pct, solarKwh, gridKwh, locale }: {
       {known ? (
         <>
           <p className="mt-1 flex items-baseline gap-2">
-            <span className="text-4xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+            <span className="font-data text-4xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
               {clamped}<span className="ml-0.5 text-2xl font-normal text-amber-500/70">%</span>
             </span>
             <span className="text-sm text-slate-500 dark:text-slate-400">solar gedeckt</span>
