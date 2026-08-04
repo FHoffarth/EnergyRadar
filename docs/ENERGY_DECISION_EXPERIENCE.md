@@ -1,10 +1,16 @@
-# Energy Decision Experience — Phase A Proposal
+# Energy Decision Experience
 
-> **Status: PROPOSAL, pending owner approval. Not yet Product Law.**
-> This document defines the decision model, information hierarchy and status
-> semantics for Product Experience v2. No UI has been built yet. Nothing here
-> amends `DESIGN_CONSTITUTION.md` until the owner explicitly approves the items
-> marked **[NEW PRODUCT LAW — needs approval]**.
+> **Status: APPROVED (owner, 2026-08). Product Law — frozen in
+> `DESIGN_CONSTITUTION.md` §6a and principles 21–22.**
+> Decision-model logic + tests are implemented (Phase B: `services/decision.py`,
+> `tests/test_decision.py`). Visual implementation (Phase C+) has not begun and
+> must not begin until the decision-model tests are green (they are).
+>
+> **Owner refinements folded in:** autonomy **and economic value** are co-equal
+> first-viewport signals (not autonomy alone); autonomy sets the assessment
+> *class* while self-consumption/economy/coverage only refine the sentence;
+> thresholds accepted as-is; night = reliable sun-times, else conservative clock;
+> the secondary live-PV/kWp gauge is approved only when capacity is configured.
 
 Companions (unchanged): `DESIGN_CONSTITUTION.md` (Product Law),
 `DATA_TRUTH_ARCHITECTURE.md`, `MEMORY_INTEGRITY_CONTRACT.md`,
@@ -57,9 +63,8 @@ First viewport answers verdict + autonomy + economic value + one reason:
 
 Raw figures are evidence, never the headline (Constitution §14.1, §14.12).
 
-**[NEW PRODUCT LAW — needs approval]** Elevating **Autarkie to the Heute hero**
-(the Constitution frames Heute as "how is today developing?"; this makes autonomy
-the dominant instrument of that story).
+**APPROVED (Product Law):** Autarkie **and economic value** are co-equal
+first-viewport signals; the verdict names the day. Frozen in Constitution §6a.
 
 ## 4. Formulas & compatibility rules
 
@@ -85,15 +90,19 @@ Distinction (Constitution-aligned, contextual help): **Autarkie** = share of dem
 met without the grid (hero). **Eigenverbrauch** = share of PV kept in the house
 (supporting).
 
-## 5. Daily assessment model **[NEW PRODUCT LAW — needs approval]**
+## 5. Daily assessment model (APPROVED — implemented in `services/decision.py`)
 
 Deterministic, evidence-only, conservative. No stars, no benchmarks, no praise.
+**Autonomy determines the class; self-consumption, economy and coverage refine the
+sentence only** (owner Product Law). `coverage_complete=False` marks `trust:
+partial` and adds a caveat but never downgrades the class. Unknown autonomy →
+`not_assessable`.
 
 Inputs (only proven metrics): Autarkie A, Eigenverbrauch E, data completeness
 (curve/summary coverage), economic availability.
 
-Proposed classes and **proposed** thresholds (must be owner-approved + tested;
-these are starting points, not industry claims):
+Owner-approved classes and thresholds (`decision.EXCELLENT_MIN=80`,
+`STRONG_MIN=60`, `BALANCED_MIN=40`):
 
 | Class | Condition |
 |-------|-----------|
@@ -196,11 +205,12 @@ new providers, Solar.web, weakening the truth model, or a card-grid redesign.
 - **E** — status surfaces (Fronius night, weather, devices language).
 - **F** — full validation + packaged screenshots.
 
-## 12. Open decisions for the owner
+## 12. Owner decisions (resolved 2026-08)
 
-1. Approve **Autarkie as the Heute hero** (§3).
-2. Approve the **assessment classes + thresholds** (§5) — or adjust the cut points.
-3. Confirm the **night window source** (sun times preferred; clock fallback ok?).
-4. Confirm scope: is a secondary **live-PV/kWp gauge** wanted (needs kWp configured)?
+1. Autarkie as Heute hero — **approved**, refined to **co-equal with economic value**.
+2. Assessment classes + thresholds — **approved as-is** (autonomy sets the class).
+3. Night-window source — **sun-times first, conservative clock fallback**.
+4. Secondary live-PV/kWp gauge — **approved, only when capacity is configured**;
+   never inferred.
 
-Nothing in §3/§5 is frozen into `DESIGN_CONSTITUTION.md` until these are approved.
+Frozen in `DESIGN_CONSTITUTION.md` §6a and principles 21–22.
