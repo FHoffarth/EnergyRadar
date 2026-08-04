@@ -275,3 +275,26 @@ Desktop and mobile share this information logic (verdict-first on mobile).
    never inferred.
 
 Frozen in `DESIGN_CONSTITUTION.md` §6a and principles 21–22.
+
+## 13. Typography system (owner-directed, 2026-08)
+
+Two self-hosted OFL typefaces, no runtime Google Fonts / CDN requests:
+- **Plus Jakarta Sans** (`--font-ui`, `--font-sans`) — all UI, text and decision
+  copy. Weights 400/500/600/700, latin, normal.
+- **Barlow** (normal width — **never Condensed**) (`--font-data`, `--font-metric`)
+  — measured values only (Autarkie %, kW/kWh, €, °C, times, chart axes/tooltips,
+  live-strip, balance figures). Weights 500/600/700, latin, normal.
+- Geist Mono (`--font-mono`) is retained only for technical identifier fields; it
+  is not used in the visible cockpit.
+
+Files vendored to `src/assets/fonts/*.woff2` (from `@fontsource/*`, then the
+packages removed); licenses in `PLUS-JAKARTA-SANS-LICENSE.txt` / `BARLOW-LICENSE.txt`
+(SIL OFL 1.1). `font-display: swap`. The replaced Geist-sans weights were deleted.
+
+Roles are applied through `@theme` tokens plus `.font-ui` / `.font-data` /
+`.metric-value`, and — because numeric metrics already opt in via Tailwind's
+`tabular-nums` — `.tabular-nums` is bound to the data font with tabular + lining
+figures, giving Barlow app-wide for numbers with minimal churn (numbers align and
+never jump on live updates). Section eyebrows moved from ALL CAPS to sentence case.
+No layout, data, or calculation changed. Known limitation: on-screen light/dark and
+1366×768/375/320/Large-Text verification is the owner's packaged-review step.
