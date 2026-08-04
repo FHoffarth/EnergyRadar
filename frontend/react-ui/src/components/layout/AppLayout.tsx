@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { useApp } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
-import { NowView } from '../../views/NowView';
 import { TodayView } from '../../views/TodayView';
 import { DevicesView } from '../../views/DevicesView';
 import { SettingsView } from '../../views/SettingsView';
@@ -17,12 +16,14 @@ export function AppLayout() {
 
   const renderView = () => {
     switch (view) {
-      case 'now': return <NowView />;
+      // 'now' and 'today' are now one unified surface (Übersicht). The legacy
+      // 'now' route redirects to it so old deep links keep working.
+      case 'now': return <TodayView />;
       case 'today': return <TodayView />;
       case 'devices': return <DevicesView />;
       case 'memory': return <MemoryView />;
       case 'settings': return <SettingsView />;
-      default: return <NowView />;
+      default: return <TodayView />;
     }
   };
 

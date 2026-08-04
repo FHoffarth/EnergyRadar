@@ -2,7 +2,7 @@ import React from 'react';
 import { useApp, useNumberLocale } from '../../context/AppContext';
 import { useEnergyProvider } from '../../providers/EnergyProviderContext';
 import { localClock } from '../../lib/freshness';
-import { Activity, BarChart2, Cpu, Settings, Zap, Database, Plus } from 'lucide-react';
+import { Activity, BarChart2, Cpu, Settings, Zap, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import markDark from '../../assets/icons/energyradar-mark.svg';
 import markLight from '../../assets/icons/energyradar-mark-light.svg';
@@ -40,11 +40,11 @@ export function Sidebar({ onOpenSetupWizard }: SidebarProps) {
     ? { label: 'Nicht erreichbar', detail: 'Verbindung unterbrochen', dot: 'bg-rose-500' }
     : { label: 'Keine Daten', detail: 'Keine Datenquelle eingerichtet', dot: 'bg-slate-400' };
 
+  // Jetzt + Heute are unified into one primary surface: Übersicht.
   const navItems = [
-    { id: 'now', label: 'Jetzt', icon: Activity },
-    { id: 'today', label: 'Heute', icon: BarChart2 },
+    { id: 'today', label: 'Übersicht', icon: Activity },
+    { id: 'memory', label: 'Verlauf', icon: BarChart2 },
     { id: 'devices', label: 'Geräte', icon: Cpu },
-    { id: 'memory', label: 'Gedächtnis', icon: Database },
     { id: 'settings', label: 'Einstellungen', icon: Settings },
   ] as const;
 
