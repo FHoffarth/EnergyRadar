@@ -29,6 +29,25 @@ export function economyReasonCopy(reason: string | null | undefined): string {
   }
 }
 
+/** Compact form of a missing-value reason, for a secondary breakdown line
+ *  next to a known euro figure (value-first economy hierarchy). */
+export function economyReasonShort(reason: string | null | undefined): string {
+  switch (reason) {
+    case 'grid_tariff_missing_or_boundary':
+      return 'Stromtarif nicht hinterlegt';
+    case 'feed_in_tariff_missing_or_boundary':
+      return 'Einspeisetarif nicht hinterlegt';
+    case 'energy_unavailable_or_sparse':
+      return 'Energiedaten noch nicht belastbar';
+    case 'pv_lower_than_export':
+      return 'Daten nicht vergleichbar';
+    case 'required_component_unavailable':
+      return 'Teilgröße fehlt noch';
+    default:
+      return 'Noch nicht bewertbar';
+  }
+}
+
 export interface EconomyHero {
   total: number | null;       // total solar value (avoided + feed-in), EUR
   avoided: number | null;     // avoided grid purchase (may be called savings)
