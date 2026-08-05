@@ -21,92 +21,61 @@ vi.mock('../context/AppContext', () => ({
     appState.settingsPayload?.effective_settings?.number_format ?? 'de-DE',
 }));
 
-function timeline(
-  points: { solar?: number | null; home?: number | null; battery?: number | null }[],
-): TimelineEntry[] {
-  return points.map((point, index) => ({
-    time: `0${index}:00`,
-    solarKw: point.solar ?? null,
-    homeLoadKw: point.home ?? null,
-    gridKw: null,
-    batteryPct: point.battery ?? null,
-    origin: 'observed',
+const DAY = new Date(); DAY.setHours(0, 0, 0, 0);
+/** Build today-dated timeline points at explicit hh:mm (aggregation needs timestampMs). */
+function at(entries: [number, number, number | null, number | null][]): TimelineEntry[] {
+  return entries.map(([hh, mm, solar, home]) => ({
+    time: `${hh}:${mm}`,
+    timestampMs: DAY.getTime() + (hh * 60 + mm) * 60_000,
+    solarKw: solar, homeLoadKw: home, gridKw: null, batteryPct: null, origin: 'observed',
   }));
 }
 
-describe('TodayView - per-series evidence thresholds', () => {
+describe('TodayView - 24-hour chronicle (aggregated)', () => {
   beforeEach(() => {
     providerState.timeline = [];
     providerState.sourceType = 'bridge';
     appState.settingsPayload = null;
   });
 
-  it('hides a legend entry for a series that has no measurements', () => {
-    providerState.timeline = timeline([
-      { solar: 0.1 }, { solar: 0.2 }, { solar: 0.3 },
-    ]);
+  it('renders the PV area + consumption line legend when both series exist', () => {
+    providerState.timeline = at([[10, 0, 0.2, 0.4], [10, 20, 0.3, 0.5], [10, 40, 0.4, 0.6]]);
     render(<TodayView />);
-    expect(screen.getByText('Solar')).toBeTruthy();
-    expect(screen.queryByText('Verbrauch')).toBeNull();
+    expect(screen.getByText('Solarerzeugung')).toBeTruthy();       // unique chart legend
+    expect(screen.getAllByText('Hausverbrauch').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('img', { name: /24-Stunden-Chronik/ })).toBeTruthy();
+    // Old per-series vocabulary is gone.
     expect(screen.queryByText('Speicher %')).toBeNull();
   });
 
-  it('hides a series that stays below the evidence threshold', () => {
-    providerState.timeline = timeline([
-      { solar: 0.1, home: 0.4 }, { solar: 0.2 }, { solar: 0.3 },
-    ]);
+  it('reports complete data when there are no interior gaps', () => {
+    providerState.timeline = at([[10, 0, 0.2, 0.4], [10, 15, 0.3, 0.5]]);
     render(<TodayView />);
-    expect(screen.getByText('Solar')).toBeTruthy();
-    expect(screen.queryByText('Verbrauch')).toBeNull();
+    expect(screen.getByTestId('chart-data-quality').textContent).toMatch(/vollständig/);
   });
 
-  it('shows a series once it reaches the evidence threshold', () => {
-    providerState.timeline = timeline([
-      { solar: 0.1, home: 0.4 }, { solar: 0.2, home: 0.5 }, { solar: 0.3, home: 0.6 },
-    ]);
+  it('marks interior gaps compactly and never bridges them', () => {
+    providerState.timeline = at([[10, 0, 0.2, 0.4], [12, 0, 0.3, 0.5]]); // 11:00 hour is a gap
     render(<TodayView />);
-    expect(screen.getByText('Solar')).toBeTruthy();
-    expect(screen.getByText('Verbrauch')).toBeTruthy();
-    expect(screen.getByTestId('today-workspace').className).toContain('cockpit-page');
-    const chartFrame = screen.getByText('24-Stunden-Chronik')
-      .closest('section')
-      ?.querySelector('.recharts-responsive-container')
-      ?.parentElement;
-    expect(chartFrame?.className).toContain('h-[clamp(20rem,48vh,34rem)]');
+    expect(screen.getByText('Datenlücke')).toBeTruthy();
+    expect(screen.getByTestId('chart-data-quality').textContent).toMatch(/unvollständig/);
+    expect(screen.getByText(/nicht.*überbrückt/)).toBeTruthy();
   });
 
-  it('replaces the chart with an explanation when no series qualifies', () => {
-    providerState.timeline = timeline([{ solar: 0.1 }, { solar: null }]);
+  it('discloses spikes above the visible scale instead of a needle forest', () => {
+    // A calm ~0.3 kW day with one brief consumption spike inside a bucket.
+    const pts: TimelineEntry[] = [];
+    for (let h = 9; h < 16; h++) for (let m = 0; m < 60; m += 15) pts.push(...at([[h, m, 0.3, 0.3]]));
+    pts.push(...at([[12, 3, 0.3, 2.6]]));
+    providerState.timeline = pts;
     render(<TodayView />);
-    expect(
-      screen.getByText('Für heute liegen noch nicht genug Messwerte für eine Verlaufskurve vor.'),
-    ).toBeTruthy();
+    expect(screen.getByTestId('chart-peak-note').textContent).toMatch(/über der sichtbaren Skala/);
+    expect(screen.getByTestId('chart-peak-note').textContent).toMatch(/2,6/);
   });
 
-  it('announces the same visible timestamp gap used by the shared chart adapter', () => {
-    appState.settingsPayload = { system: { recording_interval_seconds: 5 } };
-    providerState.timeline = [
-      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
-      { time: '12:00:20', timestampMs: 20_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
-    ];
+  it('shows the empty state when there is no data at all', () => {
+    providerState.timeline = [];
     render(<TodayView />);
-    expect(screen.getByRole('img', { name: /1 sichtbaren Datenlücke/ })).toBeTruthy();
-    expect(screen.getByText(/Datenlücke \(keine Messwerte\)/)).toBeTruthy();
-    // Gaps are shown as gaps, never bridged by an artificial line.
-    expect(screen.getByText(/nicht überbrückt/)).toBeTruthy();
-  });
-
-  it('uses persisted recording cadence instead of the faster live polling cadence', () => {
-    appState.settingsPayload = {
-      effective_settings: { refresh_seconds: 5 },
-      system: { recording_interval_seconds: 60 },
-    };
-    providerState.timeline = [
-      { time: '12:00:00', timestampMs: 0, solarKw: 0, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
-      { time: '12:01:00', timestampMs: 60_000, solarKw: 1, homeLoadKw: null, gridKw: null, batteryPct: null, origin: 'observed' },
-    ];
-    render(<TodayView />);
-    expect(screen.getByRole('img', { name: /0 sichtbaren Datenlücken/ })).toBeTruthy();
-    expect(screen.queryByText(/Datenlücke \(keine Messwerte\)/)).toBeNull();
+    expect(screen.getByText(/Der Tagesverlauf steht zur Verfügung/)).toBeTruthy();
   });
 });

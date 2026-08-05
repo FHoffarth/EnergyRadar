@@ -298,3 +298,37 @@ figures, giving Barlow app-wide for numbers with minimal churn (numbers align an
 never jump on live updates). Section eyebrows moved from ALL CAPS to sentence case.
 No layout, data, or calculation changed. Known limitation: on-screen light/dark and
 1366×768/375/320/Large-Text verification is the owner's packaged-review step.
+
+## 14. 24-hour chronicle — data-visualization redesign (owner-directed, 2026-08)
+
+The overview chart is a readable day, not a raw/debug plot.
+
+- **15-minute display aggregation** (`lib/chartAggregation.ts`, memoized): per bucket
+  the arithmetic mean (calm line/area) plus the raw max (peak detection only). A
+  bucket needs ≥1 real sample; empty buckets stay `null` — no interpolation, no
+  zero-fill, no carry-forward. Factual daily totals are computed elsewhere and
+  untouched. (Real device: ~hundreds of raw points/day → 96 display buckets.)
+- **PV = calm amber area** to the baseline; **consumption = clear indigo line**;
+  neither drawn across a real gap (`connectNulls=false`).
+- **Fixed local 24h axis** (00·04·08·12·16·20·24), independent of sample/gap positions.
+- **Gaps** are a thin band at the very bottom (never full-height), plus one footer
+  line "Messdaten für N Zeiträume unvollständig" and a "Warum fehlen Daten?" disclosure.
+- **Robust Y scale** ~p95×1.2 with a 0.5 kW floor; real interval maxima above the
+  cap are **marked as dots at the top and disclosed** ("N Verbrauchsspitzen über der
+  Skala · Maximum X kW") — values are never deleted or silently truncated (no needle
+  forest, no misleading clipped line).
+- **Tooltip** per interval: time range, PV Ø, Hausverbrauch Ø (+ Peak), Datenstatus;
+  UI text Plus Jakarta Sans, values Barlow.
+- **Accessible**: chart `aria-label` summarises period, series, gap count and peak
+  maximum; an optional "Messwerte als Tabelle anzeigen" discloses the 15-min table.
+- Compact height (`clamp(15rem,32vh,22rem)`); empty/partial states handled.
+
+## 15. Shared cockpit grid (alignment, 2026-08)
+
+The whole main card sits on one `grid-cols-12`: Autarkie 1–6 · Wirtschaft 7–12;
+Solarenergie 1–3 · Haushalt 4–6 · Wetter 7–12 (a full-width divider between zones).
+`EnergyBalanceStory` is split into `SolarBalanceBlock`/`HouseBalanceBlock` placed
+directly on the shared grid, so Wirtschaft and Wetter share the exact col-start and
+Autarkie shares its axes with the balance zone. Spacing is grid-gap only — no
+per-block `ml-*/pl-*/translate-*` offsets. Mobile order: Autarkie, Wirtschaft,
+Solarenergie, Haushalt, Wetter.

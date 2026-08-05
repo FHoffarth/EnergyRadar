@@ -1,18 +1,19 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
-import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea } from 'recharts';
+import { Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Line, ReferenceArea, ReferenceDot } from 'recharts';
 import { Info } from 'lucide-react';
-import { TimelineEntry, TodayData } from '../types';
+import { TodayData } from '../types';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { formatNumber } from '../lib/format';
 import { CockpitWeather } from '../components/WeatherIntelligence';
 import { usePrefersReducedMotion } from '../lib/motion';
-import { EnergyChartTooltip } from '../components/EnergyChartTooltip';
+import { ChronikTooltip } from '../components/ChronikTooltip';
+import { aggregateTimeline, gapBuckets, robustYCap, timelinePeaks } from '../lib/chartAggregation';
 import { DailySummaryMetrics } from '../components/DailySummaryMetrics';
 import { DailyVerdict } from '../components/decision/DailyVerdict';
 import { AutarkieBar } from '../components/decision/AutarkieBar';
 import { EconomicHero } from '../components/decision/EconomicHero';
-import { EnergyBalanceStory } from '../components/decision/EnergyBalanceStory';
+import { SolarBalanceBlock, HouseBalanceBlock } from '../components/decision/EnergyBalanceStory';
 import { LivePvGauge } from '../components/decision/LivePvGauge';
 import { LiveEnergyStrip } from '../components/decision/LiveEnergyStrip';
 import { livePvState } from '../lib/decisionView';
@@ -21,7 +22,7 @@ import { DataCoverageStatus } from '../components/DataCoverageStatus';
 import { RecordingHeartbeat } from '../components/energy/RecordingHeartbeat';
 import { describeRecording } from '../lib/freshness';
 import { evaluateCoverage } from '../lib/storytelling';
-import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, timelineGaps, todayCoverageBoundaries, withVisibleTimelineGaps } from '../lib/timelineIntegrity';
+import { DEFAULT_RECORDING_CADENCE_SECONDS, formatTimelineTime, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 
 // Recharts 3 omits standard SVG fill props from this generic component's
 // public TypeScript surface even though the runtime component supports them.
@@ -29,24 +30,8 @@ const GapReferenceArea = ReferenceArea as React.ComponentType<React.ComponentPro
   x1: number; x2: number; yAxisId?: 'left' | 'right'; ifOverflow?: 'hidden';
 }>;
 
-/** A series needs this many measured points before it is charted or listed. */
-const MIN_SERIES_POINTS = 2;
-
 function isDemoSource(sourceType: string): boolean {
   return sourceType === 'demo';
-}
-
-type SeriesKey = 'solarKw' | 'homeLoadKw' | 'batteryPct';
-
-/** Count of points that carry a real measurement. Nulls are not evidence. */
-function evidenceCount(timeline: TimelineEntry[], key: SeriesKey): number {
-  return timeline.reduce(
-    (total, point) => {
-      const value = point[key];
-      return value !== null && value !== undefined && !Number.isNaN(value) ? total + 1 : total;
-    },
-    0,
-  );
 }
 
 export function TodayView() {
@@ -69,46 +54,29 @@ export function TodayView() {
     expectedCadenceSeconds,
     ...todayCoverageBoundaries(timeline),
   });
-  const chartTimeline = withVisibleTimelineGaps(timeline, expectedCadenceSeconds);
-  const gaps = timelineGaps(timeline, expectedCadenceSeconds);
-  const chartGapCount = gaps.length;
-
-  // Per-series evidence thresholds: a series that the devices never
-  // delivered must not appear as a flat line or an empty legend entry.
-  const series = [
-    { key: 'solarKw' as SeriesKey, name: 'Solar', color: '#D97706', legendDot: 'bg-amber-500/80', axis: 'left' as const },
-    { key: 'homeLoadKw' as SeriesKey, name: 'Verbrauch', color: '#4F46E5', legendDot: 'bg-indigo-500', axis: 'left' as const },
-    { key: 'batteryPct' as SeriesKey, name: 'Speicher %', color: '#059669', legendDot: 'bg-emerald-500', axis: 'right' as const },
-  ].filter(entry => evidenceCount(timeline, entry.key) >= MIN_SERIES_POINTS);
-
-  // Axis and tooltip use up to two decimals so low-power days do not
-  // collapse into a column of identical "0,1 kW" ticks.
-  const formatAxisKw = (value: number) =>
-    formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-
-  // Fixed 24-hour local axis: even 4-hour ticks, independent of where samples or
-  // gaps happen to fall, so the day always has a stable, readable shape.
+  // Fixed 24-hour local axis: even 4-hour ticks (fewer on mobile), independent of
+  // where samples or gaps fall, so the day always has a stable, readable shape.
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
   const dayStartMs = dayStart.getTime();
   const dayEndMs = dayStartMs + 24 * 3600 * 1000;
   const dayTicks = [0, 4, 8, 12, 16, 20, 24].map(h => dayStartMs + h * 3600 * 1000);
 
-  // Robust Y scale: cap near the 95th percentile of solar/consumption so a single
-  // brief spike cannot flatten the whole day. Peaks above the cap are clipped but
-  // never hidden — they are disclosed as a count + maximum below the chart.
-  const powerValues = timeline
-    .flatMap(p => [p.solarKw, p.homeLoadKw])
-    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0)
-    .sort((a, b) => a - b);
-  const percentile = (arr: number[], q: number) => arr.length ? arr[Math.min(arr.length - 1, Math.floor(q * arr.length))] : 0;
-  const p95 = percentile(powerValues, 0.95);
-  const maxPower = powerValues.length ? powerValues[powerValues.length - 1] : 0;
-  const yCap = Math.max(0.5, Math.ceil((p95 * 1.2) * 10) / 10);
-  const outlierCount = powerValues.filter(v => v > yCap).length;
+  // Overview: 15-minute display aggregation of the raw samples (factual totals
+  // are computed elsewhere and untouched). Empty buckets stay null — no
+  // interpolation, no zero-fill, no line across real gaps.
+  const buckets = useMemo(() => aggregateTimeline(timeline, dayStartMs, dayEndMs), [timeline, dayStartMs, dayEndMs]);
+  const yCap = useMemo(() => robustYCap(buckets), [buckets]);
+  const peaks = useMemo(() => timelinePeaks(buckets, yCap), [buckets, yCap]);
+  const gapList = useMemo(() => gapBuckets(buckets), [buckets]);
+  const chartGapCount = gapList.length;
+  const maxPeak = peaks.reduce((m, p) => Math.max(m, p.valueKw), 0);
+  const hasSolar = buckets.some(b => b.solarKw !== null);
+  const hasHome = buckets.some(b => b.homeLoadKw !== null);
+  const hasChartableSeries = hasSolar || hasHome;
+  const renderedPointCount = buckets.filter(b => b.hasData).length;
 
-  const hasLeftAxis = series.some(entry => entry.axis === 'left');
-  const hasRightAxis = series.some(entry => entry.axis === 'right');
-  const hasChartableSeries = series.length > 0;
+  const formatAxisKw = (value: number) =>
+    formatNumber(value, locale, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
   // Decision-cockpit hero values (evidence stays below).
   const today: TodayData = todayData ?? fallbackToday;
@@ -159,20 +127,29 @@ export function TodayView() {
           <div className="mt-2">
             <DailyVerdict assessment={assessment} autarkiePct={autarkiePct} />
           </div>
-          {/* Decision zone: autonomy (bar) + economy fill the width as one pair. */}
-          <div className="mt-4 grid gap-6 lg:grid-cols-12">
-            <div className="flex flex-col gap-2 lg:col-span-5">
+          {/* One shared 12-column grid so every block sits on the same axes:
+              Autarkie 1–6 · Wirtschaft 7–12; Solarenergie 1–3 · Haushalt 4–6 ·
+              Wetter 7–12. No per-block margins or ad-hoc offsets — spacing is the
+              grid gap only. */}
+          <div className="mt-4 grid grid-cols-12 gap-x-6 gap-y-6">
+            <div className="col-span-12 flex flex-col gap-3 lg:col-span-6">
               <AutarkieBar pct={autarkiePct} solarKwh={autarkieSolarKwh} gridKwh={autarkieGridKwh} locale={locale} />
               <LivePvGauge powerKw={pvPowerKw} capacityKwp={capacityKwp} state={pvGaugeState} locale={locale} />
             </div>
-            <div className="lg:col-span-7">
+            <div className="col-span-12 lg:col-span-6">
               <EconomicHero report={today.economy} locale={locale} />
             </div>
-          </div>
-          {/* Lower zone: balance left, weather fills the previously empty right. */}
-          <div className="mt-5 grid gap-8 border-t border-slate-200/70 pt-4 dark:border-slate-800 lg:grid-cols-12">
-            <div className="lg:col-span-6"><EnergyBalanceStory data={today} locale={locale} /></div>
-            {weatherEnabled && <div className="lg:col-span-6"><CockpitWeather report={weatherReport} locale={locale} snapshot={snapshot} /></div>}
+
+            {/* Full-width divider between upper and lower zones. */}
+            <div className="col-span-12 border-t border-slate-200/70 dark:border-slate-800" />
+
+            <SolarBalanceBlock data={today} locale={locale} className="col-span-12 md:col-span-6 lg:col-span-3" />
+            <HouseBalanceBlock data={today} locale={locale} className="col-span-12 md:col-span-6 lg:col-span-3" />
+            {weatherEnabled && (
+              <div className="col-span-12 lg:col-span-6">
+                <CockpitWeather report={weatherReport} locale={locale} snapshot={snapshot} />
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -200,121 +177,131 @@ export function TodayView() {
         </div>
       )}
 
-      {/* 2 — Day arc */}
+      {/* 2 — 24-hour chronicle: PV as a calm area, consumption as a clear line. */}
       {!noData && (
-        <section className="cockpit-surface space-y-4 p-5 lg:p-6">
-          <div className="flex items-baseline justify-between gap-4">
+        <section className="cockpit-surface space-y-3 p-5 lg:p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
             <h2 className="cockpit-section-title">
               {isDemo ? '24-Stunden-Chronik (Demo)' : '24-Stunden-Chronik'}
             </h2>
-            <div className="flex items-center gap-3 text-xs">
-              {series.map(entry => (
-                <div className="flex items-center gap-1.5" key={entry.key}>
-                  <span className={`w-2 h-2 rounded-full ${entry.legendDot} inline-block`} />
-                  <span className="text-slate-500 dark:text-slate-400">{entry.name}</span>
-                </div>
-              ))}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm bg-amber-500/70" />Solarerzeugung</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded-full bg-indigo-500" />Hausverbrauch</span>
               {chartGapCount > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-block w-4 border-t border-dashed border-slate-500" />
-                  <span className="text-slate-500 dark:text-slate-400">Datenlücke (keine Messwerte)</span>
-                </div>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-sm bg-amber-300/70 dark:bg-amber-500/50" />Datenlücke</span>
+              )}
+              {peaks.length > 0 && (
+                <span className="flex items-center gap-1.5"><span className="text-indigo-500">▲</span>Verbrauchsspitze</span>
               )}
             </div>
           </div>
 
           {hasChartableSeries ? (
-            <div className="h-[clamp(20rem,48vh,34rem)] w-full" role="img"
-              aria-label={`Energieverlauf mit ${chartGapCount} sichtbaren ${chartGapCount === 1 ? 'Datenlücke' : 'Datenlücken'}. Solar und Verbrauch in Kilowatt.`}>
-              <p className="sr-only">Fehlende Messperioden bleiben als Lücken sichtbar und werden nicht überbrückt. Gültige Nullwerte bleiben Teil der Kurve. Die Y-Achse priorisiert den normalen Tagesverlauf; einzelne Spitzen über der Skala werden unter dem Diagramm gesondert genannt.</p>
+            <div className="h-[clamp(15rem,32vh,22rem)] w-full" role="img"
+              aria-label={
+                `24-Stunden-Chronik. ${hasSolar ? 'Solarerzeugung als Fläche' : 'Keine Solardaten'}, `
+                + `${hasHome ? 'Hausverbrauch als Linie' : 'keine Verbrauchsdaten'}, in Kilowatt. `
+                + `${chartGapCount} ${chartGapCount === 1 ? 'Zeitraum ohne Messwerte' : 'Zeiträume ohne Messwerte'}. `
+                + (peaks.length > 0 ? `${peaks.length} kurze Verbrauchsspitzen über der Skala, Maximum ${formatAxisKw(maxPeak)} Kilowatt.` : 'Keine Spitzen über der Skala.')
+              }>
+              <p className="sr-only">Werte sind auf 15-Minuten-Mittel aggregiert. Fehlende Zeiträume bleiben als Lücken sichtbar und werden nicht durch eine Linie überbrückt. Die Y-Achse priorisiert den normalen Tagesverlauf; einzelne Spitzen über der Skala werden als Marker oben und unter dem Diagramm mit ihrem echten Maximalwert genannt.</p>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartTimeline} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                <ComposedChart data={buckets} margin={{ top: 12, right: 14, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.16} />
+                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.18} />
                       <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
                     </linearGradient>
-                    <linearGradient id="homeGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.1} />
-                      <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
-                    </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.3} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.25} vertical={false} />
                   <XAxis dataKey="timestampMs" type="number" scale="time" domain={[dayStartMs, dayEndMs]}
-                    ticks={dayTicks} interval={0}
-                    stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false}
+                    ticks={dayTicks} interval={0} className="font-data"
+                    stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false}
                     tickFormatter={value => formatTimelineTime(value, locale)} />
-                  {hasLeftAxis && (
-                    <YAxis yAxisId="left" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} unit="kW"
-                      domain={[0, yCap]} allowDataOverflow tickFormatter={formatAxisKw} />
+                  <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} unit="kW" className="font-data"
+                    domain={[0, yCap]} allowDataOverflow width={52} tickFormatter={formatAxisKw} />
+                  <Tooltip isAnimationActive={animate} content={<ChronikTooltip locale={locale} cap={yCap} />}
+                    cursor={{ stroke: '#94A3B8', strokeWidth: 1 }} />
+                  {/* Solar: calm area to the baseline. Consumption: clear line.
+                      Neither is drawn across a real gap (connectNulls=false). */}
+                  {hasSolar && (
+                    <Area type="linear" dataKey="solarKw" name="Solarerzeugung" stroke="#D97706" strokeWidth={2}
+                      fill="url(#solarGradT)" fillOpacity={1} dot={false} connectNulls={false} isAnimationActive={animate} />
                   )}
-                  {hasRightAxis && (
-                    <YAxis yAxisId="right" orientation="right" stroke="#94A3B8" fontSize={10} tickLine={false}
-                      axisLine={false} domain={[0, 100]} unit="%"
-                      tickFormatter={(value: number) => formatNumber(value, locale)} />
+                  {hasHome && (
+                    <Line type="linear" dataKey="homeLoadKw" name="Hausverbrauch" stroke="#4F46E5" strokeWidth={2}
+                      dot={false} connectNulls={false} isAnimationActive={animate} />
                   )}
-                  <Tooltip
-                    isAnimationActive={animate}
-                    content={<EnergyChartTooltip locale={locale} />}
-                    cursor={{ stroke: '#94A3B8', strokeWidth: 1 }}
-                    contentStyle={{
-                      borderRadius: '0.625rem',
-                      border: '1px solid rgba(148,163,184,0.35)',
-                      fontSize: '12px',
-                      padding: '4px 8px',
-                    }} />
-                  {/* Gaps recede: a very light shaded band, never a dominant grey
-                      block, and never bridged by an artificial (interpolating) line. */}
-                  {gaps.map((gap, index) => (
-                    <GapReferenceArea key={`gap-area-${index}`} x1={gap.before.timestampMs} x2={gap.after.timestampMs}
-                      yAxisId={hasLeftAxis ? 'left' : 'right'} fill="#94A3B8" fillOpacity={0.05}
-                      stroke="none" ifOverflow="hidden" />
+                  {/* Gaps: thin band at the very bottom, never full height. */}
+                  {gapList.map((g, i) => (
+                    <GapReferenceArea key={`gap-${i}`} x1={g.startMs} x2={g.endMs} y1={0} y2={yCap * 0.05}
+                      fill="#F59E0B" fillOpacity={0.28} stroke="none" ifOverflow="hidden" />
                   ))}
-                  {series.map(entry => (
-                    entry.key === 'batteryPct' ? (
-                      <Line key={entry.key} yAxisId="right" type="linear" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2}
-                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
-                        connectNulls={false}
-                        isAnimationActive={animate} />
-                    ) : (
-                      <Area key={entry.key} yAxisId="left" type="linear" dataKey={entry.key} name={entry.name}
-                        stroke={entry.color} strokeWidth={2} fillOpacity={1}
-                        dot={evidenceCount(timeline, entry.key) <= 3 ? { r: 2, strokeWidth: 0 } : false}
-                        connectNulls={false}
-                        fill={entry.key === 'solarKw' ? 'url(#solarGradT)' : 'url(#homeGradT)'}
-                        isAnimationActive={animate} />
-                    )
+                  {/* Real interval maxima above the cap: honest markers at the top. */}
+                  {peaks.map((p, i) => (
+                    <ReferenceDot key={`peak-${i}`} x={p.timestampMs} y={yCap} r={3} ifOverflow="visible"
+                      fill={p.series === 'home' ? '#4F46E5' : '#D97706'} stroke="none" />
                   ))}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Für heute liegen noch nicht genug Messwerte für eine Verlaufskurve vor.
+              Für diesen Zeitraum liegen noch keine Messwerte vor.
             </p>
           )}
 
           {isDemo && (
-            <p className="border-t border-slate-200/70 dark:border-slate-800 pt-4 text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Alle Daten in dieser Ansicht sind simuliert und stammen aus dem aktiven Demo-Szenario.
             </p>
           )}
-          {/* One compact data-quality footer. Detailed reasons live only in
-              Technical Details — the chart is evidence, not a second Today page. */}
+
+          {/* One compact status footer. Detailed reasons only in Technical Details. */}
           <div data-testid="chart-data-quality"
             className="border-t border-slate-200/70 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            <span>
-              Datenabdeckung {coverageLabel.toLowerCase()}
-              {chartGapCount > 0 ? ` · ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Lücke' : 'Lücken'}` : ''}
-              {outlierCount > 0 ? ` · ${formatNumber(outlierCount, locale)} ${outlierCount === 1 ? 'Spitze' : 'Spitzen'} über der Skala (max. ${formatAxisKw(maxPower)} kW)` : ''}
-            </span>
-            {chartGapCount > 0 && (
-              <details className="mt-1">
-                <summary className="cursor-pointer">Warum fehlen Daten?</summary>
-                <p className="mt-1">Für einzelne Abschnitte liegen keine Messwerte vor. Abdeckung, Quellen und Details stehen unten unter „Technische Details“.</p>
-              </details>
+            <p>
+              {chartGapCount > 0
+                ? `Messdaten für ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Zeitraum' : 'Zeiträume'} unvollständig.`
+                : 'Messdaten für den dargestellten Zeitraum vollständig.'}
+            </p>
+            {peaks.length > 0 && (
+              <p className="mt-1" data-testid="chart-peak-note">
+                {formatNumber(peaks.length, locale)} kurze {peaks.length === 1 ? 'Verbrauchsspitze' : 'Verbrauchsspitzen'} über der sichtbaren Skala · Maximum <span className="font-data tabular-nums">{formatAxisKw(maxPeak)} kW</span>
+              </p>
             )}
+            <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
+              {chartGapCount > 0 && (
+                <details>
+                  <summary className="cursor-pointer">Warum fehlen Daten?</summary>
+                  <p className="mt-1">Für einzelne 15-Minuten-Abschnitte liegen keine Messwerte vor. Abdeckung, Quellen und Details stehen unten unter „Technische Details“.</p>
+                </details>
+              )}
+              <details>
+                <summary className="cursor-pointer">Messwerte als Tabelle anzeigen</summary>
+                <div className="mt-2 max-h-64 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <caption className="sr-only">15-Minuten-Mittelwerte für Solarerzeugung und Hausverbrauch</caption>
+                    <thead>
+                      <tr className="text-slate-400">
+                        <th scope="col" className="pr-3 font-medium">Zeit</th>
+                        <th scope="col" className="pr-3 font-medium">Solar</th>
+                        <th scope="col" className="font-medium">Hausverbrauch</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {buckets.filter(b => b.hasData).map(b => (
+                        <tr key={b.startMs}>
+                          <td className="font-data tabular-nums pr-3">{new Date(b.startMs).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</td>
+                          <td className="font-data tabular-nums pr-3">{b.solarKw !== null ? `${formatAxisKw(b.solarKw)} kW` : '—'}</td>
+                          <td className="font-data tabular-nums">{b.homeLoadKw !== null ? `${formatAxisKw(b.homeLoadKw)} kW` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </div>
           </div>
         </section>
       )}
@@ -337,8 +324,8 @@ export function TodayView() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
           <DataCoverageStatus coverage={coverage} scope="Tagesverlauf" />
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            <p>Gespeicherte Messpunkte: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(timeline.length, locale)}</strong></p>
-            <p className="mt-1">Darstellbare Messreihen: <strong className="text-slate-700 dark:text-slate-200">{formatNumber(series.length, locale)}</strong></p>
+            <p>Gespeicherte Messpunkte: <strong className="font-data text-slate-700 dark:text-slate-200">{formatNumber(timeline.length, locale)}</strong></p>
+            <p className="mt-1">Dargestellte 15-Min-Intervalle: <strong className="font-data text-slate-700 dark:text-slate-200">{formatNumber(renderedPointCount, locale)}</strong></p>
           </div>
         </div>
       </details>
