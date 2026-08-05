@@ -1,8 +1,14 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { TodayView } from '../views/TodayView';
 import { TimelineEntry } from '../types';
+
+const todaySrc = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../views/TodayView.tsx'), 'utf8');
 
 const providerState: { timeline: TimelineEntry[]; sourceType: 'demo' | 'bridge' | 'offline' } = {
   timeline: [],
@@ -77,5 +83,41 @@ describe('TodayView - 24-hour chronicle (aggregated)', () => {
     providerState.timeline = [];
     render(<TodayView />);
     expect(screen.getByText(/Der Tagesverlauf steht zur Verfügung/)).toBeTruthy();
+  });
+
+  it('greets without repeating the coverage status the Vorläufig chip already carries', () => {
+    providerState.timeline = at([[10, 0, 0.2, 0.4]]);
+    render(<TodayView />);
+    expect(screen.getByTestId('greeting').textContent).toMatch(/Guten (Morgen|Tag|Abend)/);
+    // The old second status line is gone (the chip is the single source of truth).
+    expect(screen.queryByText(/Ein Teil der heutigen Messdaten fehlt noch/)).toBeNull();
+    expect(screen.queryByText(/Energiedaten für heute sind vollständig verfügbar/)).toBeNull();
+  });
+
+  it('keeps the top legend to the two series only — quality lives in the footer', () => {
+    providerState.timeline = at([[10, 0, 0.2, 0.4], [10, 15, 0.3, 0.5]]); // complete, no gaps/peaks
+    render(<TodayView />);
+    expect(screen.getByText('Solarerzeugung')).toBeTruthy();
+    expect(screen.getAllByText('Hausverbrauch').length).toBeGreaterThanOrEqual(1);
+    // Datenlücke / Verbrauchsspitze are no longer unconditional legend chips.
+    expect(screen.queryByText('Datenlücke')).toBeNull();
+    expect(screen.queryByText('Verbrauchsspitze')).toBeNull();
+  });
+});
+
+describe('TodayView - chart visual encoding (source contract)', () => {
+  it('draws PV as a line-led trace with a very light fill (opacity ≤ 0.10)', () => {
+    expect(todaySrc).toMatch(/stopOpacity=\{0\.10\}/);       // calmed area fill
+    expect(todaySrc).toMatch(/dataKey="solarKw"[\s\S]{0,120}strokeWidth=\{2\.25\}/); // stronger PV line
+  });
+  it('renders peaks as a compact chevron, never a big circle or full-height rule', () => {
+    expect(todaySrc).toMatch(/shape=\{PeakChevron\}/);
+    expect(todaySrc).not.toMatch(/<ReferenceDot[\s\S]{0,80}r=\{/);  // no dot radius = no circle
+    expect(todaySrc).toMatch(/function PeakChevron/);
+  });
+  it('keeps the data-gap band thin and neutral (not PV-coloured, not full height)', () => {
+    expect(todaySrc).toMatch(/GapReferenceArea[\s\S]{0,120}y2=\{yCap \* 0\.02\}/); // ~thin slice
+    expect(todaySrc).toMatch(/GapReferenceArea[\s\S]{0,160}fill="#64748B"/);        // neutral slate
+    expect(todaySrc).not.toMatch(/GapReferenceArea[\s\S]{0,160}fill="#F59E0B"/);     // never amber
   });
 });

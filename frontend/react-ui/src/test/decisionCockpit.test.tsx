@@ -55,17 +55,33 @@ function economy(results: any, reason: string | null = null): any {
   return { results, reason };
 }
 
-describe('EconomicHero — no false savings, precise reasons', () => {
-  it('shows total value and never calls feed-in or total "Ersparnis"', () => {
+describe('EconomicHero — value-first, precise reasons', () => {
+  it('leads with the total value and breaks down both components', () => {
     render(<EconomicHero locale={locale} report={economy({
       solar_economic_value: { value_eur: '2.34' }, avoided_grid_cost: { value_eur: '1.50' }, feed_in_remuneration: { value_eur: '0.84' },
     })} />);
     expect(screen.getByTestId('economic-hero').getAttribute('data-has-value')).toBe('true');
-    // "Ersparnis" appears only for avoided cost, exactly once.
-    expect(screen.getAllByText(/Ersparnis/).length).toBe(1);
+    expect(screen.getByText(/2,34/)).toBeTruthy();
+    expect(screen.getByText('Vermiedener Netzbezug')).toBeTruthy();
     expect(screen.getByText('Einspeisevergütung')).toBeTruthy();
   });
-  it('surfaces the precise missing-tariff reason, no raw enum', () => {
+  it('lifts the known feed-in value big when the total is not assessable, tariff reason stays calm', () => {
+    // No grid tariff → total & avoided unavailable, but feed-in is known.
+    render(<EconomicHero locale={locale} report={economy({
+      solar_economic_value: { value_eur: null, reason: 'grid_tariff_missing_or_boundary' },
+      avoided_grid_cost: { value_eur: null, reason: 'grid_tariff_missing_or_boundary' },
+      feed_in_remuneration: { value_eur: '1.36' },
+    })} />);
+    // The euro value leads; the missing part is a compact, precise line — no red error.
+    expect(screen.getByText(/1,36/)).toBeTruthy();
+    expect(screen.getAllByText('Einspeisevergütung').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Vermiedener Netzbezug')).toBeTruthy();
+    expect(screen.getByText('Stromtarif nicht hinterlegt')).toBeTruthy();
+    // The long duplicate "keine belastbare Bewertung" paragraph is gone.
+    expect(screen.queryByTestId('economic-reason')).toBeNull();
+    expect(screen.queryByText(/keine belastbare/)).toBeNull();
+  });
+  it('falls back to the precise reason only when no euro value exists at all', () => {
     render(<EconomicHero locale={locale} report={economy({
       solar_economic_value: { value_eur: null, reason: 'grid_tariff_missing_or_boundary' },
     })} />);
