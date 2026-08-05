@@ -332,3 +332,27 @@ directly on the shared grid, so Wirtschaft and Wetter share the exact col-start 
 Autarkie shares its axes with the balance zone. Spacing is grid-gap only — no
 per-block `ml-*/pl-*/translate-*` offsets. Mobile order: Autarkie, Wirtschaft,
 Solarenergie, Haushalt, Wetter.
+
+## 16 — Final visual cleanup (chart hierarchy + economy value-first)
+
+A calm-down pass over the consolidated Übersicht — visual/copy only, no
+aggregation, calculation, tariff, weather, or backend change.
+
+- **PV reads as a trace, not a block.** The area fill drops to `stopOpacity 0.10`
+  and the PV stroke rises to `2.25` so the line carries the day's shape; the fill
+  only hints at volume. `connectNulls={false}` still forbids bridging real gaps.
+- **Peaks are a compact chevron.** `PeakChevron` draws a small downward triangle
+  whose tip sits on the exact time at the top of the plot — no circles, no
+  full-height rule, no animation. The real maximum stays in the tooltip and footer.
+- **The gap band is a thin neutral rule.** `y2 = yCap * 0.02`, slate `#64748B` at
+  0.35 — a secondary quality hint, never full height and never PV-coloured.
+- **The top legend is just the two series** (Solarerzeugung · Hausverbrauch).
+  Coverage, peak count and peak maximum move into one compact footer line, with a
+  small named symbol help (Datenlücke · Verbrauchsspitze) so neither is
+  communicated by colour alone.
+- **The hero no longer repeats itself.** The second coverage status line next to
+  the greeting is gone; provisionality is stated once, by the Vorläufig chip.
+- **The economy block is value-first.** The strongest known euro figure leads big
+  (total, else feed-in, else avoided) with its label; the missing component stays
+  calm in the breakdown with a compact precise reason (`economyReasonShort`, e.g.
+  "Stromtarif nicht hinterlegt") — never a red error, no duplicated paragraph.

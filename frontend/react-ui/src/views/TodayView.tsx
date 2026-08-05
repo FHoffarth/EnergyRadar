@@ -30,6 +30,17 @@ const GapReferenceArea = ReferenceArea as React.ComponentType<React.ComponentPro
   x1: number; x2: number; yAxisId?: 'left' | 'right'; ifOverflow?: 'hidden';
 }>;
 
+/** Peak marker: a small downward chevron whose tip sits on the exact time at the
+ *  top of the plot. Uniform size, no circles, no full-height rule, no animation. */
+function PeakChevron(props: { cx?: number; cy?: number; fill?: string }) {
+  const { cx, cy, fill } = props;
+  if (cx == null || cy == null) return null;
+  return (
+    <path d={`M ${cx - 5} ${cy - 8} L ${cx + 5} ${cy - 8} L ${cx} ${cy - 1} Z`}
+      fill={fill} className="drop-shadow-none" aria-hidden="true" />
+  );
+}
+
 function isDemoSource(sourceType: string): boolean {
   return sourceType === 'demo';
 }
@@ -95,11 +106,6 @@ export function TodayView() {
   const greetingEnabled = settingsPayload?.effective_settings?.greeting_enabled ?? true;
   const preferredName = settingsPayload?.effective_settings?.preferred_name ?? null;
   const greeting = greetingEnabled ? greetingTitle(new Date().getHours(), preferredName) : null;
-  const overviewStatus = coverage.level === 'complete'
-    ? 'Deine Energiedaten für heute sind vollständig verfügbar.'
-    : coverage.level === 'partial' || coverage.level === 'sparse'
-      ? 'Ein Teil der heutigen Messdaten fehlt noch.'
-      : 'Hier ist dein Energieüberblick für heute.';
 
   // Autonomy relation for the bar: self-consumed PV (covering the house) vs grid.
   const balSolar = today.solarTotal.state === 'available' ? today.solarTotal.value : null;
@@ -119,9 +125,8 @@ export function TodayView() {
             Content is width-capped so wide desktops stay a closed cockpit. */}
         <section aria-label="Tagesentscheidung" className="order-1 cockpit-surface p-5 lg:order-2 lg:p-6" data-testid="decision-cockpit">
           {greeting && (
-            <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="greeting">
-              <span className="font-medium text-slate-700 dark:text-slate-200">{greeting}</span>
-              {' '}<span className="text-slate-500 dark:text-slate-400">{overviewStatus}</span>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200" data-testid="greeting">
+              {greeting}
             </p>
           )}
           <div className="mt-2">
@@ -184,15 +189,10 @@ export function TodayView() {
             <h2 className="cockpit-section-title">
               {isDemo ? '24-Stunden-Chronik (Demo)' : '24-Stunden-Chronik'}
             </h2>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm bg-amber-500/70" />Solarerzeugung</span>
+            {/* Primary legend: only the two series. Data-quality lives in the footer. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded-full bg-amber-500" />Solarerzeugung</span>
               <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded-full bg-indigo-500" />Hausverbrauch</span>
-              {chartGapCount > 0 && (
-                <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-sm bg-amber-300/70 dark:bg-amber-500/50" />Datenlücke</span>
-              )}
-              {peaks.length > 0 && (
-                <span className="flex items-center gap-1.5"><span className="text-indigo-500">▲</span>Verbrauchsspitze</span>
-              )}
             </div>
           </div>
 
@@ -209,7 +209,7 @@ export function TodayView() {
                 <ComposedChart data={buckets} margin={{ top: 12, right: 14, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="solarGradT" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.18} />
+                      <stop offset="5%" stopColor="#D97706" stopOpacity={0.10} />
                       <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
@@ -222,25 +222,27 @@ export function TodayView() {
                     domain={[0, yCap]} allowDataOverflow width={52} tickFormatter={formatAxisKw} />
                   <Tooltip isAnimationActive={animate} content={<ChronikTooltip locale={locale} cap={yCap} />}
                     cursor={{ stroke: '#94A3B8', strokeWidth: 1 }} />
-                  {/* Solar: calm area to the baseline. Consumption: clear line.
-                      Neither is drawn across a real gap (connectNulls=false). */}
+                  {/* Solar: the line carries the trace; the fill only hints at volume.
+                      Consumption: clear line. Neither is drawn across a real gap. */}
                   {hasSolar && (
-                    <Area type="linear" dataKey="solarKw" name="Solarerzeugung" stroke="#D97706" strokeWidth={2}
+                    <Area type="linear" dataKey="solarKw" name="Solarerzeugung" stroke="#D97706" strokeWidth={2.25}
                       fill="url(#solarGradT)" fillOpacity={1} dot={false} connectNulls={false} isAnimationActive={animate} />
                   )}
                   {hasHome && (
                     <Line type="linear" dataKey="homeLoadKw" name="Hausverbrauch" stroke="#4F46E5" strokeWidth={2}
                       dot={false} connectNulls={false} isAnimationActive={animate} />
                   )}
-                  {/* Gaps: thin band at the very bottom, never full height. */}
+                  {/* Gaps: a thin neutral rule at the very bottom — a quality hint, not a
+                      second series and never PV-coloured. Fixed ~4px via a tiny data slice. */}
                   {gapList.map((g, i) => (
-                    <GapReferenceArea key={`gap-${i}`} x1={g.startMs} x2={g.endMs} y1={0} y2={yCap * 0.05}
-                      fill="#F59E0B" fillOpacity={0.28} stroke="none" ifOverflow="hidden" />
+                    <GapReferenceArea key={`gap-${i}`} x1={g.startMs} x2={g.endMs} y1={0} y2={yCap * 0.02}
+                      fill="#64748B" fillOpacity={0.35} stroke="none" ifOverflow="hidden" />
                   ))}
-                  {/* Real interval maxima above the cap: honest markers at the top. */}
+                  {/* Real interval maxima above the cap: a small chevron pointing down at
+                      the exact time — "there was more here than the scale shows". */}
                   {peaks.map((p, i) => (
-                    <ReferenceDot key={`peak-${i}`} x={p.timestampMs} y={yCap} r={3} ifOverflow="visible"
-                      fill={p.series === 'home' ? '#4F46E5' : '#D97706'} stroke="none" />
+                    <ReferenceDot key={`peak-${i}`} x={p.timestampMs} y={yCap} ifOverflow="visible"
+                      shape={PeakChevron} fill={p.series === 'home' ? '#4F46E5' : '#D97706'} />
                   ))}
                 </ComposedChart>
               </ResponsiveContainer>
@@ -260,17 +262,29 @@ export function TodayView() {
           {/* One compact status footer. Detailed reasons only in Technical Details. */}
           <div data-testid="chart-data-quality"
             className="border-t border-slate-200/70 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            {/* One compact quality line: coverage · peaks · maximum. */}
             <p>
               {chartGapCount > 0
-                ? `Messdaten für ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Zeitraum' : 'Zeiträume'} unvollständig.`
-                : 'Messdaten für den dargestellten Zeitraum vollständig.'}
+                ? `Messdaten für ${formatNumber(chartGapCount, locale)} ${chartGapCount === 1 ? 'Zeitraum' : 'Zeiträume'} unvollständig`
+                : 'Messdaten für den dargestellten Zeitraum vollständig'}
+              {peaks.length > 0 && (
+                <span data-testid="chart-peak-note">
+                  {' · '}{formatNumber(peaks.length, locale)} {peaks.length === 1 ? 'Verbrauchsspitze' : 'Verbrauchsspitzen'} über der sichtbaren Skala · Maximum <span className="font-data tabular-nums">{formatAxisKw(maxPeak)} kW</span>
+                </span>
+              )}
             </p>
-            {peaks.length > 0 && (
-              <p className="mt-1" data-testid="chart-peak-note">
-                {formatNumber(peaks.length, locale)} kurze {peaks.length === 1 ? 'Verbrauchsspitze' : 'Verbrauchsspitzen'} über der sichtbaren Skala · Maximum <span className="font-data tabular-nums">{formatAxisKw(maxPeak)} kW</span>
-              </p>
+            {/* Symbol help so gap and peak are named, not communicated by colour alone. */}
+            {(chartGapCount > 0 || peaks.length > 0) && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-400">
+                {chartGapCount > 0 && (
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-1 w-4 rounded-full bg-slate-400/70" />Datenlücke</span>
+                )}
+                {peaks.length > 0 && (
+                  <span className="flex items-center gap-1.5" aria-hidden="true"><span className="text-slate-500">▼</span>Verbrauchsspitze</span>
+                )}
+              </div>
             )}
-            <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
+            <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1">
               {chartGapCount > 0 && (
                 <details>
                   <summary className="cursor-pointer">Warum fehlen Daten?</summary>
