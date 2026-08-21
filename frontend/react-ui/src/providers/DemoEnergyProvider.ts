@@ -1,4 +1,4 @@
-import { EnergySnapshot, EnergyValue, EnergyAssessment, DataQuality, DataOrigin, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, DemoPresetId } from '../types';
+import { EnergySnapshot, EnergyValue, EnergyAssessment, DataQuality, DataOrigin, TimelineEntry, DemoDeviceSummary, ConnectionTestResult, RawSettings, DemoPresetId, PeriodReport } from '../types';
 import { EnergyDataProvider, DemoEnergyProvider as DemoEnergyProviderInterface } from './types';
 import { DEMO_PRESETS, DEMO_TIMELINE, DEMO_DEVICES, DEMO_ASSESSMENT_VERDICTS } from '../demo/constants';
 
@@ -129,6 +129,32 @@ export class DemoEnergyProviderImpl implements DemoEnergyProviderInterface {
 
   async testConnection(_deviceId: string): Promise<ConnectionTestResult> {
     return { ok: false, message: 'Verbindungstest im Demo-Modus nicht verfügbar. Wechseln Sie zu Live-Datenquellen.', latencyMs: null };
+  }
+
+  async requestPeriod(fromIso: string, toIso: string): Promise<PeriodReport> {
+    // Demo mode is explicitly synthetic; provide a plausible, clearly-demo
+    // summary so the historical ranges are populated rather than empty.
+    const metric = (value: number | null, source: string) => ({
+      value_kwh: value, state: value === null ? 'unavailable' : 'partial',
+      coverage_state: value === null ? 'unavailable' : 'partial',
+      source: value === null ? 'unavailable' : source, provenance: 'demo',
+      confidence: 'demo', reason: null,
+    });
+    return {
+      requested_period: { from: fromIso, to: toIso },
+      resolved_period: { from: fromIso, to: toIso, state: 'partial' },
+      provenance: 'demo',
+      freshness: null,
+      metrics: {
+        pv_generation: metric(18.4, 'demo'),
+        grid_import: metric(6.2, 'demo'),
+        grid_export: metric(9.7, 'demo'),
+        house_consumption: metric(14.9, 'demo'),
+        direct_self_consumption: metric(8.7, 'demo'),
+      },
+      has_records: true,
+      has_summary: true,
+    };
   }
 
   selectPreset(presetId: DemoPresetId): void {

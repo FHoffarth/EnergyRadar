@@ -29,6 +29,7 @@ LIVE_DEFAULT_SECONDS = 5.0
 ANCHOR_SECONDS = 60.0
 WEATHER_SECONDS = 15 * 60.0
 FORECAST_SECONDS = 30 * 60.0
+ARCHIVE_SECONDS = 10 * 60.0
 CAPTURE_TIMEOUT_SECONDS = 6.0
 
 
@@ -91,6 +92,10 @@ class EnergyRuntime:
             # The first weather completion triggers forecast. This prevents two
             # concurrent provider requests during process startup.
             self.scheduler.add_task("forecast", FORECAST_SECONDS, self.refresh_forecast, immediate=False, max_backoff=FORECAST_SECONDS * 4)
+            # Fronius local-archive catch-up: startup + bounded current-day
+            # refresh, on its own cadence so it never blocks live polling.
+            if not config.DEMO:
+                self.scheduler.add_task("archive", ARCHIVE_SECONDS, self.refresh_archive, immediate=True, max_backoff=ARCHIVE_SECONDS * 4)
             self._started = True
             self.scheduler.start()
             return True
@@ -116,6 +121,28 @@ class EnergyRuntime:
                 self.projection.rebuild_stale(smart_meter=SourceSnapshot(True, meter, received, received, "stale"))
         except (sqlite3.Error, OSError, ValueError, TypeError):
             log.warning("Could not rebuild stale current projection", exc_info=True)
+
+    def refresh_archive(self) -> None:
+        """Ingest missing Fronius local-archive history (startup + current day).
+
+        Read-only against the device, idempotent, and provenance-separated. Any
+        failure is swallowed so archive ingestion never disturbs live recording.
+        """
+        if config.DEMO:
+            return
+        source = data_source.effective()
+        if not source or not source.get("url"):
+            return
+        from urllib.parse import urlsplit
+        from energyradar.services import archive_ingest
+        parts = urlsplit(source["url"])
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            return
+        base = f"{parts.scheme}://{parts.netloc}"
+        try:
+            archive_ingest.catch_up(base)
+        except Exception:
+            log.warning("Fronius archive catch-up failed", exc_info=True)
 
     def _configured(self) -> tuple[dict | None, str]:
         source = data_source.effective()

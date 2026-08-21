@@ -61,6 +61,23 @@ A report states; an assessment judges. Economy delivers a **verdict first**, the
 
 ---
 
+## 6a. The day answers three decision questions
+
+*(Owner-approved Product Law, 2026-08 — Energy Decision Experience.)*
+
+EnergyRadar is a decision application, not a monitor. Heute's first viewport
+answers three questions before any measurement: **How independent was the
+household? What economic value was created? Was this a good energy day — and
+why?** **Autonomy (Autarkie) and economic value are co-equal first-viewport
+decision signals**; raw watts, device connectivity and equal KPI grids are
+evidence beneath them, never the headline.
+
+The daily verdict is deterministic and evidence-only — never praise, stars, or
+invented benchmarks. **Autonomy determines the assessment class**; self-consumption,
+economic value and coverage refine the explanatory sentence but never silently
+change the class. Unknown autonomy yields an honest *not assessable*, not a guess.
+Detail lives in `ENERGY_DECISION_EXPERIENCE.md`.
+
 ## 7. Weather explains energy, or it leaves
 
 Weather is an adjective on solar production, not a noun of its own. Its only job is to answer *"why did the sun give me what it gave me, and what should I expect next?"* Weather is woven into the day's story, coloring production with cause. Correlation is not presented as causation; language stays cautious. A weather block that competes with the energy story as an isolated widget violates this article.
@@ -138,3 +155,5 @@ Every future UI change must be able to cite one of these. A change that violates
 18. The past is still.
 19. Calm is a feature, not an absence of features.
 20. Remove before you add.
+21. Autonomy and economic value are co-equal decision signals; the day answers three questions before it measures.
+22. The daily verdict is earned and deterministic; autonomy sets the class, and unknown autonomy is *not assessable*, never a guess.

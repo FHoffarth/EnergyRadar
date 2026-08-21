@@ -671,6 +671,75 @@ def _migration_5(con: sqlite3.Connection) -> None:
         _require_columns(con, table, columns)
 
 
+def _migration_6(con: sqlite3.Connection) -> None:
+    """Provenance-separated persistence for Fronius local-archive history.
+
+    Historical Provider Truth is kept strictly apart from recorder samples and
+    counter anchors: it never enters energy_samples_v1 or the counter tables.
+    """
+    script = """
+        CREATE TABLE IF NOT EXISTS provider_archive_sources (
+            source_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            device_key TEXT NOT NULL,
+            device_identity TEXT,
+            base_fingerprint TEXT,
+            timezone_name TEXT,
+            first_seen_utc TEXT NOT NULL CHECK(substr(first_seen_utc, -1) = 'Z'),
+            last_seen_utc TEXT CHECK(last_seen_utc IS NULL OR substr(last_seen_utc, -1) = 'Z'),
+            UNIQUE(provider, device_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_archive_imports (
+            import_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES provider_archive_sources(source_id),
+            requested_from_utc TEXT NOT NULL CHECK(substr(requested_from_utc, -1) = 'Z'),
+            requested_to_utc TEXT NOT NULL CHECK(substr(requested_to_utc, -1) = 'Z'),
+            started_at_utc TEXT NOT NULL CHECK(substr(started_at_utc, -1) = 'Z'),
+            completed_at_utc TEXT CHECK(completed_at_utc IS NULL OR substr(completed_at_utc, -1) = 'Z'),
+            status TEXT NOT NULL CHECK(status IN (
+                'complete','partial','source_unavailable','source_unsupported',
+                'outside_retention','import_failed','conflict','no_archive_data'
+            )),
+            points_ingested INTEGER NOT NULL DEFAULT 0,
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            reason TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_archive_points (
+            point_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES provider_archive_sources(source_id),
+            import_id INTEGER NOT NULL REFERENCES provider_archive_imports(import_id),
+            channel TEXT NOT NULL,
+            observed_at_utc TEXT NOT NULL CHECK(substr(observed_at_utc, -1) = 'Z'),
+            interval_seconds INTEGER CHECK(interval_seconds IS NULL OR interval_seconds >= 0),
+            value_decimal TEXT NOT NULL,
+            unit TEXT,
+            measurement_kind TEXT NOT NULL CHECK(measurement_kind IN (
+                'interval_total','interval_average','instantaneous','status','unsupported'
+            )),
+            quality_state TEXT NOT NULL DEFAULT 'measured',
+            provenance TEXT NOT NULL DEFAULT 'fronius_local_archive',
+            dedupe_key TEXT NOT NULL UNIQUE,
+            UNIQUE(source_id, channel, observed_at_utc)
+        );
+        CREATE INDEX IF NOT EXISTS idx_archive_points_channel_time
+            ON provider_archive_points(source_id, channel, observed_at_utc);
+        """
+    for statement in script.split(";"):
+        if statement.strip():
+            con.execute(statement)
+    required = {
+        "provider_archive_sources": {"source_id", "provider", "device_key", "timezone_name"},
+        "provider_archive_imports": {"import_id", "source_id", "status", "idempotency_key"},
+        "provider_archive_points": {"point_id", "source_id", "channel", "observed_at_utc",
+                                     "value_decimal", "measurement_kind", "dedupe_key"},
+    }
+    for table, columns in required.items():
+        _require_columns(con, table, columns)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "legacy-production", "production-v1-columns", _migration_1),
     Migration(2, "combined-energy-samples", "energy-samples-v1-additive", _migration_2),
@@ -691,6 +760,12 @@ MIGRATIONS: tuple[Migration, ...] = (
         "continuous-recording-counter-anchors",
         "runs-epochs-anchors-readings-gaps-v1-decimal-text",
         _migration_5,
+    ),
+    Migration(
+        6,
+        "fronius-local-archive-provenance",
+        "provider-archive-sources-imports-points-v1-provenance-separated",
+        _migration_6,
     ),
 )
 

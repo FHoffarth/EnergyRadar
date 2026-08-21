@@ -83,6 +83,7 @@ class TodayViewModel:
     has_data: bool
     has_source: bool
     economy: dict
+    assessment: dict = field(default_factory=dict)
 
     # Solar-Prognose (Sprint 5E)
     solar_forecast: Optional[dict] = None
@@ -488,6 +489,30 @@ def build_today_vm_from_anchors(
     cons_kwh = value("house_consumption")
     imp_kwh = value("grid_import")
     exp_kwh = value("grid_export")
+
+    # Same PV precedence as Memory/Reports: when the counter paths supply no PV,
+    # fall back to Fronius local-archive interval energy; then retry house
+    # consumption over a compatible period, so Today agrees with the contract.
+    import sqlite3
+    from energyradar.services import period_archive
+    con = sqlite3.connect(config.DB_PATH)
+    try:
+        archive_pv = period_archive.archive_pv_energy(con, start_of_day, now)
+    finally:
+        con.close()
+    if gen_kwh is None and archive_pv["value_kwh"] is not None:
+        gen_kwh = archive_pv["value_kwh"]
+    consumption_reason = metrics["house_consumption"].get("reason")
+    if cons_kwh is None:
+        derived_house = period_archive.derive_house_consumption(
+            gen_kwh, imp_kwh, exp_kwh,
+            archive_pv=archive_pv, resolved_period=report.get("actual_period"),
+        )
+        if derived_house["value_kwh"] is not None:
+            cons_kwh = derived_house["value_kwh"]
+            consumption_reason = None
+        else:
+            consumption_reason = derived_house["detail"] or consumption_reason
     try:
         economy_data = economy.calculate_period(
             periods.economy_basis(report, timezone_name=str(tz)),
@@ -508,12 +533,33 @@ def build_today_vm_from_anchors(
     if cons_kwh is not None and cons_kwh > 0 and imp_kwh is not None:
         autarky_pct = max(0, min(100, round((1 - imp_kwh / cons_kwh) * 100)))
 
+    # Daily verdict (Phase B model). Autonomy sets the class; coverage/economy
+    # only refine the sentence. Today is usually partial (day in progress).
+    from energyradar.services import decision
+    econ_results = (economy_data.get("results", {}) or {}) if isinstance(economy_data, dict) else {}
+    economic_value_available = bool((econ_results.get("solar_economic_value", {}) or {}).get("value_eur"))
+    cov = hist_data["coverage"]
+    coverage_complete = (cov.get("pv", 0) >= 0.9 and cov.get("grid", 0) >= 0.9)
+    verdict = decision.daily_verdict(
+        autarky_pct, self_consumption_pct,
+        coverage_complete=coverage_complete,
+        economic_value_available=economic_value_available,
+    )
+    assessment = {
+        "assessable": verdict.assessable,
+        "assessment_class": verdict.assessment_class,
+        "trust": verdict.trust,
+        "headline": verdict.headline,
+        "sentence": verdict.sentence,
+        "reason": verdict.reason,
+    }
+
     return TodayViewModel(
         generated_kwh=gen_kwh,
         generated_label=_fmt_energy(gen_kwh) if gen_kwh is not None else S.label_unknown,
         consumption_kwh=cons_kwh,
         consumption_label=_fmt_energy(cons_kwh) if cons_kwh is not None else S.label_unknown,
-        consumption_reason=metrics["house_consumption"].get("reason"),
+        consumption_reason=consumption_reason,
         import_total_kwh=imp_kwh,
         import_total_label=_fmt_energy(imp_kwh) if imp_kwh is not None else S.label_unknown,
         export_total_kwh=exp_kwh,
@@ -530,6 +576,7 @@ def build_today_vm_from_anchors(
         has_source=(fronius is not None or mt175 is not None) if has_source is None else has_source,
         economy=economy_data,
         solar_forecast=solar_forecast,
+        assessment=assessment,
     )
 
 
@@ -764,6 +811,7 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
         "database_healthy": False,
         "recording_active": False,
         "recording_since": None,
+        "current_session_since": None,
         "stored_samples": 0,
         "database_size_bytes": path.stat().st_size if path.exists() else 0,
         "last_recorded_sample_at": None,
@@ -799,7 +847,15 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
                 "SELECT started_at_utc FROM recording_runs WHERE clean_shutdown_at_utc IS NULL ORDER BY run_id DESC LIMIT 1"
             ).fetchone()
         result["stored_samples"] = int(count)
-        result["recording_since"] = run_row[0] if run_row else first
+        # `recording_since` answers "since when do we hold history" and must be
+        # the earliest persisted record, never the newest live run start — the
+        # latter produced the impossible ordering where "Aufzeichnung seit" was
+        # shown *after* "Letzte gespeicherte Messung".
+        result["recording_since"] = first
+        # The active run start is a *separate* clock: it lets the UI tell a
+        # fresh live feed apart from stale persisted history (heartbeat), and
+        # must not be conflated with the persisted-history baseline above.
+        result["current_session_since"] = run_row[0] if run_row else None
         result["last_recorded_sample_at"] = last
         projection = get_runtime().projection.snapshot()
         result["recording_active"] = projection.recording_active
@@ -811,3 +867,137 @@ def _build_storage_status(database_path, *, refresh_seconds: int) -> dict:
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return result
     return result
+
+
+_PERIOD_METRIC_NAMES = (
+    "pv_generation",
+    "grid_import",
+    "grid_export",
+    "house_consumption",
+    "direct_self_consumption",
+)
+
+
+def build_period_report(from_iso: str, to_iso: str) -> dict:
+    """Authoritative period result for an arbitrary range, shaped for the UI.
+
+    Single source of truth behind Today, Memory and Reports for a given period.
+    Totals follow the truth hierarchy: synchronized anchors, then stored sample
+    counters, then — for PV only — the Fronius local-archive interval energy
+    (``fronius_local_archive``), never power integration. A source-tagged curve
+    (local samples preferred, archive fills missing intervals) is included so the
+    UI can show real history. "keine Messwerte" is only valid when totals, records
+    and curve are all genuinely absent.
+    """
+    import sqlite3
+    from datetime import datetime, timezone
+    from energyradar import config
+    from energyradar.services import periods, economy, tariffs, period_archive
+
+    report = periods.calculate_period(from_iso, to_iso)
+    metrics = report["metrics"]
+
+    def metric(name: str) -> dict:
+        raw = metrics.get(name, {})
+        value = raw.get("value_kwh")
+        return {
+            "value_kwh": float(value) if value is not None else None,
+            "state": raw.get("state"),
+            "coverage_state": raw.get("coverage_state"),
+            "source": raw.get("source"),
+            "provenance": raw.get("provenance"),
+            "confidence": raw.get("confidence"),
+            "reason": raw.get("reason"),
+        }
+
+    computed = {name: metric(name) for name in _PERIOD_METRIC_NAMES}
+
+    def _to_utc(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+        return parsed.astimezone(timezone.utc)
+
+    from_dt, to_dt = _to_utc(from_iso), _to_utc(to_iso)
+    con = sqlite3.connect(config.DB_PATH)
+    try:
+        archive_pv = period_archive.archive_pv_energy(con, from_dt, to_dt)
+        curve = period_archive.build_period_curve(
+            con, from_dt, to_dt, max_points=period_archive._display_budget(from_dt, to_dt)
+        )
+    finally:
+        con.close()
+
+    # PV precedence: keep counter-derived value; only fall back to archive
+    # interval energy when the counter paths supplied nothing. Grid/house stay
+    # meter/counter truth and are never archive-filled.
+    if computed["pv_generation"]["value_kwh"] is None and archive_pv["value_kwh"] is not None:
+        computed["pv_generation"] = {
+            "value_kwh": archive_pv["value_kwh"],
+            "state": "partial",
+            "coverage_state": "partial",
+            "source": archive_pv["source"],
+            "provenance": archive_pv["provenance"],
+            "confidence": "verified_provider",
+            "reason": None,
+        }
+
+    # House consumption: when the counter path could not derive it *because* PV was
+    # missing, retry with the (now archive-backed) PV over a compatible period.
+    # Never override a topology-unsupported verdict.
+    house = computed["house_consumption"]
+    house_reason = house.get("reason") or ""
+    if (
+        house["value_kwh"] is None
+        and "battery_free_topology_not_confirmed" not in house_reason
+        and "metric_unsupported" not in house_reason
+    ):
+        derived = period_archive.derive_house_consumption(
+            computed["pv_generation"]["value_kwh"],
+            computed["grid_import"]["value_kwh"],
+            computed["grid_export"]["value_kwh"],
+            archive_pv=archive_pv,
+            resolved_period=report.get("actual_period"),
+        )
+        computed["house_consumption"] = {
+            "value_kwh": derived["value_kwh"],
+            "state": "partial" if derived["value_kwh"] is not None else "unavailable",
+            "coverage_state": derived["coverage_state"],
+            "source": derived["source"],
+            "provenance": derived["provenance"],
+            "confidence": derived["confidence"],
+            "reason": derived["reason"],
+            "detail": derived["detail"],
+        }
+
+    archive_contributed = archive_pv["value_kwh"] is not None or curve["n_points"] > 0
+    has_records = report.get("actual_period") is not None or archive_contributed
+    has_summary = any(computed[name]["value_kwh"] is not None for name in computed)
+    provenance = report.get("source_precedence") or ("counter_anchors" if report.get("actual_period") else None)
+    if provenance is None and archive_contributed:
+        provenance = "fronius_local_archive"
+
+    economy_data = None
+    try:
+        economy_data = economy.calculate_period(
+            periods.economy_basis(report, timezone_name=config.MT175_TIMEZONE),
+            tariffs.list_records(),
+        )
+    except Exception as exc:  # economy is best-effort; never blocks the summary
+        log.debug("Period economy unavailable: %s", exc)
+
+    return {
+        "requested_period": report.get("requested_period"),
+        "resolved_period": report.get("actual_period"),
+        "provenance": provenance,
+        "freshness": report.get("freshness"),
+        "metrics": computed,
+        "curve": curve,
+        "archive_pv": archive_pv,
+        # Availability contract: records/summary/curve presence drives the UI
+        # state so "keine Messwerte" can only appear when all are truly absent.
+        "has_records": has_records,
+        "has_summary": has_summary,
+        "has_curve": curve["n_points"] > 0,
+        "economy": economy_data,
+        "diagnostics": {"raw_metrics": metrics, "source_precedence": report.get("source_precedence"),
+                        "curve_segments": curve["segments"]},
+    }

@@ -32,6 +32,15 @@ export interface TodayHistoryPoint {
   gridExport: number | null;
 }
 
+export interface DailyAssessment {
+  assessable: boolean;
+  assessment_class: 'excellent' | 'strong' | 'balanced' | 'grid_dependent' | null;
+  trust: 'complete' | 'partial' | 'not_assessable';
+  headline: string;
+  sentence: string;
+  reason: string | null;
+}
+
 export interface TodayData {
   solarTotal: DataState<number>;
   homeTotal: DataState<number>;
@@ -43,6 +52,7 @@ export interface TodayData {
   history: TodayHistoryPoint[];
   economy?: EconomyReportData | null;
   solar_forecast?: SolarForecastReportData | null;
+  assessment?: DailyAssessment | null;
 }
 
 export type EconomyCoverageState = 'complete' | 'partial' | 'sparse' | 'unavailable';
@@ -150,7 +160,12 @@ export interface SystemInfo {
   export_directory: string;
   database_healthy: boolean;
   recording_active: boolean;
+  /** Earliest persisted record — "since when do we hold history". */
   recording_since: string | null;
+  /** Start of the current live recording session (active run). Distinct from
+   *  `recording_since`: used to tell a fresh live feed apart from stale
+   *  persisted history so startup never reads as "last measurement 2h ago". */
+  current_session_since?: string | null;
   stored_samples: number;
   database_size_bytes: number;
   last_recorded_sample_at: string | null;
@@ -370,4 +385,64 @@ export interface ConnectionTestResult {
   status?: 'success' | 'partial' | 'failure' | string;
   testedAt?: string | null;
   capabilities?: string[];
+}
+
+/** One metric of an authoritative period result (backend `build_period_report`). */
+export interface PeriodMetric {
+  value_kwh: number | null;
+  state: string | null;
+  coverage_state: string | null;
+  source: string | null;
+  provenance: string | null;
+  confidence: string | null;
+  reason: string | null;
+}
+
+export interface PeriodCurvePoint {
+  t: string;                 // ISO 8601 'Z'
+  solar_w: number | null;
+  grid_w: number | null;
+  source: 'local' | 'fronius_archive';
+}
+
+export interface PeriodCurve {
+  points: PeriodCurvePoint[];
+  source: 'local' | 'fronius_archive' | 'mixed' | 'unavailable';
+  mixed_source: boolean;
+  segments: { source: string; from: string; to: string }[];
+  n_points: number;
+  n_local: number;
+  n_archive: number;
+  first: string | null;
+  last: string | null;
+  unavailable_reason: string | null;
+}
+
+/**
+ * Authoritative period result for an arbitrary range — the single contract behind
+ * Today, Memory and Reports for identical bounds. Includes totals + provenance +
+ * a source-tagged curve (local samples preferred, Fronius archive fills gaps).
+ */
+export interface PeriodReport {
+  requested_period: { from: string; to: string } | null;
+  resolved_period: { from: string | null; to: string | null; state?: string } | null;
+  provenance: string | null;
+  freshness: { state: string; last_anchor_at: string | null; age_seconds: string | null } | null;
+  metrics: {
+    pv_generation: PeriodMetric;
+    grid_import: PeriodMetric;
+    grid_export: PeriodMetric;
+    house_consumption: PeriodMetric;
+    direct_self_consumption: PeriodMetric;
+  };
+  /** True when persisted records cover the period (resolved window exists). */
+  has_records: boolean;
+  /** True when at least one metric resolved to a factual value. */
+  has_summary: boolean;
+  /** True when a curve (local and/or Fronius archive) exists for the period. */
+  has_curve?: boolean;
+  curve?: PeriodCurve;
+  archive_pv?: { value_kwh: number | null; provenance: string | null; n_points: number };
+  economy?: unknown;
+  diagnostics?: unknown;
 }

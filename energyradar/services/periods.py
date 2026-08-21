@@ -97,6 +97,166 @@ def _delta(con: sqlite3.Connection, start_id: int, end_id: int, register: str, *
     )
 
 
+# --------------------------------------------------------------------------- #
+# Stored-sample-counter fallback
+#
+# The authoritative source remains synchronized counter anchors. When no anchor
+# pair covers a period (e.g. all history predates continuous recording), we may
+# still hold *real cumulative counters* in energy_samples_v1. These are genuine
+# device registers, not integrated power, so an exact delta over their captured
+# endpoints is a truthful — if lower-confidence — summary. It is always labelled
+# `stored_sample_counter_delta` and never overrides a valid anchor value, and it
+# never invents a curve or a kWh from instantaneous power.
+# --------------------------------------------------------------------------- #
+
+_SAMPLE_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _sample_metric(
+    value_kwh: Decimal | None,
+    reason: str | None,
+    *,
+    period_key: str | None = None,
+) -> dict[str, Any]:
+    has_value = value_kwh is not None
+    return {
+        # normalize() drops the trailing-zero noise a Wh→kWh division leaves,
+        # matching the anchor path's formatting (e.g. "12" not "12.0").
+        "value_kwh": format(value_kwh.normalize(), "f") if has_value else None,
+        # Sample counters are exact for their endpoints but coverage between
+        # observations is unproven, so the strongest state they earn is partial.
+        "state": ("zero" if value_kwh == 0 else "partial") if has_value else "unavailable",
+        "coverage_state": "partial" if has_value else "unavailable",
+        "reason": reason,
+        "source": "stored_sample_counter_delta" if has_value else "unavailable",
+        "provenance": "stored_sample_counters" if has_value else None,
+        "confidence": "legacy_sample" if has_value else None,
+        "period_key": period_key,
+        "source_id": None,
+        "epoch_id": None,
+        "no_extrapolation": True,
+    }
+
+
+def _cumulative_delta(
+    con: sqlite3.Connection, column: str, from_text: str, to_text: str, register: str
+) -> dict[str, Any]:
+    """Exact delta of a lifetime-cumulative Wh register over the period."""
+    rows = con.execute(
+        f"""SELECT measured_at, {column} FROM energy_samples_v1
+            WHERE measured_at >= ? AND measured_at <= ? AND {column} IS NOT NULL
+            ORDER BY measured_at""",
+        (from_text, to_text),
+    ).fetchall()
+    if len(rows) < 2:
+        return _sample_metric(None, f"{register}_sample_counter_insufficient")
+    first_at, first_val = rows[0][0], Decimal(str(rows[0][1]))
+    last_at, last_val = rows[-1][0], Decimal(str(rows[-1][1]))
+    delta = last_val - first_val
+    if delta < 0:
+        # Lifetime registers never decrease; a drop means a reset/replacement.
+        return _sample_metric(None, f"{register}_counter_reset_or_negative_delta")
+    return _sample_metric(
+        delta / Decimal(1000),
+        None,
+        period_key=f"sample:{first_at}|sample:{last_at}",
+    )
+
+
+def _pv_daily_delta(
+    con: sqlite3.Connection, from_text: str, to_text: str, timezone_name: str
+) -> dict[str, Any]:
+    """Generation from the daily-resetting E_Day register.
+
+    E_Day resets at local midnight, so it is summed per *local* day as the
+    observed increase between that day's first and last sample. Never summed
+    across a reset (that would double count) and never extrapolated over
+    unobserved parts of a day.
+    """
+    rows = con.execute(
+        """SELECT measured_at, pv_energy_today_wh FROM energy_samples_v1
+           WHERE measured_at >= ? AND measured_at <= ? AND pv_energy_today_wh IS NOT NULL
+           ORDER BY measured_at""",
+        (from_text, to_text),
+    ).fetchall()
+    if len(rows) < 2:
+        return _sample_metric(None, "pv_sample_counter_insufficient")
+    local = ZoneInfo(timezone_name)
+    by_day: dict[str, list[Decimal]] = {}
+    order: dict[str, tuple[str, str]] = {}
+    for measured_at, value in rows:
+        moment = datetime.strptime(measured_at, _SAMPLE_TS_FMT).replace(tzinfo=timezone.utc)
+        day = moment.astimezone(local).date().isoformat()
+        by_day.setdefault(day, []).append(Decimal(str(value)))
+        first_at = order.get(day, (measured_at, measured_at))[0]
+        order[day] = (first_at, measured_at)
+    total = Decimal(0)
+    contributing_days = 0
+    for day, values in by_day.items():
+        if len(values) < 2:
+            continue
+        day_delta = values[-1] - values[0]
+        if day_delta < 0:
+            # Mid-day decrease implies a reset/anomaly; skip rather than guess.
+            continue
+        total += day_delta
+        contributing_days += 1
+    if contributing_days == 0:
+        return _sample_metric(None, "pv_sample_counter_insufficient")
+    first_day = min(order)
+    last_day = max(order)
+    return _sample_metric(
+        total / Decimal(1000),
+        None,
+        period_key=f"sample:{order[first_day][0]}|sample:{order[last_day][1]}",
+    )
+
+
+def _sample_counter_fallback(
+    con: sqlite3.Connection,
+    requested_from: datetime,
+    requested_to: datetime,
+    topology: str,
+    *,
+    timezone_name: str,
+) -> dict[str, dict[str, Any]]:
+    """Best-effort truthful summary from stored sample counters.
+
+    Returns a metric dict per register. A register with `value_kwh is None`
+    contributed no usable fallback and must leave the anchor result untouched.
+    """
+    from_text = requested_from.astimezone(timezone.utc).strftime(_SAMPLE_TS_FMT)
+    to_text = requested_to.astimezone(timezone.utc).strftime(_SAMPLE_TS_FMT)
+    pv = _pv_daily_delta(con, from_text, to_text, timezone_name)
+    imported = _cumulative_delta(con, "grid_import_total_wh", from_text, to_text, "grid_import")
+    exported = _cumulative_delta(con, "grid_export_total_wh", from_text, to_text, "grid_export")
+
+    house = _sample_metric(None, "house_dependency_stored_sample_counter_insufficient")
+    direct = _sample_metric(None, "self_consumption_dependency_stored_sample_counter_insufficient")
+    if topology == BATTERY_FREE_TOPOLOGY:
+        if all(m["value_kwh"] is not None for m in (pv, imported, exported)):
+            balance = Decimal(pv["value_kwh"]) + Decimal(imported["value_kwh"]) - Decimal(exported["value_kwh"])
+            house = (
+                _sample_metric(balance, None, period_key=pv["period_key"])
+                if balance >= 0
+                else _sample_metric(None, "house_consumption_negative")
+            )
+        if all(m["value_kwh"] is not None for m in (pv, exported)):
+            direct_value = Decimal(pv["value_kwh"]) - Decimal(exported["value_kwh"])
+            direct = (
+                _sample_metric(direct_value, None, period_key=pv["period_key"])
+                if direct_value >= 0
+                else _sample_metric(None, "pv_generation_lower_than_export")
+            )
+    return {
+        "pv_generation": pv,
+        "grid_import": imported,
+        "grid_export": exported,
+        "house_consumption": house,
+        "direct_self_consumption": direct,
+    }
+
+
 def calculate_period(
     from_utc: datetime | str,
     to_utc: datetime | str,
@@ -126,9 +286,50 @@ def calculate_period(
             "topology": topology,
             "no_extrapolation": True,
         }
+        metric_names = ("pv_generation", "grid_import", "grid_export", "house_consumption", "direct_self_consumption")
         if len(anchors) < 2:
-            unavailable = _metric(None, "no_data_yet", "two_compatible_anchors_required")
-            return {**base, "actual_period": None, "start_anchor": None, "end_anchor": None, "freshness": {"state": "no_data_yet", "last_anchor_at": None, "age_seconds": None}, "metrics": {name: dict(unavailable) for name in ("pv_generation", "grid_import", "grid_export", "house_consumption", "direct_self_consumption")}, "gaps": []}
+            # No synchronized anchor pair. Before declaring "no data", check for
+            # real stored counters — a truthful, lower-confidence summary from a
+            # single, self-consistent source (never mixed with anchors).
+            fallback = _sample_counter_fallback(
+                con, requested_from, requested_to, topology, timezone_name=config.MT175_TIMEZONE
+            )
+            if not any(item["value_kwh"] is not None for item in fallback.values()):
+                unavailable = _metric(None, "no_data_yet", "two_compatible_anchors_required")
+                return {**base, "actual_period": None, "start_anchor": None, "end_anchor": None, "freshness": {"state": "no_data_yet", "last_anchor_at": None, "age_seconds": None}, "metrics": {name: dict(unavailable) for name in metric_names}, "gaps": []}
+            window = con.execute(
+                """SELECT MIN(measured_at), MAX(measured_at) FROM energy_samples_v1
+                   WHERE measured_at >= ? AND measured_at <= ?
+                     AND (pv_energy_today_wh IS NOT NULL OR grid_import_total_wh IS NOT NULL
+                          OR grid_export_total_wh IS NOT NULL)""",
+                (
+                    requested_from.astimezone(timezone.utc).strftime(_SAMPLE_TS_FMT),
+                    requested_to.astimezone(timezone.utc).strftime(_SAMPLE_TS_FMT),
+                ),
+            ).fetchone()
+
+            def _window_text(value):
+                if not value:
+                    return None
+                return _text(datetime.strptime(value, _SAMPLE_TS_FMT).replace(tzinfo=timezone.utc))
+
+            actual = None
+            if window and window[0]:
+                actual = {"from": _window_text(window[0]), "to": _window_text(window[1]), "state": "partial"}
+            gaps = [dict(row) for row in con.execute(
+                "SELECT scope, from_utc, to_utc, reason, details_json FROM recording_gaps WHERE to_utc >= ? AND from_utc <= ? ORDER BY from_utc",
+                (_text(requested_from), _text(requested_to)),
+            ).fetchall()]
+            return {
+                **base,
+                "actual_period": actual,
+                "start_anchor": None,
+                "end_anchor": None,
+                "freshness": {"state": "stored_sample_only", "last_anchor_at": None, "age_seconds": None},
+                "source_precedence": "stored_sample_counters",
+                "metrics": {name: dict(fallback[name]) for name in metric_names},
+                "gaps": gaps,
+            }
 
         start, end = anchors[0], anchors[-1]
         actual_from = _utc(start["completed_at_utc"])

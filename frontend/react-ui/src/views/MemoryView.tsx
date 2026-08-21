@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp, useNumberLocale } from '../context/AppContext';
 import { useEnergyProvider } from '../providers/EnergyProviderContext';
 import { Download, Mail, Database, FileText, FileJson, FileSpreadsheet, Archive, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
@@ -8,6 +8,9 @@ import { evaluateCoverage } from '../lib/storytelling';
 import { usePrefersReducedMotion } from '../lib/motion';
 import { DEFAULT_RECORDING_CADENCE_SECONDS, todayCoverageBoundaries } from '../lib/timelineIntegrity';
 import { EconomySummary } from '../components/EconomySummary';
+import { formatEnergy } from '../lib/format';
+import { PeriodReport, TimelineEntry } from '../types';
+import { classifyPeriod, PERIOD_METRICS, provenanceLabel, curveSourceLabel, memoryTopStatus } from '../lib/periodView';
 
 type ExportType = 'pdf' | 'csv' | 'json' | 'zip';
 type Range = 'today' | 'yesterday' | '7days' | '30days' | 'month' | 'year';
@@ -21,14 +24,37 @@ const ranges: { id: Range; label: string }[] = [
   { id: 'year', label: 'Dieses Jahr' },
 ];
 
+function getRangeDates(range: Range) {
+  const end = new Date();
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  switch (range) {
+    case 'today': break;
+    case 'yesterday':
+      start.setDate(start.getDate() - 1);
+      end.setDate(end.getDate() - 1);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case '7days': start.setDate(start.getDate() - 7); break;
+    case '30days': start.setDate(start.getDate() - 30); break;
+    case 'month': start.setDate(1); break;
+    case 'year': start.setMonth(0, 1); break;
+  }
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function MemoryView() {
   const { requestExport, requestMailShare, exportStatus, settingsPayload, todayData } = useApp();
-  const { timeline } = useEnergyProvider();
+  const { timeline, requestPeriod } = useEnergyProvider();
   const locale = useNumberLocale();
   const animate = !usePrefersReducedMotion();
   const [exportType, setExportType] = useState<ExportType>('pdf');
   const [range, setRange] = useState<Range>('today');
+  const [periodReport, setPeriodReport] = useState<PeriodReport | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(true);
   const rangeLabel = ranges.find(candidate => candidate.id === range)?.label ?? range;
+  // The curve series is only supplied for today; historical ranges resolve
+  // through the authoritative period API, which is totals + provenance only.
   const visibleTimeline = range === 'today' ? timeline : [];
   const expectedCadenceSeconds = settingsPayload?.system?.recording_interval_seconds ?? DEFAULT_RECORDING_CADENCE_SECONDS;
   const coverage = evaluateCoverage(visibleTimeline, {
@@ -36,31 +62,60 @@ export function MemoryView() {
     ...todayCoverageBoundaries(visibleTimeline),
   });
 
-  const getRangeDates = () => {
-    const end = new Date();
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    switch (range) {
-      case 'today': break;
-      case 'yesterday':
-        start.setDate(start.getDate() - 1);
-        end.setDate(end.getDate() - 1);
-        end.setHours(23, 59, 59, 999);
-        break;
-      case '7days': start.setDate(start.getDate() - 7); break;
-      case '30days': start.setDate(start.getDate() - 30); break;
-      case 'month': start.setDate(1); break;
-      case 'year': start.setMonth(0, 1); break;
-    }
-    return { start: start.toISOString(), end: end.toISOString() };
-  };
+  // Resolve every range — including today — through the one authoritative
+  // period contract, so Memory can never disagree with Today or the report.
+  // Latest-request-wins: a monotonic id guarantees only the newest range's
+  // response updates state, so a slow/out-of-order response can never overwrite
+  // the active selection. The previous result stays visible while loading.
+  const periodReqId = useRef(0);
+  useEffect(() => {
+    const myId = ++periodReqId.current;
+    setPeriodLoading(true);
+    const { start, end } = getRangeDates(range);
+    requestPeriod(start, end)
+      .then(report => {
+        if (periodReqId.current !== myId) return;   // stale response ignored
+        setPeriodReport(report);
+        setPeriodLoading(false);
+      })
+      .catch(() => {
+        if (periodReqId.current !== myId) return;
+        setPeriodLoading(false);                     // keep the previous result visible
+      });
+  }, [range, requestPeriod]);
+
+  const availability = classifyPeriod(periodReport, periodLoading);
+
+  // Authoritative curve: local samples preferred, Fronius archive fills gaps.
+  const curve = periodReport?.curve;
+  const curveTimeline: TimelineEntry[] = (curve?.points ?? []).map(p => {
+    const ms = new Date(p.t).getTime();
+    const local = p.source === 'local';
+    return {
+      time: new Date(p.t).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+      timestampMs: Number.isFinite(ms) ? ms : null,
+      solarKw: p.solar_w !== null ? p.solar_w / 1000 : null,
+      homeLoadKw: null,
+      gridKw: p.grid_w !== null ? p.grid_w / 1000 : null,
+      batteryPct: null,
+      origin: local ? 'observed' : 'calculated',
+      solarOrigin: local ? 'observed' : 'calculated',
+      homeLoadOrigin: 'unavailable',
+      gridOrigin: p.grid_w !== null ? 'observed' : 'unavailable',
+    } as TimelineEntry;
+  });
+  // Prefer the authoritative period curve; fall back to today's live timeline.
+  const chartTimeline: TimelineEntry[] = curveTimeline.length > 0
+    ? curveTimeline
+    : (range === 'today' ? timeline : []);
+  const pvKnown = (periodReport?.metrics?.pv_generation?.value_kwh ?? null) !== null;
 
   const handleExport = () => {
-    const { start, end } = getRangeDates();
+    const { start, end } = getRangeDates(range);
     requestExport(exportType, range, start, end);
   };
   const handleMailShare = () => {
-    const { start, end } = getRangeDates();
+    const { start, end } = getRangeDates(range);
     requestMailShare(range, start, end);
   };
   const isZip = exportType === 'zip';
@@ -78,6 +133,8 @@ export function MemoryView() {
         lastSample={settingsPayload?.system?.last_recorded_sample_at}
         selectedRange={rangeLabel}
         coverage={coverage}
+        status={memoryTopStatus(periodReport, periodLoading)}
+        showCoverage={range === 'today'}
       />
 
       {range === 'today' ? (
@@ -104,17 +161,84 @@ export function MemoryView() {
         </div>
       </section>
 
-      <div className="grid gap-5">
-        <section className="cockpit-surface p-5 lg:p-6" aria-labelledby="history-chart-heading">
-          <p className="cockpit-eyebrow">Verlauf</p>
-          <h2 id="history-chart-heading" className="mt-2 text-xl font-semibold">Aktuell geladener Tag</h2>
-          <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {range === 'today'
-              ? 'Die Kurve zeigt den derzeit geladenen Tagesverlauf. Fehlende Abschnitte bleiben als Lücken sichtbar.'
-              : 'Für diesen Zeitraum liefert die aktuelle Oberfläche noch keinen Verlauf. Der Export kann gespeicherte Daten dennoch enthalten.'}
+      <section className="cockpit-surface my-5 p-5" aria-labelledby="period-summary-heading" data-testid="period-summary" data-availability={availability}>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="period-summary-heading" className="cockpit-section-title">Gespeicherte Summen · {rangeLabel}</h2>
+          {periodReport?.provenance && provenanceLabel(periodReport.provenance) && (
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {provenanceLabel(periodReport.provenance)}
+            </span>
+          )}
+        </div>
+
+        {availability === 'loading' && (
+          <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Zeitraum wird geladen …</p>
+        )}
+
+        {availability === 'summary' && periodReport && (
+          <>
+            <dl className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {PERIOD_METRICS.map(({ key, label }) => (
+                <div key={key}>
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    {formatEnergy(periodReport.metrics[key].value_kwh, locale)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {periodReport.has_summary && !periodReport.has_curve && (
+              <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
+                {pvKnown
+                  ? 'Solarertrag bekannt, Verlauf unvollständig.'
+                  : 'Energiemengen bekannt, Verlauf unvollständig.'}
+              </p>
+            )}
+          </>
+        )}
+
+        {availability === 'records_only' && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            Für diesen Zeitraum sind Messwerte gespeichert, aber es lässt sich keine belastbare Summe bilden. Es wird kein Wert hochgerechnet.
           </p>
-          <HistoryOverviewChart timeline={visibleTimeline} locale={locale} animate={animate}
-            expectedCadenceSeconds={expectedCadenceSeconds} />
+        )}
+
+        {availability === 'unavailable' && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            Für diesen Zeitraum liegen keine gespeicherten Messwerte vor.
+          </p>
+        )}
+      </section>
+
+      <div className="grid gap-5">
+        <section className="cockpit-surface p-5 lg:p-6" aria-labelledby="history-chart-heading"
+          data-testid="history-curve" data-curve-source={curve?.source ?? 'none'}>
+          <p className="cockpit-eyebrow">Verlauf</p>
+          <h2 id="history-chart-heading" className="mt-2 text-xl font-semibold">
+            {range === 'today' ? 'Aktuell geladener Tag' : rangeLabel}
+          </h2>
+          {chartTimeline.length > 0 ? (
+            <>
+              {curve && curveSourceLabel(curve.source) && (
+                <p className="mb-1 mt-1 text-sm font-medium text-sky-700 dark:text-sky-300">
+                  {curveSourceLabel(curve.source)}
+                </p>
+              )}
+              <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+                {curve?.mixed_source
+                  ? 'Lokale Aufzeichnung unvollständig; fehlende Abschnitte stammen aus dem Fronius-Datalogger.'
+                  : 'Fehlende Abschnitte bleiben als Lücken sichtbar.'}
+              </p>
+              <HistoryOverviewChart timeline={chartTimeline} locale={locale} animate={animate}
+                expectedCadenceSeconds={expectedCadenceSeconds} />
+            </>
+          ) : (
+            <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {periodLoading
+                ? 'Verlauf wird geladen …'
+                : 'Für diesen Zeitraum liegt kein Verlauf vor – weder aus lokaler Aufzeichnung noch aus dem Fronius-Datalogger.'}
+            </p>
+          )}
         </section>
       </div>
 
