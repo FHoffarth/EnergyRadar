@@ -1,10 +1,15 @@
-# ☀️ EnergyRadar
+# EnergyRadar
 
-Understand your energy. EnergyRadar zeigt die aktuelle Leistung deiner
-PV‑Anlage (Fronius), den heutigen Verlauf und Empfehlungen – als **native
-Desktop‑Anwendung**. Ein Flask‑Server läuft dabei unsichtbar im Hintergrund;
-der Nutzer sieht nur ein normales App‑Fenster. Kein Terminal, kein Browser,
-keine URL.
+> **Understand where your energy goes.**
+
+Local-first energy intelligence for solar production, grid flow and household consumption.
+
+**Live telemetry. Clear context. No cloud dependency required.**
+
+`Solar → Grid → Household → Energy Intelligence`
+
+EnergyRadar is an experimental desktop application for understanding a local
+energy system without turning raw inverter telemetry into unsupported claims.
 
 ## ⬇ Downloads
 
