@@ -182,15 +182,14 @@ def test_platform_opener_failure_returns_friendly_message_without_exception_leak
     assert "error" not in received[0]
 
 
-def test_windows_opener_uses_os_startfile(monkeypatch, tmp_path):
+def test_bridge_path_opener_delegates_to_platform_abstraction(monkeypatch, tmp_path):
     from energyradar.ui import bridge as bridge_module
 
     target = tmp_path / "Datei mit Leerzeichen.txt"
     target.write_text("x", encoding="utf-8")
     opened = []
-    monkeypatch.setattr(bridge_module.sys, "platform", "win32")
-    monkeypatch.setattr(bridge_module.os, "startfile", lambda path: opened.append(path), raising=False)
+    monkeypatch.setattr(bridge_module, "_platform_open_path", opened.append)
 
     bridge_module._open_path(target)
 
-    assert opened == [str(target)]
+    assert opened == [target]

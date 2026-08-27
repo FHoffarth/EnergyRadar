@@ -19,8 +19,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import subprocess
-import sys
 import threading
 from typing import Optional
 
@@ -29,6 +27,7 @@ from PySide6.QtCore import (
 )
 
 from energyradar import config
+from energyradar.services.platform_open import open_path as _platform_open_path
 from energyradar.ui import settings as ui_settings
 from energyradar.ui.settings import UISettings
 
@@ -37,12 +36,7 @@ log = logging.getLogger(__name__)
 
 def _open_path(path: Path) -> None:
     """Open an existing file or directory with the platform default app."""
-    if sys.platform == "win32":
-        os.startfile(str(path))
-    elif sys.platform == "darwin":
-        subprocess.run(["open", str(path)], check=True)
-    else:
-        subprocess.run(["xdg-open", str(path)], check=True)
+    _platform_open_path(path)
 
 _STALE_MULTIPLIER = 3   # Wert gilt als veraltet nach 3× refresh_seconds
 

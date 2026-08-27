@@ -1,0 +1,27 @@
+EnergyRadar macOS physical hardware smoke checklist
+
+Artifact identity
+[ ] Verify the ZIP SHA-256 against the sidecar checksum.
+[ ] Extract the ZIP without CRC errors.
+[ ] Move EnergyRadar.app to /Applications.
+[ ] Confirm the tested app reports the commit and architecture in BUILDINFO.txt.
+
+Launch and platform integration
+[ ] Record the first-launch Gatekeeper message.
+[ ] If needed, use Control-click -> Open and record the result.
+[ ] Confirm a visible, non-blank EnergyRadar window.
+[ ] Confirm the process architecture with Activity Monitor or `file`/`ps`.
+[ ] Confirm Apple Silicon runs without Rosetta, or Intel runs natively as x86_64.
+[ ] Confirm QtWebEngineProcess launches without a separate Dock icon.
+[ ] Confirm the EnergyRadar Dock icon is correct.
+
+Application behavior
+[ ] Open Jetzt, Heute, Geräte, Gedächtnis, and Einstellungen.
+[ ] Verify Settings Save/Discard and persistence after restart.
+[ ] Verify charts, history, weather, and Solar Economy render without a blank view.
+[ ] Exercise Fronius and SmartMeter connection checks with authorized test devices.
+[ ] Exercise folder picker, export folder, log file/folder opening, and mail handoff.
+[ ] Quit cleanly and reopen cleanly.
+[ ] Confirm no file below EnergyRadar.app changed during use.
+
+Record every unchecked or failed item. CI startup smoke is not a substitute for this checklist.
