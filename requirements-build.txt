@@ -1,5 +1,5 @@
 # Nur zum Bauen der Desktop-App nötig (nicht zur Laufzeit).
 pyinstaller==6.21.0
 pyinstaller-hooks-contrib==2026.6
-pillow==12.3.0
+pillow==13.0.0
 pytest==9.1.1
